@@ -1,0 +1,28 @@
+@import "tailwindcss";
+
+@theme {
+  --color-paper: #f2f4f3;
+  --color-card: #ffffff;
+  --color-ink: #16283c;
+  --color-muted: #6b7b87;
+  --color-line: #dfe4e2;
+  --color-pine: #2f7a63;
+  --color-pinelt: #e6f0ec;
+  --color-amber: #b4741f;
+  --color-amberlt: #f7eedf;
+
+  --font-sans: Pretendard, system-ui, sans-serif;
+}
+
+html,
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior-y: none;
+}
+
+/* 하단 탭바가 홈 인디케이터에 물리지 않도록 */
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}

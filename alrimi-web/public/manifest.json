@@ -1,0 +1,14 @@
+{
+  "name": "일정 알리미",
+  "short_name": "알리미",
+  "description": "적어두면 때맞춰 알려드려요",
+  "start_url": "/home",
+  "display": "standalone",
+  "background_color": "#F2F4F3",
+  "theme_color": "#2F7A63",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

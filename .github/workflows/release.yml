@@ -1,0 +1,144 @@
+# 릴리스를 만들면 이미지 두 개를 구워 GHCR 에 올린다. **배포는 하지 않는다** —
+# 서버 반영은 사람이 들어가서 한다(그러려고 서버 접속 정보를 여기 두지 않는다).
+#
+# 서버에서는 이렇게 받는다.
+#
+#   docker compose -f docker-compose.prod.yml pull && \
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# (운영 compose 가 build 대신 image: 를 보게 하려면 아래 이미지 이름을 쓴다.
+#  ghcr.io/<owner>/alrimi-api:<태그> · ghcr.io/<owner>/alrimi-web:<태그>)
+
+name: 릴리스 이미지 빌드·푸시
+
+on:
+  release:
+    # created 가 아니라 published 다. 초안으로 만들어 두었다가 공개할 때도
+    # 한 번 돌아야 하는데, created 는 그 순간을 놓친다.
+    types: [published]
+
+  # 릴리스 없이 다시 굽고 싶을 때(푸시만 실패했다거나). 이때는 latest 를 옮기지 않는다.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "이미지 태그 (예: v1.0.0)"
+        required: true
+
+jobs:
+  plan:
+    name: 태그 정하기
+    runs-on: ubuntu-latest
+    outputs:
+      api: ${{ steps.tags.outputs.api }}
+      web: ${{ steps.tags.outputs.web }}
+    steps:
+      - id: tags
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          PRERELEASE: ${{ github.event.release.prerelease }}
+          EVENT: ${{ github.event_name }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+
+          # GHCR 은 소문자만 받는다. 계정 이름에 대문자가 있으면 그대로는 거절된다.
+          owner=$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')
+
+          # latest 는 "지금 운영에 올릴 것"을 가리켜야 한다. 그래서 정식 릴리스만
+          # 옮긴다 — 프리릴리스나 손으로 다시 구운 것에 붙으면 latest 가 뒤로 간다.
+          latest=false
+          if [ "$EVENT" = "release" ] && [ "$PRERELEASE" != "true" ]; then
+            latest=true
+          fi
+
+          echo "### 이 태그로 올린다" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+          for image in alrimi-api alrimi-web; do
+            list="ghcr.io/$owner/$image:$TAG"
+            if [ "$latest" = "true" ]; then
+              list="$list"$'\n'"ghcr.io/$owner/$image:latest"
+            fi
+
+            {
+              echo "${image#alrimi-}<<TAGS"
+              echo "$list"
+              echo "TAGS"
+            } >> "$GITHUB_OUTPUT"
+
+            echo "$list" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+  api:
+    name: alrimi-api
+    needs: plan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./alrimi-api
+          push: true
+          tags: ${{ needs.plan.outputs.api }}
+          # 서버가 arm 이면 linux/arm64 를 더한다. 러너가 amd64 라
+          # arm 은 QEMU 로 굽게 되어 한참 걸린다.
+          platforms: linux/amd64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  web:
+    name: alrimi-web
+    needs: plan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # NEXT_PUBLIC_* 은 빌드 때 번들에 박힌다. 비어 있어도 빌드는 성공하고
+      # Dockerfile 기본값(http://localhost:8000)이 박혀서, 배포한 뒤 브라우저에서만
+      # 조용히 실패한다. 그 전에 여기서 멈춘다.
+      - name: API 주소 확인
+        env:
+          API_HOST: ${{ secrets.NEXT_PUBLIC_API_HOST }}
+        run: |
+          test -n "$API_HOST" || {
+            echo "::error::NEXT_PUBLIC_API_HOST 시크릿이 비어 있다. 저장소 Settings → Secrets and variables → Actions 에 넣어라."
+            exit 1
+          }
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./alrimi-web
+          # 개발 서버가 아니라 standalone 결과물만 담은 단계
+          target: prod
+          push: true
+          tags: ${{ needs.plan.outputs.web }}
+          build-args: |
+            NEXT_PUBLIC_API_HOST=${{ secrets.NEXT_PUBLIC_API_HOST }}
+          platforms: linux/amd64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

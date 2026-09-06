@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+venv/
+.env
+.env.local
+.env.prod
+db.sqlite3
+staticfiles/
+.DS_Store
+.idea/
+
+# 운영용 compose 는 서버마다 다르다. 각자 갖고 git 에는 넣지 않는다.
+docker-compose.prod.yml
+docker-compose.prod.yaml

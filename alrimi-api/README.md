@@ -1,0 +1,286 @@
+# 일정 알리미 — API
+
+Django 6 + DRF 백엔드. `alrimi-web`이 바라보는 서버다.
+
+**손으로 미는 발송까지 있다.** 상세 화면의 "보내기"를 누르면 그 Alert 하나가 ntfy 로
+바로 나간다(`notices/ntfy.py`). **예약 시각이 되면 저절로 나가는 쪽은 아직 없다** —
+`Alert.due_at` 이 "언제 보내야 하는지"를 들고 있으니, 스케줄러는 `send_alert()` 를
+때맞춰 부르기만 하면 된다.
+
+## 설치
+
+```bash
+python -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+
+cp .env.example .env.local          # 값 채우기
+python manage.py migrate
+python manage.py seed_demo          # demo / demo-pw-1234
+python manage.py runserver
+```
+
+웹은 `NEXT_PUBLIC_API_HOST=http://localhost:8000`으로 붙는다.
+
+### 도커로 (postgres 포함)
+
+compose 파일은 **저장소 루트**에 있다. 웹까지 함께 뜬다.
+
+```bash
+cd ..
+cp alrimi-api/.env.example alrimi-api/.env.local   # 없으면 compose 가 뜨지 않는다
+docker compose up --build            # db + api + web
+docker compose up -d db              # db 만. API 는 venv 로 돌릴 때
+```
+
+소스를 컨테이너에 물려주므로 **저장하면 `runserver` 가 그대로 다시 읽는다.**
+`requirements.txt` 를 건드렸을 때만 `docker compose build api` 로 다시 굽는다.
+
+`db` 계정은 compose 안에 기본값(`alrimi` / `alrimi-local`)이 박혀 있고, 셸 환경변수나
+`.env` 로 덮을 수 있다. 데이터는 `pgdata` 볼륨에 남는다.
+
+**local 설정은 `POSTGRES_DB` 가 있을 때만 postgres 를 쓴다.** 없으면 sqlite 다.
+컨테이너 안에서는 compose 가 넣어주므로 자동으로 postgres 이고, 호스트에서
+`runserver` 로 컨테이너 db 에 붙고 싶으면 `.env.local` 의 `POSTGRES_*` 주석을 푼다.
+
+## 환경 분기
+
+`DJANGO_SETTINGS_MODULE`은 항상 `alrimi_api.settings`로 두고, 어떤 환경을 쓸지는
+**`DJANGO_ENV`(local | prod)** 하나로 고른다.
+
+```
+alrimi_api/settings/
+  __init__.py   DJANGO_ENV 을 보고 local/prod 를 불러온다
+  env.py        .env.{DJANGO_ENV} → .env 순으로 읽는다 (셸 환경변수가 우선)
+  base.py       공통
+  local.py      sqlite · CORS 느슨 · 쿠키 Secure 해제 · DEBUG
+  prod.py       PostgreSQL · HTTPS 강제 · whitenoise · 필수 환경변수 검증
+```
+
+```bash
+python manage.py runserver                    # local (기본값)
+DJANGO_ENV=prod python manage.py migrate      # prod
+DJANGO_ENV=prod gunicorn alrimi_api.wsgi -b 0.0.0.0:8000 -w 3
+```
+
+`prod`는 `DJANGO_SECRET_KEY` · `DJANGO_ALLOWED_HOSTS` · `POSTGRES_*` 가
+없으면 부팅 단계에서 바로 죽는다. 배포해놓고 뒤늦게 알아차리는 상황을 막으려는 것이다.
+
+`.env` 파일은 **셸 환경변수를 덮어쓰지 않는다.** 컨테이너·systemd처럼 환경변수만
+주입되는 곳에서는 파일 없이 그대로 돌아간다.
+
+## 엔드포인트
+
+`APPEND_SLASH = False` — 경로 끝에 슬래시를 붙이지 않는다. 붙이면 리다이렉트가
+나가면서 POST 본문이 사라진다.
+
+### 인증 — access는 본문, refresh는 httpOnly 쿠키
+
+| 메서드 | 경로 | 설명 |
+| --- | --- | --- |
+| POST | `/auth/obtain-token` | `{username, password}` → `{access_token}` + refresh 쿠키 |
+| POST | `/auth/refresh-token` | 쿠키로 access 재발급. 쿠키는 그대로 둔다 |
+| DELETE | `/auth/token` | 로그아웃. refresh 폐기 + 쿠키 삭제 |
+
+쿠키는 `alrimi_refresh`, `Path=/auth`, `HttpOnly`. prod에서는 `Secure; SameSite=None`
+(웹과 API 도메인이 다르므로), local에서는 `SameSite=Lax`에 `Secure` 해제
+(`http://localhost`에는 Secure 쿠키가 저장되지 않는다).
+
+만료된 access로 요청하면 **401**이 나간다. 웹의 `lib/api.ts`가 이 401을 보고 재발급 후
+원요청을 재시도하므로, 이 상태 코드는 바꾸면 안 된다.
+
+**refresh 토큰은 회전시키지 않는다.** 웹은 `useAuthBootstrap`이 `api.ts`의 공유
+프로미스를 거치지 않고 직접 refresh를 부르고, StrictMode에서 이 effect가 두 번 실행된다.
+여기에 `api.ts`의 401 재시도가 겹쳐 **같은 쿠키를 든 요청이 한 번에 세 개** 뜬다
+(브라우저 실측). 회전시키면 먼저 도착한 하나가 토큰을 폐기하고 나머지는 401을 받아
+프런트가 `clear()` → 로그인 화면으로 튄다. 폐기는 로그아웃에서만 한다.
+
+대신 유출된 refresh 토큰은 만료(기본 30일)나 로그아웃 전까지 살아 있다. httpOnly ·
+Secure · `Path=/auth`로 노출 면을 줄이는 쪽을 택했다.
+
+### 사용자
+
+| 메서드 | 경로 | 설명 |
+| --- | --- | --- |
+| GET | `/users/me` | `{username, first_name, version}` |
+| PATCH | `/users/me` | `{first_name}` |
+| POST | `/users/me/password` | `{current_password, new_password}` → 204 |
+
+회원가입은 없다. 계정은 `createsuperuser`나 admin에서 발급한다.
+
+### 공간
+
+| 메서드 | 경로 | 설명 |
+| --- | --- | --- |
+| GET · POST | `/zones` | 목록 · 생성(`{name}`) |
+| GET · PATCH · DELETE | `/zones/{id}` | 이름·색 변경 |
+| GET | `/zones/palette` | 고를 수 있는 색 목록 |
+
+`ntfy_topic`은 사용자가 직접 정하거나, **비워두면 서버가 `alrimi-<16 hex>`로 만든다.**
+토픽이 곧 구독 주소라서 짧거나 흔한 값을 쓰면 모르는 사람이 우연히 같은 토픽을 듣게 된다.
+
+받는 값은 `^[A-Za-z0-9_-]{4,64}$` 로 제한한다. 토픽은 URL 경로의 한 칸으로 들어가므로
+슬래시·공백·한글이 섞이면 주소가 깨진다. **소유자별이 아니라 전체에서 유일해야 한다** —
+겹치면 남의 알림이 내 기기로 온다.
+
+`color`는 만들 때 `zones/palette.py`에서 **안 쓴 색부터** 배정하고, 그 뒤로는
+`PATCH`로 바꿀 수 있다. 웹은 이 색을 존 칩과 카드 왼쪽 3px 막대에 쓰고, 그 둘이 서로
+범례가 된다. 소유자마다 팔레트 첫 색(`#2F7A63`, 앱 기본색)부터 시작하므로 공간이
+하나뿐인 사람은 앱과 같은 색을 본다.
+
+**팔레트 밖의 색은 받지 않는다.** 색약에서도 서로 구분되도록 맞춘 조합이라
+임의 색이 하나라도 끼면 그 보장이 깨진다.
+
+**색상만 벌려 놓는 것으로는 안 된다.** 적록색약에서는 빨강·주황·갈색·초록이 한데
+뭉치기 때문에 색상환에서 아무리 떨어뜨려도 같은 색이 된다. 이전 팔레트는 정상 시야에서
+최소 ΔE00 이 14.9였지만 제2색맹에서는 빨강(`#B91C1C`)과 올리브(`#4D7C0F`)가 **2.0**
+— 사실상 같은 색이었다.
+
+그래서 색상 대신 **명도와 청-황 축**을 쓴다. 둘 다 적록색약에서 남는 축이다. 지금
+팔레트는 정상 시야와 세 가지 색각이상 전부에서 최소 ΔE00 **13.2** 다.
+
+**순서도 의미가 있다.** 공간을 두세 개만 쓰는 사람이 대부분이라 앞쪽일수록 서로
+멀도록 배열했다 — 앞 2색은 ΔE00 48.6, 3색은 26.7, 여덟 개를 다 쓰면 13.2 로
+완만히 준다. 앞쪽이 가까우면 대다수가 구분 안 되는 조합을 받게 된다.
+
+`zones/cvd.py` 가 색각이상 시뮬레이션(Viénot 1999)과 CIEDE2000 을 담고 있고,
+`zones/tests.py` 가 이걸로 세 가지를 지킨다 — 색약 구분 거리 12 이상, 흰 배경 위 점
+대비 3:1 이상(카드 3px 막대·달력 점), 글씨 대비 4.5:1 이상. **옛 팔레트를 넣으면
+검사가 실패하는지**도 함께 시험해서 검사가 헛돌지 않는지 확인한다.
+
+명도 축을 살리려고 밝은 색까지 쓰므로 흰 글씨 하나로는 부족하다. 웹이
+`lib/color.ts: onColor` 로 색마다 흰 글씨/잉크 글씨 중 대비가 큰 쪽을 골라 얹는다.
+
+`upcoming_count`는 **`later`까지 포함한** 앞으로의 전체 개수다. 웹이 "이후 일정 N개"를
+`upcoming_count - 현재 목록 길이`로 구하기 때문이다.
+
+### 일정
+
+| 메서드 | 경로 | 설명 |
+| --- | --- | --- |
+| GET | `/notices?from=&to=&zone={id}` | 기간. 주간 스트립이 쓴다 |
+| GET | `/notices?date=2026-08-19&zone={id}` | 하루치 |
+| GET | `/notices?filter=upcoming\|later\|past&zone={id}` | `upcoming` = 오늘부터 7일 |
+| POST | `/notices` | 등록 (공간은 본문의 `zone`) |
+| GET · PATCH · DELETE | `/notices/{id}` | 상세 · 수정 · 삭제 |
+| POST | `/notices/{id}/alerts/{alert_id}/send` | 이 알림을 지금 보낸다 |
+| GET | `/calendar?from=&to=&zone={id}` | `{"2026-08-19": [{"zone": 3, "color": "#2F7A63"}]}` |
+
+**목록의 축은 날짜지 공간이 아니다.** `?zone=`은 좁히는 선택 필터일 뿐이고,
+빼면 그 사용자의 모든 공간이 함께 나온다. 그래서 경로가 `/zones/{id}/notices`가 아니라
+`/notices`이고, 등록할 때도 공간을 **본문**으로 받는다 (수정으로 공간을 옮길 수도 있다).
+
+셋이 겹치면 **`date` > `from`/`to` > `filter`** 순으로 이긴다. 화면마다 창이 하나뿐이라
+섞이면 목록이 어느 창을 그린 건지 알 수 없어진다.
+
+`from`/`to`가 있는 이유는 주간 스트립이 앞뒤로 넘어가기 때문이다. 창이 오늘에
+고정돼 있지 않으므로 `filter=upcoming`으로는 표현할 수 없다.
+
+**웹은 창 안쪽만 받는다.** 화면이 보여주는 기간과 목록이 정확히 같아야 하므로
+`from` 과 `to` 를 함께 준다. 그 밖의 일정은 `‹ ›` 로 창을 옮겨서 본다.
+
+목록은 `to` 를 빼고 "이 날부터 앞으로 전부"를 받을 수도 있다. 지금 웹은 쓰지 않는다.
+달력 점(`/calendar`)은 그릴 칸이 정해져 있어 항상 양끝을 요구한다. 범위는 최대 400일.
+
+정렬은 `event_date, zone_id, id` — 같은 날 안에서 공간끼리 모인다.
+`past`만 `-event_date`다. 오래된 것부터 쌓으면 방금 지난 일정을 보려고 끝까지
+스크롤해야 한다.
+
+`/calendar`는 날짜 → 그 날 일정이 있는 공간들만 준다. 주를 넘길 때마다 일정 본문을
+다시 받지 않게 하려는 것이라, 한 공간에 그 날 일정이 몇 개든 한 줄이다. 범위는 최대 400일.
+
+**색만 주지 않고 `zone` id 를 함께 준다.** 색약이면 점 색으로는 어느 공간인지 읽을 수
+없어서 웹이 공간 이름의 머리글자(`우`·`회`)를 그리는데, 그러려면 어느 공간인지 알아야
+한다. 이름까지 싣지 않는 것은 웹이 공간 목록을 이미 들고 있기 때문이다.
+
+목록은 카드에 필요한 것만 준다 — 알림은 점 개수용 요약(`total/sent/failed/next_due_at`)으로
+줄이고, 본문은 상세에서만 나간다. 카드가 존 이름 대신 색 막대를 쓰므로 목록 행에도
+`zone_id`와 `zone_color`가 실린다.
+
+### 발송
+
+| 환경변수 | 쓰임 |
+| --- | --- |
+| `NTFY_BASE_URL` | 구독 링크·QR 조립과 발송이 **같은 곳**을 본다 |
+| `NTFY_USER` · `NTFY_PASSWORD` | 발행 계정. ACL 을 건 서버에서만 필요하다 |
+| `NTFY_TIMEOUT_SECONDS` | 기본 5초. 누른 사람이 기다리는 시간이다 |
+
+**토픽은 사용자마다 하나다**(`accounts.User.ntfy_topic`). 공간이 여럿이어도 알림은
+그 사람의 토픽 하나로 모인다 — 폰에서 구독을 공간 수만큼 늘리지 않으려는 것이다.
+어느 공간 일인지는 제목의 `[공간]` 이 말한다.
+
+**보내는 단위는 Alert 다.** 같은 일정이라도 "전날 저녁"과 "당일 아침"은 각각 한 번씩
+나가고, 나갔는지도 Alert 마다 따로 남는다. 그래서 경로도
+`/notices/{id}/alerts/{alert_id}/send` 로 Alert 를 가리킨다.
+
+**본문은 JSON 으로 보낸다.** 헤더 방식(`X-Title`)은 값이 ASCII 여야 해서 한글 제목이
+깨진다. 우선순위는 `Notice.priority` 를 그대로 쓴다 — 값이 2·3·5 로 띄엄띄엄한 것이
+ntfy 등급(1~5)과 같은 축이기 때문이다.
+
+**손으로 민 것도 발송으로 기록한다.** 예약 시각이 와도 다시 나가지 않는다.
+같은 알림을 두 번 받는 쪽이 안 오는 것보다 성가시다.
+
+**실패하면 502 에 까닭을 실어 보낸다.** Alert 에는 `status="fail"` 만 남고
+`sent_at` 은 비운다(채우면 목록의 발송 점이 나간 것으로 센다). 저절로 다시 시도하지
+않는다 — 다시 보내는 것은 화면에서 사람이 정한다.
+
+## 알아둘 것
+
+**창은 요일과 무관한 고정 폭이다.** `notices/filters.py`의 `UPCOMING_DAYS`(기본 7)가
+창 하나가 덮는 날 수이고, **시작일을 포함해서** 센다 — 9/4에서 시작하면 9/10까지다.
+
+달력 주(월~일)로 자르지 않는 이유는 웹의 주간 스트립 때문이다. 스트립은 이 창을
+**그대로** 칸으로 그려서 목록의 미리보기 노릇을 한다. 달력 주로 자르면 오늘이
+금요일일 때 스트립의 월·화·수·목이 목록 밖으로 나가고, 점은 찍혔는데 아래에는 없는
+날이 생긴다.
+
+스트립은 앞뒤로 넘길 때도 이 폭만큼 통째로 움직이므로 창이 겹치거나 벌어지지 않는다
+(`9/4–9/10` 다음이 `9/11–9/17`). `UPCOMING_DAYS`를 바꾸면 웹의
+`lib/date.ts: UPCOMING_DAYS`도 같이 바꿔야 한다.
+
+**`due_at`은 로컬 오프셋(`+09:00`)으로 나간다.** 웹의 `monthDayLabel`이 ISO 문자열
+앞 10글자를 잘라 쓰기 때문에, `Z` 표기로 바뀌면 한국에서 하루 밀린다.
+
+**수정할 때 발송된 알림은 남는다.** 웹은 알림 코드 배열을 통째로 보낸다.
+`Notice.sync_alerts`가 `sent_at`이 있는 Alert는 기록으로 두고, 아직 안 나간 것만 교체한다.
+일정 날짜가 바뀌면 대기 중인 Alert의 `due_at`을 다시 계산하고 실패 횟수를 초기화한다.
+
+**알림 코드는 `"D-1 20:00"` / `"D 07:00"` 형식이다.** 정각만 허용한다.
+`notices/models.py`의 `parse_code`가 유일한 해석 지점이다.
+
+**완료한 일정은 세 곳에서 동시에 빠진다.** `Notice.completed_at`이 서면
+목록(`filter`/`from`)에서 빠지고 달력 점에서도 빠진다. 한쪽만 빠뜨리면
+"점은 있는데 목록엔 없는 날"이 생긴다.
+
+**보내는 쪽도 이 값을 봐야 한다.** 완료한 일정의 남은 알림은 나가면 안 된다.
+Alert 를 지우지는 않으므로(완료를 취소하면 되살아나야 한다) `completed_at` 이 빈
+것만 골라야 한다.
+
+**단 오늘 이후만이다.** 지난 일정은 기록이라 완료했어도 목록과 달력 점에 남는다.
+끝낸 것을 지워버리면 그 날 무엇이 있었는지가 틀리게 남는다. 웹이 흐리게 그린다.
+
+Alert는 지우지 않는다. 완료를 취소하면 예약이 그대로 살아나야 한다.
+
+되돌릴 길이 없으면 안 되므로 **하루 보기(`?date=`)에서는 완료한 것도 돌려준다.**
+아침에 훑는 목록은 "아직 남은 것"이지만, 하루 보기는 "그 날 무엇이 있었나"라서
+용도가 다르다. `completed_at`이 응답에 실리므로 웹이 흐리게 그린다.
+
+토글은 `PATCH /notices/{id}` 에 `{"completed": true|false}` 하나만 보내면 된다.
+알림 코드를 통째로 다시 보내지 않아도 되도록 `alerts`를 선택으로 두었다.
+
+**알림 상태는 `Alert.status` 하나가 기준이다.** `""` 예약 · `"sent"` 발송됨 ·
+`"fail"` 발송 실패. `sent_at` 은 "언제 나갔나"만 말하므로, 나갔는지 여부를 물을 때는
+`status` 를 본다 — 두 곳에서 물으면 어긋난다.
+
+실패에는 `sent_at` 을 채우지 않는다. 채우면 목록의 발송 점이 나간 것으로 세서
+안 온 알림이 온 것처럼 보인다. 대신 상세 화면이 "발송 실패"로 적는다 —
+`status` 를 응답에 싣지 않으면 실패가 "대기 중"과 구분되지 않는다.
+
+**지난 날짜로는 등록되지 않는다.** 알림 시각이 이미 지나 있어서, 저장하는 순간
+보내는 쪽이 그 일정의 예약을 전부 집어 들고 한꺼번에 쏴버린다. 400으로 막는다.
+단 **이미 있는 지난 일정은 그대로 고칠 수 있다** — 날짜를 실제로 과거로 옮길 때만 막는다.
+
+## 테스트
+
+```bash
+python manage.py test
+```
