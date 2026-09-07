@@ -264,7 +264,7 @@ def list_weekly(request):
 
             body[ntfy_topic].append(event_date)
             body[ntfy_topic] += content
-        body[ntfy_topic] += "\n"
+        body[ntfy_topic].append("\n")
 
     start_date = start_date.strftime("%Y-%m-%d")
     end_date = end_date.strftime("%Y-%m-%d")
