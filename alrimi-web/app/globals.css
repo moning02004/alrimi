@@ -26,3 +26,97 @@ body {
 .safe-bottom {
   padding-bottom: env(safe-area-inset-bottom);
 }
+
+/*
+  화면 한 판을 꽉 채우는 껍데기. 스크롤은 이 안의 한 곳에서만 일어난다.
+
+  두 줄을 같이 적는 이유: `100dvh` 를 모르는 브라우저(크롬 108 미만, 옛 안드로이드
+  웹뷰)는 두 번째 줄을 통째로 버리고 `100vh` 로 선다. Tailwind 의 `h-dvh` 한 장만
+  쓰면 그런 브라우저에서 높이 지정이 통째로 사라져 내용만큼 늘어나고, 탭바가
+  화면 밖으로 밀린다.
+
+  `100vh` 는 주소창이 숨은 상태의 큰 화면이라 주소창이 보이는 동안에는 조금 넘친다.
+  `100dvh` 가 먹는 곳에서는 정확히 보이는 만큼이다.
+*/
+.app-shell {
+  height: 100vh;
+  height: 100dvh;
+}
+
+/*
+  스크롤 영역. 끝에서 더 당겼을 때 그 힘이 페이지로 넘어가지 않게 막는다.
+  html/body 의 `overscroll-behavior` 는 스크롤이 거기서 일어날 때 얘기라,
+  스크롤을 안쪽 칸으로 옮긴 뒤에는 이 칸에도 따로 걸어줘야 한다.
+*/
+.app-scroll {
+  /*
+    이 한 줄이 없으면 `<html>` 이 화면 밖으로 늘어난다.
+
+    static 이면 이 안의 `position: absolute` 자손(카드마다 있는 `.sr-only`)이
+    담길 상자를 못 찾아 문서 최상단(html)을 기준으로 잡는다. 그러면 이 칸의
+    `overflow` 는 그 자손을 잘라내지 못하고 — 자기 자손이 아니라 html 의
+    자손이므로 — 문서 전체가 맨 아래 `.sr-only` 까지 닿으려고 늘어난다.
+
+    실측: relative 를 주기 전 html scrollHeight 1011px, 준 뒤 722px(=화면 높이).
+  */
+  position: relative;
+  flex: 1 1 0%;
+  /* flex 항목의 기본값은 min-height:auto — 내용보다 작아지길 거부해서
+     목록이 길어지면 이 칸이 부풀고 탭바를 밀어낸다 */
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ── PC ───────────────────────────────────────────────────────────────
+   폰에서는 드러나지 않지만 마우스·키보드로 쓰면 없어서는 안 되는 것들.
+*/
+
+/*
+  Tailwind v4 의 preflight 는 v3 와 달리 button 에 `cursor: pointer` 를 넣지
+  않는다. 그대로 두면 링크는 손가락인데 버튼만 화살표라, 마우스로 보면 등록·저장·
+  중요도 같은 것들이 눌리는 자리로 안 읽힌다.
+*/
+button:not(:disabled),
+[role="button"]:not(:disabled),
+summary {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+/*
+  키보드로 옮겨 다닐 때 지금 어디에 있는지 보이게 한다.
+  `:focus` 가 아니라 `:focus-visible` 이라 마우스로 누를 때는 뜨지 않는다.
+  입력칸은 각자 `focus:ring` 을 이미 갖고 있고, 그쪽 클래스가 더 구체적이라 이긴다.
+*/
+:focus-visible {
+  outline: 2px solid var(--color-pine);
+  outline-offset: 2px;
+}
+
+/*
+  움직임을 줄여달라고 설정한 사람에게는 애니메이션과 전환을 걷어낸다.
+  멀미나 어지럼을 겪는 경우가 있어서, 취향이 아니라 접근성 설정이다.
+
+  스피너만 예외로 둔다 — 표준 처방을 그대로 적용하면 회전이 멈춰서 "돌고 있다"가
+  "멈춰 있다"로 읽힌다. 대신 아주 느리게 돌려 어지럽지 않게 한다.
+*/
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .animate-spin {
+    animation-duration: 2.4s !important;
+    animation-iteration-count: infinite !important;
+  }
+}

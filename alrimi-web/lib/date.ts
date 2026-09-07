@@ -68,10 +68,12 @@ export function rangeLabel(start: Date, end: Date) {
 /** 요일 한 글자. 날짜에서 직접 뽑아야 창이 굴러가도 안 밀린다 */
 export const dayName = (d: Date) => DAYS[d.getDay()];
 
-/** 그 주의 일요일. 월간 그리드가 일요일 시작이다 */
-export function startOfWeek(d: Date) {
-  return addDays(startOfDay(d), -d.getDay()); // getDay(): 일=0
-}
+/**
+ * 그 주의 월요일. 주간 창과 월간 그리드가 같은 요일에서 시작한다.
+ *
+ * 접었다 펴는 것만으로 첫 칸이 일↔월 로 바뀌면 같은 날짜가 다른 자리에 있게 된다.
+ */
+export const startOfWeek = startOfMonday;
 
 export function fullLabel(iso: string) {
   const d = toDate(iso);

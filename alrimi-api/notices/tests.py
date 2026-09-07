@@ -780,3 +780,128 @@ class SendAlertTests(ApiTestCase):
         self.assertEqual(title, "[우리집] 준비물")
         self.assertIn("흰 티셔츠", message)
         self.assertIn(str(self.notice.event_date.day), message)
+
+
+class CronEndpointTests(TestCase):
+    """
+    크론이 부르는 두 엔드포인트. 사람 계정이 아니라 환경변수 열쇠로 통과한다.
+
+    이쪽은 화면이 없어서 깨져도 아무도 모른다 — 알림이 안 오는 것으로만 드러나고,
+    그때는 이미 그 주가 지나 있다. 그래서 경계를 테스트로 박아둔다.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="cron-owner", password="pw-strong-1234")
+        self.zone = Zone.objects.create(owner=self.user, name="어린이집")
+
+    def make(self, event_date, title="가을 운동회"):
+        return Notice.objects.create(
+            zone=self.zone, event_date=event_date, title=title, content="", priority=3
+        )
+
+    # ── 열쇠 ────────────────────────────────────────────────────
+
+    @override_settings(N8N_API_KEY="right-key")
+    def test_헤더가_없으면_막힌다(self):
+        for url in ("/notices/weekly", "/notices/alerts"):
+            with self.subTest(url=url):
+                self.assertEqual(self.client.get(url).status_code, 403)
+
+    @override_settings(N8N_API_KEY="right-key")
+    def test_틀린_열쇠는_막힌다(self):
+        res = self.client.get("/notices/weekly", headers={"x-api-key": "wrong-key"})
+        self.assertEqual(res.status_code, 403)
+
+    @override_settings(N8N_API_KEY="right-key")
+    def test_맞는_열쇠는_통과한다(self):
+        res = self.client.get("/notices/weekly", headers={"x-api-key": "right-key"})
+        self.assertEqual(res.status_code, 200)
+
+    @override_settings(N8N_API_KEY="")
+    def test_서버에_열쇠가_없으면_열어두지_않는다(self):
+        """설정이 비었을 때 통과시키면 아무나 들어온다. 막는 쪽이 맞다."""
+        res = self.client.get("/notices/weekly", headers={"x-api-key": "anything"})
+        self.assertEqual(res.status_code, 403)
+
+    @override_settings(N8N_API_KEY="right-key")
+    def test_로그인_토큰만으로는_못_본다(self):
+        """사람 계정으로 로그인해도 이 엔드포인트는 열쇠가 따로 필요하다."""
+        res = self.client.post(
+            reverse("obtain-token"),
+            {"username": "cron-owner", "password": "pw-strong-1234"},
+            content_type="application/json",
+        )
+        auth = {"authorization": f"Bearer {res.json()['access_token']}"}
+        self.assertEqual(self.client.get("/notices/weekly", headers=auth).status_code, 403)
+
+    # ── 주간 정리는 "다음 주 월~일" 이다 ─────────────────────────
+
+    @override_settings(N8N_API_KEY="k")
+    def test_다음주_월요일부터_일요일까지만_담는다(self):
+        """
+        일요일에 돈다고 보고, 그 주가 아니라 **다음** 주가 담겨야 한다.
+        경계 바로 앞뒤(다음주 월요일 하루 전 / 일요일 다음 날)는 빠진다.
+        """
+        sunday = dt.date(2026, 9, 13)  # 일요일
+        next_monday = dt.date(2026, 9, 14)
+        next_sunday = dt.date(2026, 9, 20)
+
+        self.make(next_monday - dt.timedelta(days=1), "이번주_토요일")
+        self.make(next_monday, "다음주_월요일")
+        self.make(next_sunday, "다음주_일요일")
+        self.make(next_sunday + dt.timedelta(days=1), "다다음주_월요일")
+
+        with patch("notices.views.timezone.localdate", return_value=sunday):
+            res = self.client.get("/notices/weekly", headers={"x-api-key": "k"})
+
+        self.assertEqual(res.status_code, 200)
+        message = "\n".join(item["message"] for item in res.json())
+        self.assertIn("다음주_월요일", message)
+        self.assertIn("다음주_일요일", message)
+        self.assertNotIn("이번주_토요일", message)
+        self.assertNotIn("다다음주_월요일", message)
+
+        title = res.json()[0]["title"]
+        self.assertIn("2026-09-14", title)
+        self.assertIn("2026-09-20", title)
+
+    @override_settings(N8N_API_KEY="k")
+    def test_어느_요일에_돌아도_같은_주가_나온다(self):
+        """크론이 하루 밀려 토요일에 돌아도 담기는 기간이 달라지면 안 된다."""
+        self.make(dt.date(2026, 9, 14), "다음주_월요일")
+
+        titles = set()
+        for day in (dt.date(2026, 9, 12), dt.date(2026, 9, 13)):  # 토, 일
+            with patch("notices.views.timezone.localdate", return_value=day):
+                res = self.client.get("/notices/weekly", headers={"x-api-key": "k"})
+            titles.add(res.json()[0]["title"])
+
+        self.assertEqual(len(titles), 1, f"요일마다 기간이 달라졌다: {titles}")
+
+    @override_settings(N8N_API_KEY="k")
+    def test_완료한_일정은_빠진다(self):
+        notice = self.make(dt.date(2026, 9, 14), "끝난_것")
+        notice.completed_at = timezone.now()
+        notice.save()
+
+        with patch("notices.views.timezone.localdate", return_value=dt.date(2026, 9, 13)):
+            res = self.client.get("/notices/weekly", headers={"x-api-key": "k"})
+
+        self.assertEqual(res.json(), [])
+
+    @override_settings(N8N_API_KEY="k")
+    def test_토픽별로_묶인다(self):
+        other = User.objects.create_user(username="cron-other", password="pw-strong-1234")
+        other_zone = Zone.objects.create(owner=other, name="회사")
+        self.make(dt.date(2026, 9, 14), "내_일정")
+        Notice.objects.create(
+            zone=other_zone, event_date=dt.date(2026, 9, 14), title="남_일정", content="", priority=3
+        )
+
+        with patch("notices.views.timezone.localdate", return_value=dt.date(2026, 9, 13)):
+            res = self.client.get("/notices/weekly", headers={"x-api-key": "k"})
+
+        topics = {item["topic"] for item in res.json()}
+        self.assertEqual(len(topics), 2)
+        self.assertIn(self.user.ntfy_topic, topics)
+        self.assertIn(other.ntfy_topic, topics)

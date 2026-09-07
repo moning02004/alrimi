@@ -30,8 +30,12 @@ export function ZoneMark({
     size?: keyof typeof SIZES;
 }) {
     return (
+        // `relative` 는 장식이 아니라 필수다. 아래 `.sr-only` 가 position:absolute 라,
+        // 여기가 static 이면 담길 상자를 저 위의 스크롤 칸에서 찾는다. 그러면 딱지가
+        // 스크롤 안쪽 깊은 곳에 있을 때 그 1px 짜리 span 이 바깥 스크롤 범위를
+        // 늘려서, 스크롤할 것이 없는 화면에 유령 스크롤이 생긴다.
         <span
-            className={`inline-flex shrink-0 items-center justify-center font-semibold leading-none ${SIZES[size]}`}
+            className={`relative inline-flex shrink-0 items-center justify-center font-semibold leading-none ${SIZES[size]}`}
             style={{background: color, color: onColor(color)}}
         >
       <span aria-hidden>{mark}</span>

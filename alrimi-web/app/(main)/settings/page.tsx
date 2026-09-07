@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
+import Link from "next/link";
 import { apiUrl, pageUrl } from "@/constants/routeUrl";
 import { useAuthStore } from "@/store/auth";
 import { useZoneMark, useZones } from "@/hooks/useZones";
@@ -90,17 +91,20 @@ export default function SettingsPage() {
     router.replace(pageUrl.login);
   };
 
-  const rowCls = "flex items-center justify-between px-4 py-3";
+  // hover 는 `@media (hover:hover)` 안에서만 켜지므로 터치에서는 붙지 않는다
+  const rowCls =
+    "flex items-center justify-between px-4 py-3 transition-colors hover:bg-paper";
   const groupCls = "divide-y divide-line rounded-2xl border border-line bg-card";
   const headCls = "px-1 pb-2 pt-5 text-xs font-medium text-muted";
 
   return (
     <>
       <header className="sticky top-0 z-20 border-b border-line bg-card px-4 py-3">
-        <h1 className="text-base font-semibold">설정</h1>
+        <h1 className="mx-auto w-full max-w-2xl text-base font-semibold">설정</h1>
       </header>
 
-      <main className="px-4 pb-4">
+      {/* 목록을 읽는 화면이라 PC 에서도 넓히지 않는다 — 한 줄이 길수록 읽기 나쁘다 */}
+      <main className="mx-auto w-full max-w-2xl px-4 pb-4">
         <p className={headCls}>공간</p>
         <div className={groupCls}>
           {zones.map((zone) => (
@@ -143,6 +147,21 @@ export default function SettingsPage() {
             </div>
             <span className="text-xs text-muted">›</span>
           </button>
+        </div>
+
+        {/*
+          PC 는 옆 기둥에 "지난 일정" 이 있지만 모바일에는 그 자리가 없다.
+          탭바를 넷으로 늘리면 가운데 등록 버튼이 가운데가 아니게 되므로 여기 둔다.
+        */}
+        <p className={headCls}>기록</p>
+        <div className={groupCls}>
+          <Link href={pageUrl.past} className={`${rowCls} w-full`}>
+            <div>
+              <p className="text-sm">지난 일정</p>
+              <p className="mt-0.5 text-xs text-muted">끝난 일정도 지우지 않고 남겨둬요</p>
+            </div>
+            <span className="text-xs text-muted">›</span>
+          </Link>
         </div>
 
         <p className={headCls}>계정</p>

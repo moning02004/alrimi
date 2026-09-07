@@ -13,7 +13,10 @@ export const viewport: Viewport = {
   themeColor: "#2f7a63",
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
+  // maximumScale 은 두지 않는다 — 확대를 막으면 눈이 어두운 사람이 읽을 방법이
+  // 없어진다(WCAG 1.4.4). iOS 가 입력칸에서 멋대로 확대하는 것을 막으려고 넣는
+  // 값인데, 그 확대는 글씨가 16px 보다 작을 때만 일어나고 이 앱의 입력칸은
+  // 모두 text-base(16px)라 애초에 해당하지 않는다.
   viewportFit: "cover",
 };
 

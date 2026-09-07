@@ -12,6 +12,7 @@ import {
   sortCodes,
 } from "@/lib/alerts";
 import { fullLabel, startOfDay, toISO } from "@/lib/date";
+import { firstError } from "@/lib/api";
 import { useCreateNotice, useUpdateNotice } from "@/hooks/useNotices";
 import { onColor } from "@/lib/color";
 import { useZoneMark, useZones } from "@/hooks/useZones";
@@ -124,7 +125,8 @@ export function NoticeForm({ notice, initialDate, onDone }: Props) {
         );
         onDone();
       },
-      onError: () => setError("저장하지 못했어요. 잠시 후 다시 눌러주세요."),
+      // 어느 칸이 틀렸는지는 서버가 말해준다. 뭉뚱그리면 고칠 자리를 못 찾는다.
+      onError: (e) => setError(firstError(e, "저장하지 못했어요. 잠시 후 다시 눌러주세요.")),
     });
   };
 
@@ -135,7 +137,7 @@ export function NoticeForm({ notice, initialDate, onDone }: Props) {
 
   return (
     <>
-      <div className="divide-y divide-line rounded-2xl border border-line bg-card">
+      <div className="divide-y divide-line rounded-2xl border border-line bg-card mb-4">
         <div className="flex items-center gap-3 px-4 py-2.5">
           <span className="w-14 shrink-0 text-sm text-muted">공간</span>
           <div className="flex flex-1 gap-1.5 overflow-x-auto">
@@ -200,6 +202,8 @@ export function NoticeForm({ notice, initialDate, onDone }: Props) {
               setTitle(e.target.value);
               setError(null);
             }}
+            // 서버가 80자에서 자른다. 다 적고 저장을 눌러서야 알게 되지 않도록
+            maxLength={80}
             placeholder="가을 운동회"
             className={inputCls}
           />
@@ -285,7 +289,10 @@ export function NoticeForm({ notice, initialDate, onDone }: Props) {
                   type="button"
                   aria-label={`${codeLabel(code)} 삭제`}
                   onClick={() => setAlerts(alerts.filter((c) => c !== code))}
-                  className="flex h-5 w-5 items-center justify-center rounded-full text-pine/60"
+                  // 보이는 크기는 그대로 두고 누를 수 있는 자리만 넓힌다.
+                  // 20px 짜리 과녁은 손가락으로 겨냥하기 어렵다 — 옆 칩을 지우게 된다.
+                  className="-my-1 flex h-7 w-7 items-center justify-center rounded-full
+                             text-pine/60 transition-colors hover:bg-pine/10 hover:text-pine"
                 >
                   ×
                 </button>

@@ -227,23 +227,36 @@ class SendAlertView(APIView):
         return Response(AlertItemSerializer(alert).data)
 
 
+def next_week() -> tuple[dt.date, dt.date]:
+    """
+    다음 주 월요일과 일요일. 화면의 주간과 같은 경계다 (web: lib/date.ts startOfMonday).
+
+    "오늘부터 며칠" 로 세면 크론이 도는 요일이 하루만 밀려도 담기는 기간이 통째로
+    달라진다. 요일에 붙여두면 토요일에 돌든 일요일에 돌든 같은 주가 나온다.
+    """
+    today = timezone.localdate()
+    # weekday(): 월=0 … 일=6. 이번 주 월요일에서 7일 뒤가 다음 주 월요일이다.
+    next_monday = today - dt.timedelta(days=today.weekday()) + dt.timedelta(days=7)
+    return next_monday, next_monday + dt.timedelta(days=6)
+
+
 # 일요일마다 다음주 일정을 정리해서 알림을 보낸다.
 @api_view(["GET"])
 @authentication_classes([])
 @permission_classes([HasAPIKey])
 def list_weekly(request):
     """
-    GET /weekly?from=&to=&zone={id} → {"2026-08-19": [...], ...}
+    GET /notices/weekly → ntfy 로 보낼 묶음 목록
 
-    주간 스트립이 쓴다. 달력 점과 달리 일정 본문을 실어 보내야 한다.
+    다음 주 월~일에 걸린 일정을 사용자(ntfy 토픽)별로 하나씩 묶는다.
+    화면의 주간도 월~일이라 "다음 주" 가 양쪽에서 같은 기간을 뜻한다.
     """
 
-    start_date = timezone.now().date() + timedelta(days=1)
-    end_date = start_date + timedelta(days=6)
+    start_date, end_date = next_week()
     rows = (
         Notice.objects.select_related("zone", "zone__owner").prefetch_related("alerts")
         .filter(event_date__gte=start_date,
-                event_date__lt=end_date,
+                event_date__lte=end_date,
                 completed_at__isnull=True)
         .order_by("event_date", "completed_at", "zone_id", "id")
     )
@@ -266,13 +279,13 @@ def list_weekly(request):
             body[ntfy_topic] += content
             body[ntfy_topic].append("\n")
 
-    start_date = start_date.strftime("%Y-%m-%d")
-    end_date = end_date.strftime("%Y-%m-%d")
+    start_label = start_date.strftime("%Y-%m-%d")
+    end_label = end_date.strftime("%Y-%m-%d")
     ntfy_data = list()
     for topic, content in body.items():
         ntfy_data.append({
             "topic": topic,
-            "title": f"[{start_date} - {end_date}] 일정",
+            "title": f"[{start_label} - {end_label}] 일정",
             "message": "\n".join(content),
             "priority": 3,
         })

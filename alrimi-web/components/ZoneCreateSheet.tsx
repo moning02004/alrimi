@@ -53,9 +53,8 @@ function Form({ onClose, onCreated }: { onClose: () => void; onCreated?: (zone: 
         onKeyDown={(e) => e.key === "Enter" && submit()}
         maxLength={40}
         placeholder="어린이집, 우리집, 회사"
-        className="w-full rounded-xl border border-line bg-card px-3.5 py-3 text-base
-                   placeholder:text-muted/50 focus:border-pine focus:outline-none
-                   focus:ring-2 focus:ring-pine/40"
+        className="w-full rounded-xl border-line bg-card px-3.5 py-3 text-base
+                   placeholder:text-muted/50 focus:border-0 focus:outline-none"
       />
       <p className="mt-2 px-1 text-xs text-muted">공간마다 색과 ntfy 토픽이 따로 생깁니다.</p>
       <button

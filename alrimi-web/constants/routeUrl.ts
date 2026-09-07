@@ -40,6 +40,7 @@ export const apiUrl = {
 export const pageUrl = {
   login: "/login",
   home: "/home",
+  past: "/past",
   settings: "/settings",
   notice: (noticeId: number) => `/notices/${noticeId}`,
 } as const;
