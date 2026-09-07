@@ -254,7 +254,7 @@ def list_weekly(request):
         zone_name = notice.zone.name
         title = notice.title
         event_date = notice.event_date.strftime("%Y-%m-%d")
-        prefix = "┌─" if index == 0 else "└─" if index == last_index else "├─"
+        prefix = "└─" if index == last_index else "┌─" if index == 0 else "├─"
         weekly[notice.zone.owner.ntfy_topic][event_date].append(f" {prefix} [{zone_name}] {title}")
 
     body = defaultdict(list)
