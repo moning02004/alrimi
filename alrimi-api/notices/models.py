@@ -129,7 +129,7 @@ class Alert(models.Model):
         indexes = [models.Index(fields=["sent_at", "due_at"])]
 
     def __str__(self) -> str:
-        return f"{self.notice_id} {self.code}"
+        return f"{self.notice_id} {self.code} {self.due_at.strftime('%Y-%m-%d %H:%M')}"
 
     def mark_sent(self) -> None:
         self.sent_at = timezone.now()

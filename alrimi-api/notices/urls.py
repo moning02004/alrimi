@@ -5,7 +5,7 @@ from .views import (
     NoticeDetailView,
     NoticeListCreateView,
     SendAlertView,
-    list_weekly,
+    list_weekly, alert_notices,
 )
 
 urlpatterns = [
@@ -22,4 +22,6 @@ urlpatterns = [
 
     # 주간 일정 리스트
     path("notices/weekly", list_weekly, name="weekly-notices"),
+    # 매시 일정 확인
+    path("notices/alerts", alert_notices, name="alert-notices"),
 ]

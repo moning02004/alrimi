@@ -2,19 +2,19 @@ import datetime as dt
 from collections import defaultdict
 from datetime import timedelta
 
-from django.db import transaction
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_date as parse_date_string
-from rest_framework import generics, serializers, status
+from rest_framework import generics, status
 from rest_framework.authentication import TokenAuthentication, SessionAuthentication
-from rest_framework.decorators import api_view, permission_classes, authentication_classes
+from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from zones.models import Zone
+
+from accounts.permissions import HasAPIKey
 
 from .filters import FILTERS, filter_q, ordering_for
 from .models import Alert, Notice
@@ -229,7 +229,8 @@ class SendAlertView(APIView):
 
 # 일요일마다 다음주 일정을 정리해서 알림을 보낸다.
 @api_view(["GET"])
-@authentication_classes([TokenAuthentication, SessionAuthentication])
+@authentication_classes([])
+@permission_classes([HasAPIKey])
 def list_weekly(request):
     """
     GET /weekly?from=&to=&zone={id} → {"2026-08-19": [...], ...}
@@ -240,31 +241,76 @@ def list_weekly(request):
     start_date = timezone.now().date()
     end_date = start_date + timedelta(days=8)
     rows = (
-        owned_notices(request.user)
+        Notice.objects.select_related("zone", "zone__owner").prefetch_related("alerts")
         .filter(event_date__gte=start_date,
                 event_date__lt=end_date,
                 completed_at__isnull=True)
         .order_by("event_date", "completed_at", "zone_id", "id")
     )
 
-    weekly: dict[str, list] = defaultdict(list)
+    weekly: dict[str, dict[str, list]] = defaultdict(lambda: defaultdict(list))
     for notice in rows:
         zone_name = notice.zone.name
         title = notice.title
-        weekly[notice.event_date.isoformat()].append(f"  - ({zone_name}) {title}")
+        event_date = notice.event_date.strftime("%Y-%m-%d")
+        weekly[notice.zone.owner.ntfy_topic][event_date].append(f"  - ({zone_name}) {title}")
 
-    body = list()
-    for event_date, content in weekly.items():
-        body.append(event_date)
-        body += content
-        body.append("\n")
+    body = defaultdict(list)
+    for ntfy_topic, event_data in weekly.items():
+        for event_date, content in event_data.items():
+            body[ntfy_topic].append(event_date)
+            body[ntfy_topic] += content
+            body[ntfy_topic].append("\n")
 
     start_date = start_date.strftime("%Y-%m-%d")
     end_date = end_date.strftime("%Y-%m-%d")
-    ntfy_data = {
-        "topic": "alrimi-",
-        "title": f"[{start_date} - {end_date}] 일정",
-        "message": "\n".join(body),
-        "priority": 3,
-    }
+    ntfy_data = list()
+    for topic, content in body.items():
+        ntfy_data.append({
+            "topic": topic,
+            "title": f"[{start_date} - {end_date}] 일정",
+            "message": "\n".join(content),
+            "priority": 3,
+        })
+    return Response(ntfy_data)
+
+
+# 일요일마다 다음주 일정을 정리해서 알림을 보낸다.
+@api_view(["GET"])
+@authentication_classes([])
+@permission_classes([HasAPIKey])
+def alert_notices(request):
+    end_date = timezone.now()
+    start_date = end_date - timedelta(hours=2)
+    alerts = (
+        Alert.objects.select_related("notice", "notice__zone", "notice__zone__owner")
+        .filter(notice__completed_at__isnull=True,
+                status="",
+                due_at__gte=start_date,
+                due_at__lt=end_date)
+        .order_by("notice__event_date", "id")
+    )
+
+    ready_data = defaultdict(list)
+    for alert in alerts:
+        zone_name = alert.notice.zone.name
+        title = alert.notice.title
+        content = alert.notice.content
+        priority = alert.notice.priority
+        ready_data[alert.notice.zone.owner.ntfy_topic].append({
+            "id": alert.id,
+            "title": f"[{zone_name}] {title}",
+            "message": content,
+            "priority": priority,
+        })
+
+    ntfy_data = list()
+    for topic, bodies in ready_data.items():
+        for body in bodies:
+            ntfy_data.append({
+                "topic": topic,
+                "title": body["title"],
+                "message": body["message"],
+                "priority": body["priority"],
+            })
     return Response(ntfy_data)

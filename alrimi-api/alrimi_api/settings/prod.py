@@ -14,6 +14,7 @@ MIDDLEWARE.insert(
 )
 
 SECRET_KEY = require("DJANGO_SECRET_KEY")
+N8N_API_KEY = require("N8N_API_KEY")
 ALLOWED_HOSTS = require("DJANGO_ALLOWED_HOSTS").replace(" ", "").split(",")
 
 DATABASES = {

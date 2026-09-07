@@ -78,6 +78,11 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
 
+# 크론이 부르는 엔드포인트(주간 정리·매시 확인)를 지키는 열쇠. 계정과 무관한
+# 서버 대 서버용이라 DB 가 아니라 환경변수에 둔다. 비어 있으면 그 엔드포인트는
+# 통과하지 못한다 — 열쇠 없이 열려 있는 상태를 만들지 않는다.
+N8N_API_KEY = env("N8N_API_KEY")
+
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "rest_framework_simplejwt.authentication.JWTAuthentication",
