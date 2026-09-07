@@ -21,17 +21,32 @@ export const addDays = (d: Date, n: number) => {
   return next;
 };
 
-/**
- * 다가올 일정이 덮는 날 수. 서버의 `notices/filters.py: UPCOMING_DAYS`와 같은 값이어야
- * 주간 스트립과 아래 목록이 같은 창을 본다. 한쪽만 바꾸면 스트립에는 점이 찍혔는데
- * 목록에는 없는 날이 생긴다.
- */
-export const UPCOMING_DAYS = 7;
+/** 주간 창이 덮는 날 수. 달력 한 주라 7이고, 스트립이 이만큼을 칸으로 그린다 */
+export const WEEK_DAYS = 7;
 
-/** 시작일 포함 UPCOMING_DAYS칸. 스트립은 이 창을 그대로 그린다 */
+/**
+ * 그 주의 월요일. `getDay()` 는 일=0 이므로 일요일은 6칸 뒤로 물러난다.
+ * 주간 창이 여기서 시작한다.
+ */
+export function startOfMonday(d: Date) {
+  const day = startOfDay(d);
+  return addDays(day, -((day.getDay() + 6) % 7)); // 월=0 … 일=6
+}
+
+/**
+ * 그 날이 속한 주의 월~일 7칸. 스트립도 아래 목록도 이 창을 그대로 쓴다.
+ *
+ * 오늘부터 굴리지 않는다 — 굴리면 오늘이 늘 맨 왼쪽이라 같은 "이번 주"가 날마다
+ * 다른 기간을 뜻하고, 요일 자리도 매일 밀려서 눈에 익지 않는다. 월요일에 붙여두면
+ * 다음 월요일이 오기 전까지 창이 그대로다.
+ *
+ * 대신 주 중반에는 이미 지난 날이 창 안에 들어온다. 그 자리는 비우지 않고
+ * 지난 일정을 그대로 보여준다 — 목록도 같은 창을 보므로 스트립에 점이 찍혔는데
+ * 아래에는 없는 날은 생기지 않는다.
+ */
 export function windowDays(from: Date = new Date()) {
-  const start = startOfDay(from);
-  return Array.from({ length: UPCOMING_DAYS }, (_, i) => addDays(start, i));
+  const start = startOfMonday(from);
+  return Array.from({ length: WEEK_DAYS }, (_, i) => addDays(start, i));
 }
 
 /** "2026년 9월". 주간·월간 머리글이 같은 모양을 쓴다 */

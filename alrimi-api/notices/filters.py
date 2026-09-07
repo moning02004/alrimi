@@ -1,7 +1,8 @@
 """
 목록 필터의 경계를 한곳에 모아둔다.
-웹의 주간 스트립이 "오늘부터 UPCOMING_DAYS일"을 그대로 보여주므로,
-이 상수를 바꾸면 스트립 칸 수도 같이 맞춰야 한다 (web: lib/date.ts UPCOMING_DAYS).
+
+`filter=` 전용이다. 웹의 주간 화면은 달력 한 주(월~일)를 `?from=&to=` 로 직접
+받아가므로 이 상수를 보지 않는다 — 한쪽을 바꿔도 다른 쪽은 따라오지 않는다.
 """
 
 import datetime as dt
@@ -10,8 +11,7 @@ from django.db.models import Q
 
 FILTERS = ("upcoming", "later", "past")
 
-# 창 하나가 덮는 날 수 (시작일 포함). 웹의 주간 스트립이 이만큼을 칸으로 그리고,
-# 앞뒤로 넘길 때도 이 폭만큼 통째로 움직여서 창이 겹치거나 벌어지지 않는다.
+# "다가올" 이 덮는 날 수 (오늘 포함). `later` 는 이 창 바로 뒤부터다.
 UPCOMING_DAYS = 7
 
 

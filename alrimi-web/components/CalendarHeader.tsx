@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef } from "react";
 import { MonthGrid } from "./MonthGrid";
 import { PeriodNav } from "./PeriodNav";
 import { WeekStrip } from "./WeekStrip";
-import { UPCOMING_DAYS, addDays, monthLabel, shiftMonth } from "@/lib/date";
+import { WEEK_DAYS, addDays, monthLabel, shiftMonth } from "@/lib/date";
 import type { CalendarMap } from "@/types";
 
 interface Props {
@@ -40,10 +40,15 @@ export function CalendarHeader({
   const start = useRef<{ x: number; y: number } | null>(null);
   const swiped = useRef(false);
 
-  /** 좌우로 넘기는 폭. 펼쳤으면 달, 접었으면 창 폭만큼 */
+  /**
+   * 좌우로 넘기는 폭. 펼쳤으면 한 달, 접었으면 한 주.
+   *
+   * 7일을 더하면 요일이 그대로라 `windowDays` 가 잡는 월요일도 정확히 한 주만
+   * 움직인다 — 창이 겹치거나 벌어지지 않는다.
+   */
   const step = useCallback(
     (direction: 1 | -1) =>
-      onMove(expanded ? shiftMonth(anchor, direction) : addDays(anchor, direction * UPCOMING_DAYS)),
+      onMove(expanded ? shiftMonth(anchor, direction) : addDays(anchor, direction * WEEK_DAYS)),
     [expanded, anchor, onMove],
   );
 
