@@ -249,17 +249,19 @@ def list_weekly(request):
     )
 
     weekly: dict[str, dict[str, list]] = defaultdict(lambda: defaultdict(list))
-    last_index = len(rows) - 1
-    for index, notice in enumerate(rows):
+    for notice in rows:
         zone_name = notice.zone.name
         title = notice.title
         event_date = notice.event_date.strftime("%Y-%m-%d")
-        prefix = "└─" if index == last_index else "┌─" if index == 0 else "├─"
-        weekly[notice.zone.owner.ntfy_topic][event_date].append(f" {prefix} [{zone_name}] {title}")
+        weekly[notice.zone.owner.ntfy_topic][event_date].append(f"[{zone_name}] {title}")
 
     body = defaultdict(list)
     for ntfy_topic, event_data in weekly.items():
         for event_date, content in event_data.items():
+            last_index = len(content) - 1
+            content = [f" {'└' if index == last_index else '┌' if index == 0 else '├'} {x}"
+                       for index, x in enumerate(content)]
+
             body[ntfy_topic].append(event_date)
             body[ntfy_topic] += content
             body[ntfy_topic].append("\n")
