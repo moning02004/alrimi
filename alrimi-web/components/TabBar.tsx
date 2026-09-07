@@ -1,17 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import type { IconType } from "react-icons";
+import {usePathname} from "next/navigation";
+import type {IconType} from "react-icons";
 import {
-  HiCog6Tooth,
-  HiHome,
-  HiOutlineCog6Tooth,
-  HiOutlineHome,
-  HiPlus,
+    HiCog6Tooth,
+    HiHome,
+    HiOutlineCog6Tooth,
+    HiOutlineHome,
+    HiPlus,
 } from "react-icons/hi2";
-import { pageUrl } from "@/constants/routeUrl";
-import { useAddSheet } from "@/store/ui";
+import {pageUrl} from "@/constants/routeUrl";
+import {useAddSheet} from "@/store/ui";
 
 /**
  * 등록 버튼을 탭바 가운데에 둔다.
@@ -26,41 +26,39 @@ import { useAddSheet } from "@/store/ui";
  * 두꺼워진다. 탭바는 화면 크기가 아니라 손가락 크기에 맞추는 자리다.
  */
 export function TabBar() {
-  const pathname = usePathname();
-  const openAdd = useAddSheet((s) => s.openAdd);
+    const pathname = usePathname();
+    const openAdd = useAddSheet((s) => s.openAdd);
 
-  return (
-    <nav className="safe-bottom sticky bottom-0 z-30 mt-auto border-t border-line bg-card">
-      <div className="flex h-14 items-center px-2">
-        <Tab
-          href={pageUrl.home}
-          label="홈"
-          active={pathname.startsWith(pageUrl.home)}
-          On={HiHome}
-          Off={HiOutlineHome}
-        />
+    return (
+        <div className="flex items-center px-2">
+            <Tab
+                href={pageUrl.home}
+                label="홈"
+                active={pathname.startsWith(pageUrl.home)}
+                On={HiHome}
+                Off={HiOutlineHome}
+            />
 
-        <div className="flex-1 text-center">
-          <button
-            onClick={() => openAdd()}
-            aria-label="일정 등록"
-            className="mx-auto flex h-11 w-11 items-center justify-center rounded-full
+            <div className="flex-1 text-center">
+                <button
+                    onClick={() => openAdd()}
+                    aria-label="일정 등록"
+                    className="mx-auto flex h-11 w-11 items-center justify-center rounded-full
                        bg-pine text-white active:bg-pine/90"
-          >
-            <HiPlus className="h-6 w-6" aria-hidden="true" />
-          </button>
-        </div>
+                >
+                    <HiPlus className="h-6 w-6" aria-hidden="true"/>
+                </button>
+            </div>
 
-        <Tab
-          href={pageUrl.settings}
-          label="설정"
-          active={pathname.startsWith(pageUrl.settings)}
-          On={HiCog6Tooth}
-          Off={HiOutlineCog6Tooth}
-        />
-      </div>
-    </nav>
-  );
+            <Tab
+                href={pageUrl.settings}
+                label="설정"
+                active={pathname.startsWith(pageUrl.settings)}
+                On={HiCog6Tooth}
+                Off={HiOutlineCog6Tooth}
+            />
+        </div>
+    );
 }
 
 /**
@@ -69,28 +67,28 @@ export function TabBar() {
  * 두 칸이 같아 보이므로, 선 그림(Off)과 꽉 찬 그림(On)으로 모양까지 다르게 둔다.
  */
 function Tab({
-  href,
-  label,
-  active,
-  On,
-  Off,
-}: {
-  href: string;
-  label: string;
-  active: boolean;
-  On: IconType;
-  Off: IconType;
+                 href,
+                 label,
+                 active,
+                 On,
+                 Off,
+             }: {
+    href: string;
+    label: string;
+    active: boolean;
+    On: IconType;
+    Off: IconType;
 }) {
-  const Icon = active ? On : Off;
+    const Icon = active ? On : Off;
 
-  return (
-    <Link
-      href={href}
-      aria-label={label}
-      aria-current={active ? "page" : undefined}
-      className="flex flex-1 items-center justify-center self-stretch"
-    >
-      <Icon className={`h-6 w-6 ${active ? "text-pine" : "text-muted"}`} aria-hidden="true" />
-    </Link>
-  );
+    return (
+        <Link
+            href={href}
+            aria-label={label}
+            aria-current={active ? "page" : undefined}
+            className="flex flex-1 items-center justify-center self-stretch"
+        >
+            <Icon className={`h-6 w-6 ${active ? "text-pine" : "text-muted"}`} aria-hidden="true"/>
+        </Link>
+    );
 }
