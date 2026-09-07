@@ -238,8 +238,8 @@ def list_weekly(request):
     주간 스트립이 쓴다. 달력 점과 달리 일정 본문을 실어 보내야 한다.
     """
 
-    start_date = timezone.now().date()
-    end_date = start_date + timedelta(days=8)
+    start_date = timezone.now().date() + timedelta(days=1)
+    end_date = start_date + timedelta(days=6)
     rows = (
         Notice.objects.select_related("zone", "zone__owner").prefetch_related("alerts")
         .filter(event_date__gte=start_date,
