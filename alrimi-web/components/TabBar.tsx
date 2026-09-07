@@ -22,7 +22,7 @@ export function TabBar() {
   const openAdd = useAddSheet((s) => s.openAdd);
 
   return (
-    <nav className="safe-bottom mt-auto sticky bottom-0 h-[8vh] z-30 flex items-center border-t border-line bg-card px-2">
+    <nav className="safe-bottom mt-auto bottom-0 h-[9vh] z-30 flex items-center border-t border-line bg-card px-2">
       <Tab
         href={pageUrl.home}
         label="홈"
