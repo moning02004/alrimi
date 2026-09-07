@@ -161,14 +161,6 @@ export default function SettingsPage() {
             </button>
           </div>
         </div>
-
-        <p className={headCls}>앱</p>
-        <div className={groupCls}>
-          <div className={rowCls}>
-            <p className="text-sm text-muted">버전</p>
-            <span className="text-xs text-muted">{me?.version ?? "—"}</span>
-          </div>
-        </div>
       </main>
 
       <ZoneCreateSheet

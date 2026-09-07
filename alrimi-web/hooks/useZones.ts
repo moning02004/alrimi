@@ -78,6 +78,23 @@ export function useUpdateZone(zoneId: number) {
   });
 }
 
+/**
+ * 공간을 지운다. 그 안의 일정과 예약된 알림도 서버에서 함께 사라지므로(CASCADE)
+ * 목록·달력까지 다시 받는다. 지운 공간을 필터로 잡고 있었다면 `useZones` 가
+ * 전체로 되돌린다.
+ */
+export function useDeleteZone() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (zoneId: number) => api.delete<void>(apiUrl.zone(zoneId)),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["zones"] });
+      qc.invalidateQueries({ queryKey: ["notices"] });
+      qc.invalidateQueries({ queryKey: ["calendar"] });
+    },
+  });
+}
+
 export function useCreateZone() {
   const qc = useQueryClient();
   return useMutation({

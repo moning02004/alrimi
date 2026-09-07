@@ -4,7 +4,7 @@ import { useState } from "react";
 import toast from "react-hot-toast";
 import { BottomSheet } from "./BottomSheet";
 import { firstError } from "@/lib/api";
-import { usePalette, useUpdateZone } from "@/hooks/useZones";
+import { useDeleteZone, usePalette, useUpdateZone } from "@/hooks/useZones";
 import { onColor } from "@/lib/color";
 import type { Zone } from "@/types";
 
@@ -30,6 +30,7 @@ export function ZoneEditSheet({ zone, onClose }: Props) {
 function Form({ zone, onClose }: { zone: Zone; onClose: () => void }) {
   const palette = usePalette();
   const update = useUpdateZone(zone.id);
+  const remove = useDeleteZone();
 
   const [name, setName] = useState(zone.name);
   const [color, setColor] = useState(zone.color);
@@ -55,6 +56,27 @@ function Form({ zone, onClose }: { zone: Zone; onClose: () => void }) {
       },
     );
   };
+
+  /**
+   * 공간을 지우면 그 안의 일정과 예약된 알림까지 함께 사라진다(서버 CASCADE).
+   * 되돌릴 수 없으므로 몇 개가 없어지는지 세어서 보여주고 묻는다.
+   */
+  const lost = zone.upcoming_count + zone.past_count;
+
+  const onDelete = () => {
+    const detail = lost > 0 ? `일정 ${lost}개와 예약된 알림도 함께 사라집니다.` : "";
+    if (!confirm(`${zone.name} 공간을 삭제할까요? ${detail}`.trim())) return;
+
+    remove.mutate(zone.id, {
+      onSuccess: () => {
+        toast.success(`${zone.name} 공간을 지웠어요`);
+        onClose();
+      },
+      onError: () => toast.error("지우지 못했어요"),
+    });
+  };
+
+  const busy = update.isPending || remove.isPending;
 
   return (
     <>
@@ -111,10 +133,19 @@ function Form({ zone, onClose }: { zone: Zone; onClose: () => void }) {
 
       <button
         onClick={save}
-        disabled={update.isPending}
-        className="my-3 w-full rounded-xl bg-pine py-3.5 text-base font-medium text-white disabled:opacity-60"
+        disabled={busy}
+        className="mt-3 w-full rounded-xl bg-pine py-3.5 text-base font-medium text-white disabled:opacity-60"
       >
         {update.isPending ? "저장하는 중" : "저장하기"}
+      </button>
+
+      {/* 저장 옆이 아니라 아래에, 선 하나 건너 둔다 — 잘못 누르는 자리를 피한다 */}
+      <button
+        onClick={onDelete}
+        disabled={busy}
+        className="mb-3 mt-2 w-full py-3 text-sm text-red-600 disabled:opacity-60"
+      >
+        {remove.isPending ? "지우는 중" : "공간 삭제"}
       </button>
     </>
   );
