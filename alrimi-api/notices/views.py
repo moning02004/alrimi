@@ -285,7 +285,7 @@ def list_weekly(request):
 @permission_classes([HasAPIKey])
 def alert_notices(request):
     end_date = timezone.now()
-    start_date = end_date - timedelta(hours=2)
+    start_date = end_date - timedelta(hours=6)
     alerts = (
         Alert.objects.select_related("notice", "notice__zone", "notice__zone__owner")
         .filter(notice__completed_at__isnull=True,
