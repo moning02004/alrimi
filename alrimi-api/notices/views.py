@@ -296,13 +296,14 @@ def alert_notices(request):
     )
 
     ready_data = defaultdict(list)
+    ids = list()
     for alert in alerts:
         zone_name = alert.notice.zone.name
         title = alert.notice.title
         content = alert.notice.content
         priority = alert.notice.priority
+        ids.append(alert.id)
         ready_data[alert.notice.zone.owner.ntfy_topic].append({
-            "id": alert.id,
             "title": f"[{zone_name}] {title}",
             "message": content,
             "priority": priority,
@@ -317,4 +318,17 @@ def alert_notices(request):
                 "message": body["message"],
                 "priority": body["priority"],
             })
-    return Response(ntfy_data)
+    return Response({"data": ntfy_data, "ids": ids})
+
+
+# 일요일마다 다음주 일정을 정리해서 알림을 보낸다.
+@api_view(["PATCH"])
+@authentication_classes([])
+@permission_classes([HasAPIKey])
+def update_alert(request):
+    ids = request.data.get("ids")
+    if ids:
+        Alert.objects.filter(id__in=ids).update(
+            status="sent",
+            sent_at=timezone.now())
+    return Response({"detail": f"{len(ids)} alerts updated."})

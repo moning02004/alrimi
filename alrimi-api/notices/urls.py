@@ -24,4 +24,5 @@ urlpatterns = [
     path("notices/weekly", list_weekly, name="weekly-notices"),
     # 매시 일정 확인
     path("notices/alerts", alert_notices, name="alert-notices"),
+    path("notices/alerts/status", update_alert, name="alert-notices"),
 ]
