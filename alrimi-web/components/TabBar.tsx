@@ -30,7 +30,7 @@ export function TabBar() {
     const openAdd = useAddSheet((s) => s.openAdd);
 
     return (
-        <div className="flex items-center px-2">
+        <div className="flex flex-row justify-between mt-auto py-3  bg-card border-t border-line">
             <Tab
                 href={pageUrl.home}
                 label="홈"

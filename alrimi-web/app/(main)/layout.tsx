@@ -26,10 +26,7 @@ export default function MainLayout({children}: { children: React.ReactNode }) {
     return (
         <div className="mx-auto flex min-h-screen w-full flex-col overflow-hidden">
             <div className="flex-1 max-h-[90vh] overflow-y-scroll">{children}</div>
-            <div className="mt-auto h-[10vh] py-3  bg-card border-t border-line">
-                {!bare && <TabBar/>}
-
-            </div>
+            {!bare && <TabBar/>}
 
             <BottomSheet
                 open={open}
