@@ -205,16 +205,24 @@ export function NoticeForm({ notice, initialDate, onDone }: Props) {
           />
         </div>
 
-        <div className="flex items-center gap-3 px-4 py-2">
-          <label htmlFor="content" className="w-14 shrink-0 text-sm text-muted">
+        {/*
+          내용은 준비물 목록처럼 줄로 적는 일이 많아 여러 줄을 받는다.
+          칸이 위로 자라므로 라벨은 가운데가 아니라 첫 줄에 맞춘다.
+        */}
+        <div className="flex items-start gap-3 px-4 py-2">
+          <label htmlFor="content" className="w-14 shrink-0 pt-1.5 text-sm text-muted">
             내용
           </label>
-          <input
+          <textarea
             id="content"
+            rows={3}
             value={content}
             onChange={(e) => setContent(e.target.value)}
+            // 서버가 200자에서 자른다. 여기서 막지 않으면 다 적고 저장을 눌러서야
+            // 알게 되는데, 이 폼은 실패 이유를 한 줄로만 보여줘서 까닭이 안 보인다.
+            maxLength={200}
             placeholder="흰 티셔츠, 모자"
-            className={inputCls}
+            className={`${inputCls} resize-none`}
           />
         </div>
 
@@ -331,13 +339,22 @@ export function NoticeForm({ notice, initialDate, onDone }: Props) {
 
       {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
 
-      <button
-        onClick={submit}
-        disabled={mutation.isPending}
-        className="my-3 w-full rounded-xl bg-pine py-3.5 text-base font-medium text-white disabled:opacity-60"
-      >
-        {mutation.isPending ? "저장하는 중" : "저장하기"}
-      </button>
+      {/*
+        시트 바닥에 붙여둔다. 폼이 짧으면 그냥 마지막에 놓이고, 길어서 시트가
+        스크롤되면 따라와서 늘 손에 닿는다.
+
+        좌우·아래로 시트의 안쪽 여백만큼 빼냈다가 이 안에서 다시 준다. 안 그러면
+        버튼 옆과 아래로 남은 틈으로 스크롤되는 카드가 비쳐 지나간다.
+      */}
+      <div className="sticky bottom-0 -mx-4 -mb-4 bg-paper px-4 pb-4 pt-3">
+        <button
+          onClick={submit}
+          disabled={mutation.isPending}
+          className="w-full rounded-xl bg-pine py-3.5 text-base font-medium text-white disabled:opacity-60"
+        >
+          {mutation.isPending ? "저장하는 중" : "저장하기"}
+        </button>
+      </div>
     </>
   );
 }
