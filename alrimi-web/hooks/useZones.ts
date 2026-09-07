@@ -9,7 +9,7 @@ import { zoneMarks } from "@/lib/zone";
 import type { Zone } from "@/types";
 
 export function useZones() {
-  const { selectedZoneId, lastUsedZoneId, selectZone, setLastUsedZone } = useZoneStore();
+  const { selectedZoneId, selectZone } = useZoneStore();
 
   const query = useQuery({
     queryKey: ["zones"],
@@ -26,10 +26,11 @@ export function useZones() {
   }, [query.data, zones, selectedZoneId, selectZone]);
 
   const selected = zones.find((z) => z.id === selectedZoneId) ?? null;
-  const defaultZone =
-    zones.find((z) => z.id === lastUsedZoneId) ?? selected ?? zones[0] ?? null;
+  // 등록 폼의 기본 공간. 필터로 좁혀 둔 공간이 있으면 보고 있던 그대로 이어서 쓰고,
+  // 전체를 보고 있으면 고를 근거가 없으므로 맨 앞 공간으로 둔다.
+  const defaultZone = selected ?? zones[0] ?? null;
 
-  return { ...query, zones, selectedZoneId, selected, defaultZone, selectZone, setLastUsedZone };
+  return { ...query, zones, selectedZoneId, selected, defaultZone, selectZone };
 }
 
 /**

@@ -1,8 +1,6 @@
 "use client";
 
 import { dayName, startOfDay, toISO, windowDays } from "@/lib/date";
-import { useZoneMark } from "@/hooks/useZones";
-import { ZoneMark } from "./ZoneMark";
 import type { CalendarMap } from "@/types";
 
 interface Props {
@@ -26,7 +24,6 @@ interface Props {
 export function WeekStrip({ start, calendar, onJumpTo }: Props) {
   const days = windowDays(start);
   const todayISO = toISO(startOfDay(new Date()));
-  const markOf = useZoneMark();
 
   return (
     <div>
@@ -34,9 +31,7 @@ export function WeekStrip({ start, calendar, onJumpTo }: Props) {
         {days.map((day) => {
           const iso = toISO(day);
           const isToday = iso === todayISO;
-          // 칸이 좁아 셋까지만. 색약에서 색은 안 읽히므로 머리글자를 그린다.
-          const marks = (calendar[iso] ?? []).slice(0, 3).map((row) => markOf(row.zone));
-          const hasItems = marks.length > 0;
+          const hasItems = (calendar[iso] ?? []).length > 0;
 
           return (
             <button
@@ -57,16 +52,11 @@ export function WeekStrip({ start, calendar, onJumpTo }: Props) {
                 {day.getDate()}
               </span>
               <span className="mt-1 flex h-3.5 items-center justify-center gap-0.5">
-                {marks.map((zone, i) =>
-                  zone ? (
-                    <ZoneMark
-                      key={i}
-                      mark={zone.mark}
-                      // 오늘 칸은 배경이 파인이라 같은 색 딱지가 묻는다. 흰 바탕에 글자만 남긴다.
-                      color={isToday ? "#FFFFFF" : zone.color}
-                      size="xs"
-                    />
-                  ) : null,
+                {hasItems && (
+                  // 오늘 칸은 배경이 파인이라 같은 색 점이 묻는다. 흰 점으로 뒤집는다.
+                  <span
+                    className={`h-1.5 w-1.5 rounded-full ${isToday ? "bg-white" : "bg-pine"}`}
+                  />
                 )}
               </span>
             </button>

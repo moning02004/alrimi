@@ -44,12 +44,13 @@ interface Props {
 
 export function NoticeForm({ notice, initialDate, onDone }: Props) {
   const editing = Boolean(notice);
-  const { zones, defaultZone, setLastUsedZone } = useZones();
+  const { zones, defaultZone } = useZones();
   const markOf = useZoneMark();
 
-  const [zoneId, setZoneId] = useState<number | null>(
-    notice?.zone_id ?? defaultZone?.id ?? null,
-  );
+  // 공간 목록이 아직 안 왔으면 기본 공간도 정할 수 없다. 직접 고르기 전까지는
+  // 기본값을 매 렌더 다시 보게 해서, 목록이 늦게 와도 빈 채로 굳지 않게 한다.
+  const [picked, setPicked] = useState<number | null>(notice?.zone_id ?? null);
+  const zoneId = picked ?? defaultZone?.id ?? null;
   const [eventDate, setEventDate] = useState(notice?.event_date ?? initialDate ?? "");
   const [title, setTitle] = useState(notice?.title ?? "");
   const [content, setContent] = useState(notice?.content ?? "");
@@ -117,7 +118,6 @@ export function NoticeForm({ notice, initialDate, onDone }: Props) {
 
     mutation.mutate(payload, {
       onSuccess: () => {
-        setLastUsedZone(zoneId);
         // 먼 일정은 목록 화면 밖에 저장되므로 언제인지 알려준다
         toast.success(
           editing ? "수정했어요" : `${fullLabel(eventDate)}에 등록했어요`,
@@ -147,7 +147,7 @@ export function NoticeForm({ notice, initialDate, onDone }: Props) {
                   type="button"
                   aria-pressed={on}
                   onClick={() => {
-                    setZoneId(zone.id);
+                    setPicked(zone.id);
                     setError(null);
                   }}
                   style={on ? { background: zone.color, color: onColor(zone.color) } : undefined}
