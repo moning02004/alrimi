@@ -289,9 +289,8 @@ def alert_notices(request):
     alerts = (
         Alert.objects.select_related("notice", "notice__zone", "notice__zone__owner")
         .filter(notice__completed_at__isnull=True,
-                status="",
                 due_at__gte=start_date,
-                due_at__lt=end_date)
+                due_at__lt=end_date).exclude(status="sent")
         .order_by("notice__event_date", "id")
     )
 

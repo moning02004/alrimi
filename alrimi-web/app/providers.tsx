@@ -21,7 +21,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <QueryClientProvider client={client}>
       {children}
-      <Toaster position="top-center" toastOptions={{ duration: 2200 }} />
+      <Toaster position="bottom-center" toastOptions={{ duration: 2200 }} />
     </QueryClientProvider>
   );
 }
