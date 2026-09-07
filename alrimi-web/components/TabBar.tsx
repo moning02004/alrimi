@@ -35,7 +35,7 @@ export function TabBar() {
         <button
           onClick={() => openAdd()}
           aria-label="일정 등록"
-          className="mx-auto flex h-11 w-11 items-center justify-center rounded-full
+          className="mx-auto my-auto flex h-11 w-11 items-center justify-center rounded-full
                      bg-pine text-white active:bg-pine/90"
         >
           <HiPlus className="h-6 w-6" aria-hidden="true" />
@@ -78,7 +78,7 @@ function Tab({
       href={href}
       aria-label={label}
       aria-current={active ? "page" : undefined}
-      className="flex flex-1 items-center justify-center py-1"
+      className="flex flex-1 items-center justify-center py-1  my-auto"
     >
       <Icon className={`h-6 w-6 ${active ? "text-pine" : "text-muted"}`} aria-hidden="true" />
     </Link>
