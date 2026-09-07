@@ -1,6 +1,6 @@
 "use client";
 
-import {useCallback, useEffect, useState} from "react";
+import {Suspense, useCallback, useEffect, useState} from "react";
 import {useCalendar, useNoticesByDate, useNoticesInRange} from "@/hooks/useNotices";
 import {useZones} from "@/hooks/useZones";
 import {useIsDesktop} from "@/hooks/useMediaQuery";
@@ -24,13 +24,28 @@ import {NoticeDetail} from "@/components/NoticeDetail";
 import {NoticeGroups} from "@/components/NoticeGroups";
 import {ErrorBlock, LoadingBlock} from "@/components/Loading";
 import Link from "next/link";
+import {useRouter, useSearchParams} from "next/navigation";
 import {pageUrl} from "@/constants/routeUrl";
 import {ZoneChips} from "@/components/ZoneChips";
 import {UpcomingList} from "@/components/UpcomingList";
 import {useAddSheet} from "@/store/ui";
 
+/**
+ * `useSearchParams` 를 쓰는 부분은 Suspense 로 감싼다. 감싸지 않으면 Next 가
+ * 이 페이지를 정적으로 미리 그리지 못한다고 빌드에서 막는다.
+ */
 export default function HomePage() {
+    return (
+        <Suspense fallback={<LoadingBlock/>}>
+            <Home/>
+        </Suspense>
+    );
+}
+
+function Home() {
     const {selectedZoneId} = useZones();
+    const router = useRouter();
+    const searchParams = useSearchParams();
     const {open: addOpen, openAdd} = useAddSheet();
     const isDesktop = useIsDesktop();
 
@@ -38,8 +53,26 @@ export default function HomePage() {
     /**
      * PC 에서 옆 칸에 펼쳐 놓은 일정. 전체 화면으로 넘어가면 달력이 통째로
      * 사라져서, 하나씩 확인할 때마다 뒤로 → 다시 클릭을 반복하게 된다.
+     *
+     * 상태를 주소(`?notice=13`)에 둔다 — 새로고침해도 보던 것이 그대로 남고,
+     * 브라우저 뒤로가기가 목록으로 돌아가는 버튼이 되며, 링크로 건넬 수 있다.
      */
-    const [openNoticeId, setOpenNoticeId] = useState<number | null>(null);
+    const openNoticeId = Number(searchParams.get("notice")) || null;
+
+    const setOpenNoticeId = useCallback(
+        (noticeId: number | null) => {
+            const next = new URLSearchParams(searchParams.toString());
+            if (noticeId) next.set("notice", String(noticeId));
+            else next.delete("notice");
+            const query = next.toString();
+            const url = query ? `${pageUrl.home}?${query}` : pageUrl.home;
+
+            // 열 때는 쌓고(뒤로가기로 닫히도록), 닫을 때는 덮어쓴다(빈 칸이 쌓이지 않게)
+            if (noticeId) router.push(url, {scroll: false});
+            else router.replace(url, {scroll: false});
+        },
+        [router, searchParams],
+    );
     /** 보고 있는 자리. 주간일 때는 그 주, 월간일 때는 그 달 */
     const [anchor, setAnchor] = useState(() => startOfDay(new Date()));
     const [selectedDate, setSelectedDate] = useState(() => toISO(startOfDay(new Date())));
@@ -153,7 +186,16 @@ export default function HomePage() {
 
         window.addEventListener("keydown", onKeyDown);
         return () => window.removeEventListener("keydown", onKeyDown);
-    }, [isDesktop, addOpen, selectedDate, anchor, goToday, openNoticeId]);
+    }, [isDesktop, addOpen, selectedDate, anchor, goToday, openNoticeId, setOpenNoticeId]);
+
+    /**
+     * 모바일에는 옆 칸이 없다. `?notice=` 를 들고 좁은 화면으로 들어오면
+     * (PC 에서 복사한 링크를 폰에서 열면) 전체 화면 상세로 넘겨준다.
+     */
+    useEffect(() => {
+        if (isDesktop || openNoticeId === null) return;
+        router.replace(pageUrl.notice(openNoticeId));
+    }, [isDesktop, openNoticeId, router]);
 
     const headingCls = "px-1 pb-1.5 pt-4 text-xs font-medium text-muted";
 
