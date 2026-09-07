@@ -5,7 +5,7 @@ from .views import (
     NoticeDetailView,
     NoticeListCreateView,
     SendAlertView,
-    list_weekly, alert_notices,
+    list_weekly, alert_notices, update_alert,
 )
 
 urlpatterns = [
