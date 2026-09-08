@@ -17,8 +17,9 @@ export const DAY_OPTIONS = [
 export const HOUR_OPTIONS = Array.from({ length: 18 }, (_, i) => i + 6);
 
 export const PRESETS: Record<string, string[]> = {
-  준비물용: ["D-1 20:00", "D 07:00"],
-  마감용: ["D-3 20:00", "D-1 20:00", "D 07:00"],
+  "기본으로": ["D-1 20:00", "D 08:00"],
+  "미리미리": ["D-3 20:00", "D-1 20:00", "D 08:00"],
+  "잊기 않게": ["D-7 20:00", "D-3 20:00", "D-1 20:00", "D 08:00"],
 };
 
 export const PRIORITIES: { value: Priority; label: string; hint: string }[] = [
