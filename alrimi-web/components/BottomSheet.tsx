@@ -27,7 +27,11 @@ const KEYBOARD_TYPES = new Set([
 
 function raisesKeyboard(el: Element | null): el is HTMLElement {
   if (el instanceof HTMLTextAreaElement) return true;
-  if (el instanceof HTMLInputElement) return KEYBOARD_TYPES.has(el.type);
+  // 날짜 칸은 달력에서만 고치므로 `inputMode="none"` 이다. type 은 text 라
+  // 아래 목록에 걸리지만 키보드는 뜨지 않는다.
+  if (el instanceof HTMLInputElement) {
+    return el.inputMode !== "none" && KEYBOARD_TYPES.has(el.type);
+  }
   return false;
 }
 

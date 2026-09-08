@@ -1,6 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
+import DatePicker from "react-datepicker";
+import { ko } from "date-fns/locale";
 import toast from "react-hot-toast";
 import {
   DAY_OPTIONS,
@@ -11,7 +13,7 @@ import {
   makeCode,
   sortCodes,
 } from "@/lib/alerts";
-import { fullLabel, hourLabel, startOfDay, toISO } from "@/lib/date";
+import { fullLabel, hourLabel, startOfDay, toDate, toISO } from "@/lib/date";
 import { firstError } from "@/lib/api";
 import { useCreateNotice, useUpdateNotice } from "@/hooks/useNotices";
 import { onColor } from "@/lib/color";
@@ -23,20 +25,6 @@ const pad = (n: number) => String(n).padStart(2, "0");
 
 /** 일정 시각으로 고를 수 있는 값. 알림 시각과 달리 하루 24시간을 다 연다 */
 const EVENT_HOURS = Array.from({ length: 24 }, (_, i) => i);
-
-/**
- * 날짜 칸을 누르면 달력을 띄운다.
- *
- * showPicker()는 사용자 조작 없이 부르면 예외를 던지고, 지원하지 않는 브라우저도
- * 있다. 어느 쪽이든 기본 동작(직접 입력)은 그대로 남으므로 조용히 넘어간다.
- */
-function openDatePicker(input: HTMLInputElement) {
-  try {
-    input.showPicker?.();
-  } catch {
-    // 달력만 안 열릴 뿐 입력은 된다
-  }
-}
 
 interface Props {
   /** 있으면 수정, 없으면 등록 */
@@ -64,6 +52,9 @@ export function NoticeForm({ notice, initialDate, onDone }: Props) {
   const [alerts, setAlerts] = useState<string[]>(
     notice ? sortCodes(notice.alerts.map((a) => a.code)) : PRESETS["준비물용"],
   );
+
+  // 달력을 띄울 기준. 날짜 칸이 아니라 그 줄 전체다 — 아래 주석 참고
+  const dateRow = useRef<HTMLDivElement>(null);
 
   const [day, setDay] = useState(1);
   const [hour, setHour] = useState(20);
@@ -137,6 +128,12 @@ export function NoticeForm({ notice, initialDate, onDone }: Props) {
   };
 
   const hint = PRIORITIES.find((p) => p.value === priority)!.hint;
+
+  // 올해면 연도를 접는다. `sectionLabel` 과 같은 모양이라 목록과 따로 읽히지 않는다
+  const dateFormat =
+    eventDate && toDate(eventDate).getFullYear() !== new Date().getFullYear()
+      ? "yyyy년 M월 d일 E"
+      : "M월 d일 E";
   /*
     테두리는 늘 보인다. 눌렀을 때만 생기면 없던 것이 튀어나오는 것처럼 읽히고,
     누르기 전에는 어디가 입력칸인지도 알기 어렵다. 초점에서는 색만 바뀐다.
@@ -186,24 +183,66 @@ export function NoticeForm({ notice, initialDate, onDone }: Props) {
           </div>
         </div>
 
-        <div className="flex items-center gap-3 px-4 py-2">
+        <div ref={dateRow} className="flex items-center gap-3 px-4 py-2">
           <label htmlFor="date" className="w-14 shrink-0 text-sm text-muted">
             날짜
           </label>
-          <input
+          {/*
+            브라우저마다 다르게 생긴 `type="date"` 대신 직접 그린 달력을 쓴다.
+            폰에서는 화면을 덮는 판이 올라오고 PC 에서는 좁은 칸에 숫자를 밀어넣게
+            되던 것이, 어디서나 같은 한 장짜리 달력이 된다.
+          */}
+          <DatePicker
             id="date"
-            type="date"
-            min={minDate}
-            value={eventDate}
-            onChange={(e) => {
-              setEventDate(e.target.value);
+            locale={ko}
+            selected={eventDate ? toDate(eventDate) : null}
+            minDate={toDate(minDate)}
+            onChange={(date: Date | null) => {
+              setEventDate(date ? toISO(date) : "");
               setError(null);
             }}
-            // 브라우저는 오른쪽 끝 아이콘을 눌러야만 달력을 연다.
-            // 칸 어디를 눌러도 열리게 한다 — 좁은 화면에서 그 아이콘만 겨냥하기 어렵다.
-            onClick={(e) => openDatePicker(e.currentTarget)}
-            onFocus={(e) => openDatePicker(e.currentTarget)}
-            className={`${inputCls} ${rowFieldCls}`}
+            /*
+              고른 날은 읽으라고 있는 값이지 고쳐 쓰라고 있는 값이 아니다. 손으로
+              고치게 두면 "2026년 9월"까지 지운 순간 파싱이 깨져 고른 날이 통째로
+              날아간다. 칸을 눌러 달력에서만 바꾸게 한다.
+
+              달력에서 날을 고를 때도 같은 콜백이 불리는데, 그때만 둘째 인자가 온다.
+            */
+            onChangeRaw={(e, fromCalendar) => {
+              if (!fromCalendar) e?.preventDefault();
+            }}
+            // 소프트 키보드는 띄우지 않는다 — 어차피 못 적는 칸인데 화면 절반을 가린다
+            customInput={<input inputMode="none" />}
+            /*
+              칸이 좁다 — 옆에 시각 칸이 붙어 있어 폰에서는 100px 남짓이다.
+              목록 머리글과 같은 "9월 8일 화" 로 적고, 해가 넘어가는 날에만 연도를
+              앞에 붙인다. 늘 붙이면 대개 뻔한 올해를 적느라 정작 요일이 잘린다.
+            */
+            dateFormat={dateFormat}
+            // 머리글도 앱의 다른 달력과 같은 "2026년 9월" 로
+            dateFormatCalendar="yyyy년 M월"
+            placeholderText="고르기"
+            /*
+              달력이 뜨는 자리. 두 가지를 손봐야 시트 안에서 온전히 보인다.
+
+              `fixed` — 시트 안쪽 스크롤 칸에 갇혀 있어서, 기본값(absolute)이면
+              칸 아래로 잘린다. fixed 는 스크롤 칸이 아니라 시트를 기준으로 떠서
+              잘리지 않고, 스크롤하면 칸을 따라 같이 움직인다.
+
+              `popperTargetRef` — 왼쪽 끝을 날짜 칸이 아니라 **줄 전체**에 맞춘다.
+              칸은 폭이 100px 남짓인데 달력은 그 두 배 반이라, 칸에 맞추면 오른쪽이
+              화면 밖으로 나간다. 줄에 맞추면 카드 안에 그대로 담긴다.
+            */
+            popperPlacement="bottom-start"
+            popperProps={{ strategy: "fixed" }}
+            popperTargetRef={dateRow}
+            showPopperArrow={false}
+            // 칸 자체는 다른 한 줄짜리 칸과 같은 모양·높이여야 한다.
+            // flex-1 은 감싸개가 받아야 늘어난다 — input 은 그 안에서 꽉 채운다.
+            wrapperClassName="-mx-1 min-w-0 flex-1"
+            // 커서는 감춘다 — 적을 수 없는 칸에서 깜빡이면 적으라는 뜻으로 읽힌다
+            className={`${fieldCls} ${rowFieldCls} w-full caret-transparent text-base
+                        placeholder:text-muted/50`}
           />
 
           {/*
@@ -224,7 +263,7 @@ export function NoticeForm({ notice, initialDate, onDone }: Props) {
               eventHour === null ? "text-muted" : "border-pine text-pine"
             }`}
           >
-            <option value="">시각 없음</option>
+            <option value="">시간 선택</option>
             {EVENT_HOURS.map((h) => (
               <option key={h} value={h}>
                 {hourLabel(h)}
