@@ -17,7 +17,7 @@ class Priority(models.IntegerChoices):
     """
 
     LOW = 2, "낮음"
-    NORMAL = 3, "보통"
+    NORMAL = 4, "보통"
     URGENT = 5, "긴급"
 
 
