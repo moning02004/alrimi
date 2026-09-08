@@ -77,7 +77,36 @@ export const dayName = (d: Date) => DAYS[d.getDay()];
 
 export function fullLabel(iso: string) {
   const d = toDate(iso);
-  return `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일 ${DAYS[d.getDay()]}요일`;
+  return `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일 (${DAYS[d.getDay()]})`;
+}
+
+/**
+ * 한 일정이 걸칠 수 있는 최대 날 수. 서버도 같은 값에서 끊는다
+ * (alrimi-api `notices/models.py` MAX_SPAN_DAYS) — 한쪽만 바꾸면
+ * 폼에서는 고를 수 있는데 저장에서 되돌려받는다.
+ */
+export const MAX_SPAN_DAYS = 60;
+
+/** 걸치는 날 수. 하루짜리는 1이다 */
+export function spanDays(start: string, end: string) {
+  if (!end || end <= start) return 1;
+  return Math.round((toDate(end).getTime() - toDate(start).getTime()) / 86_400_000) + 1;
+}
+
+/**
+ * 그 일정의 며칠째인지(1부터). 창이 아니라 일정의 시작일부터 센다 —
+ * 주를 넘겨 보고 있어도 "2일차" 는 늘 같은 날을 가리켜야 한다.
+ */
+export const dayIndex = (start: string, day: string) =>
+  Math.round((toDate(day).getTime() - toDate(start).getTime()) / 86_400_000) + 1;
+
+/**
+ * 상세 화면의 날짜 줄. 하루짜리는 지금까지와 같고, 며칠짜리면 양끝과 기간을 적는다.
+ * "9월 25일 – 27일" 처럼 뒤쪽은 짧게 — 달이 넘어갈 때만 달을 다시 적는다.
+ */
+export function spanLabel(start: string, end: string) {
+  if (!end || end === start) return fullLabel(start);
+  return `${fullLabel(start)} ~ ${fullLabel(end)} · ${spanDays(start, end)}일간`;
 }
 
 export function timeLabel(iso: string) {
@@ -110,21 +139,50 @@ export interface DateGroup {
   items: NoticeListItem[];
 }
 
-/** 목록의 축은 날짜다. 존은 색으로만 구분한다 */
-export function groupByDate(notices: NoticeListItem[]): DateGroup[] {
-  const order: string[] = [];
+interface GroupOptions {
+  /** 보고 있는 창. 여기 밖의 날은 만들지 않는다 */
+  from?: string;
+  to?: string;
+  /** 지난 일정만 최근 것부터 */
+  desc?: boolean;
+}
+
+/**
+ * 목록의 축은 날짜다. 존은 색으로만 구분한다.
+ *
+ * 며칠에 걸치는 일정은 **걸치는 날마다** 들어간다 — 여행 둘째 날 아침에 목록을
+ * 열었을 때 비어 있으면 안 되기 때문이다. 같은 일정이 여러 날에 나오므로
+ * 그리는 쪽은 열쇠를 `id` 만으로 잡으면 안 된다(NoticeGroups 참고).
+ *
+ * 창(`from`~`to`)을 주면 그 밖의 날은 만들지 않는다. 서버는 창에 **걸치는** 것을
+ * 주므로, 자르지 않으면 지난주에 떠난 여행 때문에 이번 주 목록 위에 지난주 날짜가
+ * 붙는다.
+ */
+export function groupByDate(
+  notices: NoticeListItem[],
+  { from, to, desc = false }: GroupOptions = {},
+): DateGroup[] {
   const buckets = new Map<string, NoticeListItem[]>();
 
   for (const notice of notices) {
-    const key = notice.event_date;
-    if (!buckets.has(key)) {
-      buckets.set(key, []);
-      order.push(key);
+    const first = from && notice.event_date < from ? from : notice.event_date;
+    // end_date 가 없던 시절의 응답(캐시)이 섞여도 하루짜리로 읽고 넘어간다
+    const last = notice.end_date && notice.end_date > first ? notice.end_date : first;
+    const stop = to && last > to ? to : last;
+
+    for (let day = first; day <= stop; day = toISO(addDays(toDate(day), 1))) {
+      const items = buckets.get(day);
+      if (items) items.push(notice);
+      else buckets.set(day, [notice]);
     }
-    buckets.get(key)!.push(notice);
   }
 
-  return order.map((iso) => ({ iso, label: sectionLabel(iso), items: buckets.get(iso)! }));
+  // 날짜로 세운다. 도착 순서를 따르면 긴 일정이 뒤쪽 날들을 먼저 만들어
+  // 그 뒤에 오는 짧은 일정의 날이 아래로 밀린다.
+  const days = [...buckets.keys()].sort();
+  if (desc) days.reverse();
+
+  return days.map((iso) => ({ iso, label: sectionLabel(iso), items: buckets.get(iso)! }));
 }
 
 export const startOfMonth = (d: Date) => new Date(d.getFullYear(), d.getMonth(), 1);

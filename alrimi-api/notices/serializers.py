@@ -5,7 +5,7 @@ from rest_framework import serializers
 
 from zones.models import Zone
 
-from .models import Alert, Notice, parse_code
+from .models import MAX_SPAN_DAYS, Alert, Notice, parse_code
 
 _DATETIME = serializers.DateTimeField()
 
@@ -47,6 +47,8 @@ class NoticeListSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "event_date",
+            # 카드가 "2일차/3" 을 그리려면 걸치는 끝을 알아야 한다
+            "end_date",
             "event_hour",
             "title",
             "priority",
@@ -74,6 +76,7 @@ class NoticeDetailSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "event_date",
+            "end_date",
             "event_hour",
             "title",
             "content",
@@ -103,6 +106,7 @@ class NoticeWriteSerializer(serializers.ModelSerializer):
             "id",
             "zone",
             "event_date",
+            "end_date",
             "event_hour",
             "title",
             "content",
@@ -141,6 +145,34 @@ class NoticeWriteSerializer(serializers.ModelSerializer):
     def validate_alerts(self, value):
         return value
 
+    def validate(self, attrs):
+        """
+        기간은 시작일과 마지막 날 **두 칸이 함께** 있어야 말이 된다.
+        한 칸씩 보는 validate_<field> 로는 검사할 수 없어 여기서 본다.
+
+        마지막 날을 아예 안 보낸 요청은 그냥 보낸다 — 등록이면 하루짜리이고,
+        수정이면 시작일을 옮긴 만큼 마지막 날도 같이 밀린다(`update` 참고).
+        여기서 저장된 옛 마지막 날과 견주면, 3일짜리 여행을 다음 주로 옮기는
+        평범한 수정이 "마지막 날보다 뒤"라는 이유로 막힌다.
+        """
+        end = attrs.get("end_date")
+        if end is None:
+            return attrs
+
+        start = attrs.get("event_date") or getattr(self.instance, "event_date", None)
+        if start is None:
+            return attrs
+
+        if end < start:
+            raise serializers.ValidationError(
+                {"end_date": "마지막 날은 시작하는 날보다 앞설 수 없어요."}
+            )
+        if (end - start).days + 1 > MAX_SPAN_DAYS:
+            raise serializers.ValidationError(
+                {"end_date": f"한 일정은 최대 {MAX_SPAN_DAYS}일까지 이어질 수 있어요."}
+            )
+        return attrs
+
     @transaction.atomic
     def create(self, validated_data):
         codes = validated_data.pop("alerts", None)
@@ -156,6 +188,12 @@ class NoticeWriteSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         codes = validated_data.pop("alerts", None)
         completed = validated_data.pop("completed", None)
+
+        # 시작일만 옮기면 기간은 그대로 따라 움직인다. 3일짜리 여행을 다음 주로
+        # 미뤘을 뿐인데 마지막 날이 제자리에 남아 순서가 뒤집히면 안 된다.
+        moved = validated_data.get("event_date")
+        if moved is not None and "end_date" not in validated_data:
+            validated_data["end_date"] = instance.end_date + (moved - instance.event_date)
 
         for field, value in validated_data.items():
             setattr(instance, field, value)

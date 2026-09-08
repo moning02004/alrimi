@@ -68,7 +68,7 @@ export function DayPanel({
         <>
           <div className="space-y-1.5">
             {items.map((notice) => (
-              <NoticeCard key={notice.id} notice={notice} onSelect={onSelect} />
+              <NoticeCard key={notice.id} notice={notice} onSelect={onSelect} on={date} />
             ))}
           </div>
 

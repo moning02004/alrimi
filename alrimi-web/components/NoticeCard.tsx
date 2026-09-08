@@ -5,7 +5,7 @@ import toast from "react-hot-toast";
 import { HiCheckCircle, HiOutlineCheckCircle } from "react-icons/hi2";
 import { pageUrl } from "@/constants/routeUrl";
 import { priorityLabel } from "@/lib/alerts";
-import { hourLabel } from "@/lib/date";
+import { dayIndex, hourLabel, spanDays } from "@/lib/date";
 import { useToggleComplete } from "@/hooks/useNotices";
 import { useZoneMark } from "@/hooks/useZones";
 import { AlertDots } from "./AlertDots";
@@ -25,15 +25,33 @@ export function NoticeCard({
   notice,
   /** 주면 링크 대신 이 함수를 부른다 — PC 2단에서 옆 칸에 펼치려고 */
   onSelect,
+  on,
 }: {
   notice: NoticeListItem;
   onSelect?: (noticeId: number) => void;
+  /**
+   * 이 카드가 놓인 날 (YYYY-MM-DD). 며칠에 걸치는 일정은 걸치는 날마다 한 장씩
+   * 나오므로, 지금 몇 일째를 그리는 중인지 알아야 "2일차" 를 적을 수 있다.
+   */
+  on?: string;
 }) {
   const badge = priorityLabel(notice.priority);
   const zone = useZoneMark()(notice.zone_id);
   // 목록에서는 완료한 것이 아예 빠진다. 기간·하루 보기에만 흐리게 남아 되돌릴 수 있다.
   const done = notice.completed_at !== null;
   const toggle = useToggleComplete(notice.id);
+
+  /*
+    며칠째인지. 여행 둘째 날 카드가 첫날 카드와 똑같이 생기면 목록을 훑다가
+    "어제 본 그건가?" 하고 멈추게 된다.
+
+    마지막 날만 숫자 대신 "마지막 날" 이라고 적는다 — 짐을 챙겨 돌아오는 날이라
+    남은 날 수보다 그 사실이 먼저 필요하다.
+  */
+  const span = spanDays(notice.event_date, notice.end_date);
+  const nth = on ? dayIndex(notice.event_date, on) : 0;
+  const dayMark =
+    span < 2 ? null : !nth ? `${span}일간` : nth === span ? "마지막 날" : `${nth}일차`;
 
   const inner = (
     <>
@@ -65,6 +83,12 @@ export function NoticeCard({
         )}
         {badge === "낮음" && <span className="shrink-0 text-xs text-muted">낮음</span>}
       </span>
+
+      {dayMark && (
+        <span className="shrink-0 rounded-full bg-paper px-2 py-0.5 text-xs tabular-nums text-muted">
+          {dayMark}
+        </span>
+      )}
 
       {!done && <AlertDots alerts={notice.alerts} />}
     </>

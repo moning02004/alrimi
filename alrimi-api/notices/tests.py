@@ -10,7 +10,8 @@ from django.utils import timezone
 from zones.models import Zone
 
 from .filters import UPCOMING_DAYS, upcoming_end
-from .models import Alert, Notice, due_at_for, parse_code
+from .models import MAX_SPAN_DAYS, Alert, Notice, due_at_for, parse_code
+from .views import next_week
 from .ntfy import NtfyError, compose, publish
 
 User = get_user_model()
@@ -321,7 +322,7 @@ class CreateNoticeZoneTests(ApiTestCase):
             "event_date": str(self.today),
             "title": "본문으로 공간 지정",
             "content": "",
-            "priority": 3,
+            "priority": 4,
             "alerts": ["D 07:00"],
         }
 
@@ -796,7 +797,7 @@ class CronEndpointTests(TestCase):
 
     def make(self, event_date, title="가을 운동회"):
         return Notice.objects.create(
-            zone=self.zone, event_date=event_date, title=title, content="", priority=3
+            zone=self.zone, event_date=event_date, title=title, content="", priority=4
         )
 
     # ── 열쇠 ────────────────────────────────────────────────────
@@ -921,7 +922,7 @@ class EventHourTests(ApiTestCase):
             "event_date": str(self.today + dt.timedelta(days=3)),
             "title": "가을 운동회",
             "content": "",
-            "priority": 3,
+            "priority": 4,
             "alerts": ["D-1 20:00"],
         }
         body.update(over)
@@ -986,3 +987,195 @@ class EventHourTests(ApiTestCase):
 
         res = self.get(reverse("notice-list") + f"?from={day}&to={day}")
         self.assertEqual([row["title"] for row in res.json()], ["아침", "저녁"])
+
+
+class MultiDayNoticeTests(ApiTestCase):
+    """
+    여행·행사처럼 며칠에 걸치는 일정.
+
+    경계가 전부 "겹치는가" 로 바뀌는 자리다 — 하루 보기, 주간 창, 다가올/지난,
+    달력 점, 주간 정리까지. 한 군데만 옛 규칙(시작일이 창 안인가)으로 남으면
+    여행 둘째 날 아침에 목록이 비어 보인다.
+    """
+
+    def payload(self, **over):
+        return {
+            "zone": self.zone.id,
+            "event_date": str(self.today + dt.timedelta(days=1)),
+            "title": "제주 여행",
+            "content": "",
+            "priority": 4,
+            "alerts": ["D-1 20:00"],
+            **over,
+        }
+
+    def make(self, start: int, days: int, title="제주 여행", **over) -> Notice:
+        """오늘로부터 `start`일 뒤에 시작해 `days`일 이어지는 일정."""
+        first = self.today + dt.timedelta(days=start)
+        return Notice.objects.create(
+            zone=self.zone,
+            event_date=first,
+            end_date=first + dt.timedelta(days=days - 1),
+            title=title,
+            **over,
+        )
+
+    def titles(self, query: str) -> list[str]:
+        return [n["title"] for n in self.get(f"{reverse('notice-list')}{query}").json()]
+
+    # ── 저장 ────────────────────────────────────────────────────
+
+    def test_a_notice_without_an_end_date_is_a_single_day(self):
+        """대부분은 하루짜리다. 폼이 안 보내도 마지막 날은 시작일로 채워진다."""
+        body = self.post(reverse("notice-list"), self.payload()).json()
+        self.assertEqual(body["end_date"], body["event_date"])
+
+    def test_a_span_round_trips(self):
+        start = self.today + dt.timedelta(days=1)
+        body = self.post(
+            reverse("notice-list"),
+            self.payload(end_date=str(start + dt.timedelta(days=2))),
+        ).json()
+        self.assertEqual(body["event_date"], str(start))
+        self.assertEqual(body["end_date"], str(start + dt.timedelta(days=2)))
+        self.assertEqual(Notice.objects.get(pk=body["id"]).span_days, 3)
+
+    def test_an_end_before_the_start_is_refused(self):
+        res = self.post(reverse("notice-list"), self.payload(end_date=str(self.today)))
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("end_date", res.json())
+
+    def test_an_absurdly_long_span_is_refused(self):
+        """연도를 잘못 골라 몇 달치 달력이 통째로 칠해지는 사고를 여기서 잡는다."""
+        far = self.today + dt.timedelta(days=MAX_SPAN_DAYS + 5)
+        res = self.post(reverse("notice-list"), self.payload(end_date=str(far)))
+        self.assertEqual(res.status_code, 400)
+
+    def test_moving_the_start_carries_the_end_along(self):
+        """3일짜리 여행을 다음 주로 미루면 3일짜리인 채로 옮겨간다."""
+        trip = self.make(1, 3)
+        moved = self.today + dt.timedelta(days=8)
+
+        res = self.client.patch(
+            reverse("notice-detail", args=[trip.id]),
+            {"event_date": str(moved)},
+            content_type="application/json",
+            headers=self.auth,
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()["end_date"], str(moved + dt.timedelta(days=2)))
+
+    def test_alerts_are_anchored_to_the_first_day(self):
+        """
+        "1일 전 20:00" 은 떠나기 전날 밤이다. 마지막 날을 기준으로 재면
+        여행이 다 끝나갈 때 짐 싸라는 알림이 온다.
+        """
+        trip = self.make(3, 4)
+        trip.sync_alerts(["D-1 20:00"])
+        alert = trip.alerts.get()
+        self.assertEqual(
+            timezone.localtime(alert.due_at).date(), trip.event_date - dt.timedelta(days=1)
+        )
+
+    # ── 하루 보기 ───────────────────────────────────────────────
+
+    def test_a_middle_day_shows_the_trip(self):
+        """여행 둘째 날 아침에 달력을 펼치면 그 날도 여행 중이어야 한다."""
+        self.make(0, 3)
+        middle = self.today + dt.timedelta(days=1)
+        self.assertEqual(self.titles(f"?date={middle}"), ["제주 여행"])
+
+    def test_the_last_day_is_inside_and_the_next_one_is_not(self):
+        self.make(0, 3)
+        last = self.today + dt.timedelta(days=2)
+        self.assertEqual(self.titles(f"?date={last}"), ["제주 여행"])
+        self.assertEqual(self.titles(f"?date={last + dt.timedelta(days=1)}"), [])
+
+    # ── 창·필터 ─────────────────────────────────────────────────
+
+    def test_a_window_catches_a_trip_that_began_before_it(self):
+        """지난주에 떠나 이번 주에 돌아오는 여행은 이번 주 목록에도 있어야 한다."""
+        self.make(-2, 5)
+        start = self.today
+        self.assertEqual(self.titles(f"?from={start}&to={start + dt.timedelta(days=6)}"), ["제주 여행"])
+
+    def test_upcoming_keeps_a_trip_that_is_already_under_way(self):
+        self.make(-1, 3)
+        self.assertEqual(self.titles("?filter=upcoming"), ["제주 여행"])
+
+    def test_past_waits_until_the_last_day_is_over(self):
+        """오늘까지 이어지는 여행은 아직 지난 일정이 아니다."""
+        self.make(-2, 3)  # 오늘이 마지막 날
+        self.assertEqual(self.titles("?filter=past"), [])
+
+        self.make(-9, 3, title="지난 여행")  # 엿새 전에 끝났다
+        self.assertEqual(self.titles("?filter=past"), ["지난 여행"])
+
+    def test_completing_an_ongoing_trip_takes_it_out_of_upcoming(self):
+        self.make(-1, 3, completed_at=timezone.now())
+        self.assertEqual(self.titles("?filter=upcoming"), [])
+
+    # ── 달력 점 ─────────────────────────────────────────────────
+
+    def calendar(self, query: str) -> dict:
+        return self.get(f"{reverse('calendar')}{query}").json()
+
+    def test_every_day_of_the_span_gets_a_dot(self):
+        self.make(1, 3)
+        data = self.calendar(f"?from={self.today}&to={self.today + dt.timedelta(days=7)}")
+        self.assertEqual(
+            list(data),
+            [str(self.today + dt.timedelta(days=offset)) for offset in (1, 2, 3)],
+        )
+
+    def test_dots_are_clipped_to_the_window(self):
+        """창 밖에서 시작한 여행도 창 안의 날에는 점이 찍히고, 창 밖에는 안 찍힌다."""
+        self.make(-3, 10)
+        data = self.calendar(f"?from={self.today}&to={self.today + dt.timedelta(days=2)}")
+        self.assertEqual(
+            list(data), [str(self.today + dt.timedelta(days=offset)) for offset in (0, 1, 2)]
+        )
+
+    def test_one_dot_per_zone_even_on_a_day_with_two_overlapping_notices(self):
+        """점은 개수가 아니라 어느 공간 일인지를 말한다. 겹쳐도 하나다."""
+        self.make(0, 3)
+        self.make(1, 1, title="같은 날 다른 일")
+        day = str(self.today + dt.timedelta(days=1))
+        self.assertEqual(len(self.calendar(f"?from={day}&to={day}")[day]), 1)
+
+    # ── 주간 정리(ntfy) ─────────────────────────────────────────
+
+    def trip_in_next_week(self, days: int, title="제주 여행") -> Notice:
+        """주간 정리가 담는 창(다음 주) 첫날부터 `days`일 이어지는 일정."""
+        start, _ = next_week()
+        return Notice.objects.create(
+            zone=self.zone,
+            event_date=start,
+            end_date=start + dt.timedelta(days=days - 1),
+            title=title,
+        )
+
+    @override_settings(N8N_API_KEY="right-key")
+    def test_the_weekly_digest_writes_the_trip_on_each_day_it_covers(self):
+        """
+        묶음은 날짜별이라, 여행이 시작한 날에만 적히면 둘째 날 줄이 비어 보인다.
+        어느 날이 며칠째인지도 함께 적는다.
+        """
+        # 창은 views.next_week() 이 정한다. 여기서 다시 세면 그쪽이 바뀔 때
+        # 이 테스트만 조용히 창 밖을 가리키게 된다.
+        self.trip_in_next_week(3)
+        res = self.client.get("/notices/weekly", headers={"x-api-key": "right-key"})
+        self.assertEqual(res.status_code, 200)
+
+        lines = [line for line in res.json()[0]["message"].splitlines() if "제주 여행" in line]
+        self.assertEqual(len(lines), 3)
+        self.assertTrue(all("/3일차)" in line for line in lines), lines)
+        # 같은 줄이 반복되면 며칠째인지 표시가 붙지 않은 것이다
+        self.assertEqual(len(set(lines)), len(lines))
+
+    @override_settings(N8N_API_KEY="right-key")
+    def test_a_single_day_notice_gets_no_day_marker(self):
+        self.trip_in_next_week(1, title="상담")
+        res = self.client.get("/notices/weekly", headers={"x-api-key": "right-key"})
+        line = next(line for line in res.json()[0]["message"].splitlines() if "상담" in line)
+        self.assertNotIn("일차", line)

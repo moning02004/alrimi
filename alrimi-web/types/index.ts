@@ -1,4 +1,4 @@
-export type Priority = 2 | 3 | 5;
+export type Priority = 2 | 4 | 5;
 
 export interface Zone {
   id: number;
@@ -26,7 +26,10 @@ export interface AlertItem {
 
 export interface NoticeListItem {
   id: number;
+  /** 시작하는 날. 알림 시점(D-1 …)도 이 날을 기준으로 잰다 */
   event_date: string;
+  /** 마지막 날. 하루짜리는 `event_date` 와 같은 값이라 늘 채워져 온다 */
+  end_date: string;
   /** 몇 시 일인지(0~23). 선택이라 비어 있을 수 있고, 그때는 "하루 종일" 이다 */
   event_hour: number | null;
   title: string;
@@ -47,6 +50,8 @@ export interface NoticeDetail extends Omit<NoticeListItem, "alerts"> {
 export interface NoticePayload {
   zone: number;
   event_date: string;
+  /** 하루짜리면 `event_date` 와 같은 값을 보낸다 */
+  end_date: string;
   event_hour: number | null;
   title: string;
   content: string;

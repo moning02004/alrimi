@@ -26,11 +26,20 @@ def upcoming_end(today: dt.date) -> dt.date:
 
 
 def filter_q(name: str, today: dt.date) -> Q:
+    """
+    일정은 하루에 끝나기도 하고 여행처럼 며칠에 걸치기도 한다. 그래서 경계는
+    "시작일이 창 안인가"가 아니라 **"창과 겹치는가"** 로 본다 —
+    어제 떠난 3일짜리 여행은 오늘도 진행 중이므로 다가올 목록에 있어야 한다.
+
+    `later` 만 시작일로 가른다. 이미 시작한 일정은 `upcoming` 이 데려가므로,
+    여기서도 겹침으로 보면 같은 일정이 두 목록에 겹쳐 나온다.
+    """
     if name == "past":
-        return Q(event_date__lt=today)
+        # 다 끝난 것만 지난 일정이다. 오늘까지 이어지는 여행은 아직 지나지 않았다.
+        return Q(end_date__lt=today)
     if name == "later":
         return Q(event_date__gt=upcoming_end(today))
-    return Q(event_date__gte=today, event_date__lte=upcoming_end(today))
+    return Q(event_date__lte=upcoming_end(today), end_date__gte=today)
 
 
 def ordering_for(name: str) -> list[str]:

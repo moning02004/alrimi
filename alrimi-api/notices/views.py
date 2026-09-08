@@ -112,8 +112,10 @@ class NoticeListCreateView(generics.ListCreateAPIView):
         """
         queryset = Notice.objects.filter(zone__owner=self.request.user)
         if hide_completed:
+            # 끝난 날짜가 기준이다 — 오늘까지 이어지는 여행을 완료로 덮었다면
+            # 마지막 날까지는 앞으로의 목록에서 빠져야 한다.
             queryset = queryset.exclude(
-                completed_at__isnull=False, event_date__gte=timezone.localdate()
+                completed_at__isnull=False, end_date__gte=timezone.localdate()
             )
         return (
             queryset.filter(zone_filter(self.request), condition)
@@ -129,15 +131,21 @@ class NoticeListCreateView(generics.ListCreateAPIView):
         # 이 화면이 완료를 되돌리는 유일한 길이다.
         if params.get("date"):
             day = parse_date(params["date"], "date")
+            # 그 날 시작하는 것만이 아니라 그 날에 걸치는 것 전부.
+            # 여행 둘째 날 아침에 열었을 때 비어 있으면 안 된다.
             return self.rows(
-                Q(event_date=day), ["completed_at", HOUR_ORDER, "zone_id", "id"], hide_completed=False
+                Q(event_date__lte=day, end_date__gte=day),
+                ["completed_at", HOUR_ORDER, "zone_id", "id"],
+                hide_completed=False,
             )
 
         # 주간 스트립은 앞뒤로 넘길 수 있어서 창이 오늘에 고정되지 않는다.
         # 스트립이 그린 기간을 그대로 받아 목록이 같은 창을 보게 한다.
         if params.get("from") or params.get("to"):
             start, end = parse_range(params, require_end=False)
-            window = Q(event_date__gte=start)
+            # 창과 겹치는 것 전부. 지난주에 떠난 여행이 이번 주까지 이어지면
+            # 이번 주 목록에도 있어야 한다.
+            window = Q(end_date__gte=start)
             if end is not None:
                 window &= Q(event_date__lte=end)
             return self.rows(
@@ -172,21 +180,36 @@ class CalendarView(APIView):
             Notice.objects.filter(
                 zone_filter(request),
                 zone__owner=request.user,
-                event_date__gte=start,
+                # 창에 걸치기만 하면 된다. 창 밖에서 시작한 여행도 창 안의 날들에는
+                # 점이 찍혀야 한다.
                 event_date__lte=end,
+                end_date__gte=start,
             )
             # 목록에서 뺀 것은 점도 찍지 않는다. 점은 있는데 눌러도 아래에 없는
             # 날을 만들지 않으려는 것이다. 지난 날은 목록에 남으므로 점도 남긴다.
-            .exclude(completed_at__isnull=False, event_date__gte=timezone.localdate())
-            .values_list("event_date", "zone_id", "zone__color")
-            .distinct()
+            .exclude(completed_at__isnull=False, end_date__gte=timezone.localdate())
+            .values_list("event_date", "end_date", "zone_id", "zone__color")
             .order_by("event_date", "zone_id")
         )
 
+        # 여러 날짜리는 걸치는 날마다 찍는다. 같은 날 같은 공간은 한 번만 —
+        # 점은 개수가 아니라 "어느 공간 일이 있는가" 를 말하기 때문이다.
+        seen: set[tuple[str, int]] = set()
         calendar: dict[str, list[dict]] = defaultdict(list)
-        for event_date, zone_id, color in rows:
-            calendar[event_date.isoformat()].append({"zone": zone_id, "color": color})
-        return Response(calendar)
+        for event_date, last_date, zone_id, color in rows:
+            day = max(event_date, start)
+            while day <= min(last_date, end):
+                key = (day.isoformat(), zone_id)
+                if key not in seen:
+                    seen.add(key)
+                    calendar[key[0]].append({"zone": zone_id, "color": color})
+                day += dt.timedelta(days=1)
+
+        # 하루 안에서는 공간 순. 긴 일정이 먼저 펼쳐지는 바람에 날마다 점 순서가
+        # 달라지면, 같은 공간의 점이 날짜마다 다른 자리에 찍혀 눈이 못 따라간다.
+        return Response(
+            {day: sorted(items, key=lambda item: item["zone"]) for day, items in calendar.items()}
+        )
 
 
 class NoticeDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -244,7 +267,7 @@ def next_week() -> tuple[dt.date, dt.date]:
     today = timezone.localdate()
     # weekday(): 월=0 … 일=6. 이번 주 월요일에서 7일 뒤가 다음 주 월요일이다.
     next_monday = today - dt.timedelta(days=today.weekday()) + dt.timedelta(days=7)
-    return today, today + dt.timedelta(days=6)
+    return next_monday, next_monday + dt.timedelta(days=6)
 
 
 # 일요일마다 다음주 일정을 정리해서 알림을 보낸다.
@@ -263,8 +286,10 @@ def list_weekly(request):
     start_date, end_date = next_week()
     rows = (
         Notice.objects.select_related("zone", "zone__owner").prefetch_related("alerts")
-        .filter(event_date__gte=start_date,
-                event_date__lte=end_date,
+        # 이 주에 걸치기만 하면 담는다. 지난주에 떠나 이번 주에 돌아오는 여행도
+        # 이번 주에 있는 일이다.
+        .filter(event_date__lte=end_date,
+                end_date__gte=start_date,
                 completed_at__isnull=True)
         .order_by("event_date", "event_hour", "zone_id", "id")
     )
@@ -273,13 +298,24 @@ def list_weekly(request):
     for notice in rows:
         zone_name = notice.zone.name
         title = notice.title
-        event_date = notice.event_date.strftime("%Y-%m-%d")
         event_hour = f"{str(notice.event_hour).zfill(2)}시 " if notice.event_hour else ""
-        weekly[notice.zone.owner.ntfy_topic][event_date].append(f"{event_hour}[{zone_name}] {title}")
+        span = notice.span_days
+        # 여러 날짜리는 걸치는 날마다 적는다. 여행 둘째 날 줄에 아무것도 없으면
+        # 그 날은 비어 있는 것으로 읽힌다.
+        for day in notice.days(start_date, end_date):
+            # 며칠째인지는 창이 아니라 일정의 시작일부터 센다
+            nth = (day - notice.event_date).days + 1
+            mark = f" ({nth}/{span}일차)" if span > 1 else ""
+            weekly[notice.zone.owner.ntfy_topic][day.strftime("%Y-%m-%d")].append(
+                f"{event_hour}[{zone_name}] {title}{mark}"
+            )
 
     body = defaultdict(list)
     for ntfy_topic, event_data in weekly.items():
-        for event_date, content in event_data.items():
+        # 긴 일정이 먼저 펼쳐지면서 날짜 순서가 흐트러진다. 날짜별 묶음이라
+        # 날짜가 뒤죽박죽이면 읽는 순서가 사라진다.
+        for event_date in sorted(event_data):
+            content = event_data[event_date]
             last_index = len(content) - 1
             content = [f" {'└' if index == last_index else '┌' if index == 0 else '├'} {x}"
                        for index, x in enumerate(content)]

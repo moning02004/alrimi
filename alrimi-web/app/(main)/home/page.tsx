@@ -325,7 +325,9 @@ function Home() {
                                         이 기간에는 일정이 없어요
                                     </p>
                                 ) : (
-                                    <NoticeGroups groups={groupByDate(notices)}/>
+                                    // 서버는 이 창에 **걸치는** 것을 준다. 창으로 잘라야
+                                    // 지난주에 떠난 여행 때문에 위에 지난주 날짜가 붙지 않는다.
+                                    <NoticeGroups groups={groupByDate(notices, {from, to})}/>
                                 )}
 
                                 {/* 이 기간을 다 훑은 뒤 "그 전엔?" 하고 찾는 자리 */}

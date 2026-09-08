@@ -3,7 +3,7 @@
 import { useNotices } from "@/hooks/useNotices";
 import { useZoneMark } from "@/hooks/useZones";
 import { ZoneMark } from "./ZoneMark";
-import { hourLabel, sectionLabel, toDate } from "@/lib/date";
+import { hourLabel, sectionLabel, spanDays, toDate, toISO } from "@/lib/date";
 
 /** 좁은 칸이라 짧게. 가까운 날은 "오늘"·"내일", 나머지는 9/12 꼴 */
 function when(iso: string) {
@@ -11,6 +11,19 @@ function when(iso: string) {
   if (label.includes(" · ")) return label.split(" · ")[0];
   const d = toDate(iso);
   return `${d.getMonth() + 1}/${d.getDate()}`;
+}
+
+/**
+ * 언제인지 한 조각으로. 며칠에 걸치는 일정은 시작일만 적으면 어제 떠난 여행이
+ * "다가오는 일정"에 어제 날짜로 앉아 있게 된다. 이미 시작했으면 그렇게 말한다.
+ */
+function whenSpan(start: string, end: string) {
+  const span = spanDays(start, end);
+  if (span < 2) return when(start);
+
+  const today = toISO(new Date());
+  if (start <= today && today <= end) return `진행 중 · ${span}일`;
+  return `${when(start)}~ ${span}일`;
 }
 
 /**
@@ -71,7 +84,7 @@ export function UpcomingList({
                   />
                   <span className="min-w-0 flex-1 truncate text-sm">{notice.title}</span>
                   <span className="shrink-0 text-[11px] tabular-nums text-muted">
-                    {when(notice.event_date)}
+                    {whenSpan(notice.event_date, notice.end_date)}
                     {notice.event_hour !== null && ` ${hourLabel(notice.event_hour)}`}
                   </span>
                 </button>

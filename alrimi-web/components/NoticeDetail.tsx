@@ -8,7 +8,7 @@ import { ZoneMark } from "@/components/ZoneMark";
 import { ErrorBlock, LoadingBlock } from "@/components/Loading";
 import { firstError } from "@/lib/api";
 import { codeLabel } from "@/lib/alerts";
-import { fullLabel, hourLabel, monthDayLabel, timeLabel } from "@/lib/date";
+import { hourLabel, monthDayLabel, spanLabel, timeLabel } from "@/lib/date";
 import { BottomSheet } from "@/components/BottomSheet";
 import { NoticeForm } from "@/components/NoticeForm";
 
@@ -86,7 +86,8 @@ export function NoticeDetail({ noticeId, onClose, onDeleted, backLabel = "← �
 
       <main className="mx-auto w-full max-w-2xl p-4">
         <p className="text-xs text-muted">
-          {fullLabel(notice.event_date)}
+          {/* 하루짜리는 지금까지와 같고, 며칠짜리면 "9월 25일 금 – 27일 일 · 3일간" */}
+          {spanLabel(notice.event_date, notice.end_date)}
           {notice.event_hour !== null && (
             <span className="ml-1.5 font-medium text-pine">{hourLabel(notice.event_hour)}</span>
           )}

@@ -39,7 +39,8 @@ export default function PastPage() {
           (notices.length === 0 ? (
             <p className="py-10 text-center text-sm text-muted">지난 일정이 없어요</p>
           ) : (
-            <NoticeGroups groups={groupByDate(notices)} />
+            // 최근 것부터. 며칠짜리 일정은 걸친 날마다 한 번씩 나온다.
+            <NoticeGroups groups={groupByDate(notices, { desc: true })} />
           ))}
       </main>
     </>

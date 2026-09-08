@@ -22,8 +22,8 @@ export const PRESETS: Record<string, string[]> = {
 };
 
 export const PRIORITIES: { value: Priority; label: string; hint: string }[] = [
-  { value: 2, label: "낮음", hint: "소리와 진동 없이 조용히 도착해요" },
-  { value: 3, label: "보통", hint: "평소 알림처럼 소리가 울려요" },
+  { value: 2, label: "조용히", hint: "소리와 진동 없이 조용히 도착해요" },
+  { value: 4, label: "일반", hint: "평소 알림처럼 소리가 울려요" },
   { value: 5, label: "긴급", hint: "무음이나 방해금지 상태에서도 울려요" },
 ];
 
