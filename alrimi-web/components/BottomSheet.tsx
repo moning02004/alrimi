@@ -53,7 +53,15 @@ export function BottomSheet({ open, onOpenChange, title, description, children }
   };
 
   return (
-    <Drawer.Root open={open} onOpenChange={onOpenChange} repositionInputs={false}>
+    /*
+      `repositionInputs` 를 켜둔다(vaul 기본값이지만, 예전에 꺼져 있던 값이라 뜻을
+      남긴다). 켜두면 vaul 이 `visualViewport` 를 지켜보다가 소프트 키보드가 올라올 때
+      시트를 그만큼 올리거나 줄여서, 지금 쓰고 있는 칸과 아래 저장 버튼이 키보드에
+      가리지 않게 한다.
+
+      끄면 키보드가 시트 아래쪽을 덮어버려서, 저장하려면 매번 키보드를 먼저 내려야 한다.
+    */
+    <Drawer.Root open={open} onOpenChange={onOpenChange} repositionInputs>
       <Drawer.Portal>
         <Drawer.Overlay className="fixed inset-0 z-40 bg-ink/25" />
         {/*
