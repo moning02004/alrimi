@@ -89,7 +89,7 @@ export function BottomSheet({ open, onOpenChange, title, description, children }
           <Drawer.Description className="sr-only">{description ?? title ?? ""}</Drawer.Description>
 
           {/* `min-h-0` 이 있어야 이 칸이 시트보다 작아져서 안에서 스크롤된다 */}
-          <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">{children}</div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 pt-4">{children}</div>
         </Drawer.Content>
       </Drawer.Portal>
     </Drawer.Root>

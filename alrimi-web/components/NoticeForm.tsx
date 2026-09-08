@@ -398,7 +398,7 @@ export function NoticeForm({ notice, initialDate, onDone }: Props) {
         좌우·아래로 시트의 안쪽 여백만큼 빼냈다가 이 안에서 다시 준다. 안 그러면
         버튼 옆과 아래로 남은 틈으로 스크롤되는 카드가 비쳐 지나간다.
       */}
-      <div className="sticky bottom-0 -mx-4 -mb-4 bg-paper px-4 pb-4 pt-3">
+      <div className="sticky bottom-0 -mx-4 bg-paper px-4 py-2">
         <button
           onClick={submit}
           disabled={mutation.isPending}
