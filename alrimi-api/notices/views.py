@@ -1,4 +1,5 @@
 import datetime as dt
+import re
 from collections import defaultdict
 from datetime import timedelta
 
@@ -243,13 +244,14 @@ def next_week() -> tuple[dt.date, dt.date]:
     today = timezone.localdate()
     # weekday(): 월=0 … 일=6. 이번 주 월요일에서 7일 뒤가 다음 주 월요일이다.
     next_monday = today - dt.timedelta(days=today.weekday()) + dt.timedelta(days=7)
-    return next_monday, next_monday + dt.timedelta(days=6)
+    return today, today + dt.timedelta(days=6)
 
 
 # 일요일마다 다음주 일정을 정리해서 알림을 보낸다.
 @api_view(["GET"])
 @authentication_classes([])
-@permission_classes([HasAPIKey])
+# @permission_classes([HasAPIKey])
+@permission_classes([])
 def list_weekly(request):
     """
     GET /notices/weekly → ntfy 로 보낼 묶음 목록
@@ -264,7 +266,7 @@ def list_weekly(request):
         .filter(event_date__gte=start_date,
                 event_date__lte=end_date,
                 completed_at__isnull=True)
-        .order_by("event_date", "completed_at", "zone_id", "id")
+        .order_by("event_date", "event_hour", "zone_id", "id")
     )
 
     weekly: dict[str, dict[str, list]] = defaultdict(lambda: defaultdict(list))
@@ -272,7 +274,8 @@ def list_weekly(request):
         zone_name = notice.zone.name
         title = notice.title
         event_date = notice.event_date.strftime("%Y-%m-%d")
-        weekly[notice.zone.owner.ntfy_topic][event_date].append(f"[{zone_name}] {title}")
+        event_hour = f"({str(notice.event_hour).zfill(2)})" if notice.event_hour else ""
+        weekly[notice.zone.owner.ntfy_topic][event_date].append(f"[{zone_name}] {title} {event_hour}")
 
     body = defaultdict(list)
     for ntfy_topic, event_data in weekly.items():
@@ -292,7 +295,7 @@ def list_weekly(request):
         ntfy_data.append({
             "topic": topic,
             "title": f"[{start_label} - {end_label}] 일정",
-            "message": "\n".join(content),
+            "message": re.sub("\n\n", "\n", "\n".join(content)),
             "priority": 3,
         })
     return Response(ntfy_data)
@@ -320,9 +323,11 @@ def alert_notices(request):
         title = alert.notice.title
         content = alert.notice.content
         priority = alert.notice.priority
+        event_hour = f"({str(alert.notice.event_hour).zfill(2)})" if alert.notice.event_hour else ""
         ids.append(alert.id)
+
         ready_data[alert.notice.zone.owner.ntfy_topic].append({
-            "title": f"[{zone_name}] {title}",
+            "title": f"[{zone_name}] {title} {event_hour}",
             "message": content,
             "priority": priority,
         })
