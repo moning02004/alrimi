@@ -274,8 +274,8 @@ def list_weekly(request):
         zone_name = notice.zone.name
         title = notice.title
         event_date = notice.event_date.strftime("%Y-%m-%d")
-        event_hour = f"({str(notice.event_hour).zfill(2)})" if notice.event_hour else ""
-        weekly[notice.zone.owner.ntfy_topic][event_date].append(f"[{zone_name}] {title} {event_hour}")
+        event_hour = f"{str(notice.event_hour).zfill(2)}시 " if notice.event_hour else ""
+        weekly[notice.zone.owner.ntfy_topic][event_date].append(f"{event_hour}[{zone_name}] {title}")
 
     body = defaultdict(list)
     for ntfy_topic, event_data in weekly.items():
@@ -323,11 +323,11 @@ def alert_notices(request):
         title = alert.notice.title
         content = alert.notice.content
         priority = alert.notice.priority
-        event_hour = f"({str(alert.notice.event_hour).zfill(2)})" if alert.notice.event_hour else ""
+        event_hour = f"{str(notice.event_hour).zfill(2)}시 " if notice.event_hour else ""
         ids.append(alert.id)
 
         ready_data[alert.notice.zone.owner.ntfy_topic].append({
-            "title": f"[{zone_name}] {title} {event_hour}",
+            "title": f"{event_hour} [{zone_name}] {title}",
             "message": content,
             "priority": priority,
         })
