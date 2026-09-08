@@ -30,7 +30,7 @@ export const WEEK_DAYS = 7;
  */
 export function startOfMonday(d: Date) {
   const day = startOfDay(d);
-  return addDays(day, -((day.getDay() + 6) % 7)); // 월=0 … 일=6
+  return addDays(day, -(day.getDay() % 7)); // 월=0 … 일=6
 }
 
 /**
