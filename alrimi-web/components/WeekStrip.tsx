@@ -4,14 +4,14 @@ import { dayName, startOfDay, toISO, windowDays } from "@/lib/date";
 import type { CalendarMap } from "@/types";
 
 interface Props {
-  /** 이 날이 속한 주를 그린다. 첫 날일 필요는 없다 — 월요일은 안에서 잡는다 */
+  /** 이 날이 속한 주를 그린다. 첫 날일 필요는 없다 — 주 시작일은 안에서 잡는다 */
   start: Date;
   calendar: CalendarMap;
   onJumpTo: (iso: string) => void;
 }
 
 /**
- * 달력 한 주(월~일)를 그린다. 아래 목록과 **같은 창**이라 앞뒤로 넘기면 목록도
+ * 달력 한 주(일~토)를 그린다. 아래 목록과 **같은 창**이라 앞뒤로 넘기면 목록도
  * 같이 넘어간다.
  *
  * 요일 자리가 고정이다 — 수요일 칸은 늘 세 번째다. 오늘부터 굴리면 오늘이 늘

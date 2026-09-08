@@ -2,7 +2,7 @@ import datetime as dt
 from collections import defaultdict
 from datetime import timedelta
 
-from django.db.models import Q
+from django.db.models import F, Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_date as parse_date_string
@@ -47,6 +47,10 @@ def parse_date(raw: str, field: str) -> dt.date:
     if parsed is None:
         raise ValidationError({field: "YYYY-MM-DD 형식이어야 합니다."})
     return parsed
+
+
+# 같은 날 안에서 시각 순. 시각을 안 정한 것이 앞이다.
+HOUR_ORDER = F("event_hour").asc(nulls_first=True)
 
 
 #  범위를 열어두면 실수 한 번에 몇 년치를 긁는다
@@ -125,7 +129,7 @@ class NoticeListCreateView(generics.ListCreateAPIView):
         if params.get("date"):
             day = parse_date(params["date"], "date")
             return self.rows(
-                Q(event_date=day), ["completed_at", "zone_id", "id"], hide_completed=False
+                Q(event_date=day), ["completed_at", HOUR_ORDER, "zone_id", "id"], hide_completed=False
             )
 
         # 주간 스트립은 앞뒤로 넘길 수 있어서 창이 오늘에 고정되지 않는다.
@@ -135,7 +139,9 @@ class NoticeListCreateView(generics.ListCreateAPIView):
             window = Q(event_date__gte=start)
             if end is not None:
                 window &= Q(event_date__lte=end)
-            return self.rows(window, ["event_date", "completed_at", "zone_id", "id"], hide_completed=False)
+            return self.rows(
+                window, ["event_date", "completed_at", HOUR_ORDER, "zone_id", "id"], hide_completed=False
+            )
 
         name = params.get("filter", "upcoming")
         if name not in FILTERS:

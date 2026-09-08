@@ -25,27 +25,28 @@ export const addDays = (d: Date, n: number) => {
 export const WEEK_DAYS = 7;
 
 /**
- * 그 주의 월요일. `getDay()` 는 일=0 이므로 일요일은 6칸 뒤로 물러난다.
- * 주간 창이 여기서 시작한다.
+ * 그 주의 일요일. 주간 창과 월간 그리드가 모두 여기서 시작한다.
+ *
+ * `getDay()` 가 일=0 … 토=6 이라 그만큼 되돌리면 그 주의 일요일이다.
  */
-export function startOfMonday(d: Date) {
+export function startOfWeek(d: Date) {
   const day = startOfDay(d);
-  return addDays(day, -(day.getDay() % 7)); // 월=0 … 일=6
+  return addDays(day, -day.getDay()); // 일=0 … 토=6
 }
 
 /**
- * 그 날이 속한 주의 월~일 7칸. 스트립도 아래 목록도 이 창을 그대로 쓴다.
+ * 그 날이 속한 주의 일~토 7칸. 스트립도 아래 목록도 이 창을 그대로 쓴다.
  *
  * 오늘부터 굴리지 않는다 — 굴리면 오늘이 늘 맨 왼쪽이라 같은 "이번 주"가 날마다
- * 다른 기간을 뜻하고, 요일 자리도 매일 밀려서 눈에 익지 않는다. 월요일에 붙여두면
- * 다음 월요일이 오기 전까지 창이 그대로다.
+ * 다른 기간을 뜻하고, 요일 자리도 매일 밀려서 눈에 익지 않는다. 요일에 붙여두면
+ * 다음 주가 되기 전까지 창이 그대로다.
  *
  * 대신 주 중반에는 이미 지난 날이 창 안에 들어온다. 그 자리는 비우지 않고
  * 지난 일정을 그대로 보여준다 — 목록도 같은 창을 보므로 스트립에 점이 찍혔는데
  * 아래에는 없는 날은 생기지 않는다.
  */
 export function windowDays(from: Date = new Date()) {
-  const start = startOfMonday(from);
+  const start = startOfWeek(from);
   return Array.from({ length: WEEK_DAYS }, (_, i) => addDays(start, i));
 }
 
@@ -65,15 +66,14 @@ export function rangeLabel(start: Date, end: Date) {
   return `${head} – ${tail}`;
 }
 
+/**
+ * "15시". 24시간제라 오전·오후를 헷갈릴 일이 없다 — 알림 시각도 같은 표기다.
+ * 분이 없는 값이라 "15:00" 이 아니라 "시" 로 적어, 없는 정확도를 풍기지 않는다.
+ */
+export const hourLabel = (hour: number) => `${hour}시`;
+
 /** 요일 한 글자. 날짜에서 직접 뽑아야 창이 굴러가도 안 밀린다 */
 export const dayName = (d: Date) => DAYS[d.getDay()];
-
-/**
- * 그 주의 월요일. 주간 창과 월간 그리드가 같은 요일에서 시작한다.
- *
- * 접었다 펴는 것만으로 첫 칸이 일↔월 로 바뀌면 같은 날짜가 다른 자리에 있게 된다.
- */
-export const startOfWeek = startOfMonday;
 
 export function fullLabel(iso: string) {
   const d = toDate(iso);
@@ -133,7 +133,7 @@ export const startOfMonth = (d: Date) => new Date(d.getFullYear(), d.getMonth(),
 export const shiftMonth = (d: Date, n: number) =>
   new Date(d.getFullYear(), d.getMonth() + n, 1);
 
-/** 월간 그리드 42칸. 1일이 낀 주의 월요일부터 6주 */
+/** 월간 그리드 42칸. 1일이 낀 주의 일요일부터 6주 — 주간 창과 같은 시작 요일이다 */
 export function monthGridDays(anchor: Date) {
   const first = startOfWeek(startOfMonth(anchor));
   return Array.from({ length: 42 }, (_, i) => addDays(first, i));

@@ -905,3 +905,84 @@ class CronEndpointTests(TestCase):
         self.assertEqual(len(topics), 2)
         self.assertIn(self.user.ntfy_topic, topics)
         self.assertIn(other.ntfy_topic, topics)
+
+
+class EventHourTests(ApiTestCase):
+    """
+    시각은 **선택**이다. 없이도 등록되고, 없으면 시각을 안 정한 것으로 본다.
+
+    분은 받지 않는다 — 어린이집 준비물처럼 "오전 중" 이면 되는 일이 대부분이라,
+    분까지 물으면 없는 정확도를 지어내게 된다.
+    """
+
+    def payload(self, **over):
+        body = {
+            "zone": self.zone.id,
+            "event_date": str(self.today + dt.timedelta(days=3)),
+            "title": "가을 운동회",
+            "content": "",
+            "priority": 3,
+            "alerts": ["D-1 20:00"],
+        }
+        body.update(over)
+        return body
+
+    def test_시각_없이_등록된다(self):
+        res = self.post(reverse("notice-list"), self.payload())
+        self.assertEqual(res.status_code, 201)
+        self.assertIsNone(Notice.objects.get(pk=res.json()["id"]).event_hour)
+
+    def test_시각을_담아_등록된다(self):
+        res = self.post(reverse("notice-list"), self.payload(event_hour=9))
+        self.assertEqual(res.status_code, 201)
+        self.assertEqual(Notice.objects.get(pk=res.json()["id"]).event_hour, 9)
+
+    def test_자정과_23시는_받는다(self):
+        for hour in (0, 23):
+            with self.subTest(hour=hour):
+                res = self.post(reverse("notice-list"), self.payload(event_hour=hour))
+                self.assertEqual(res.status_code, 201, res.json())
+
+    def test_범위_밖은_거부한다(self):
+        for hour in (-1, 24, 100):
+            with self.subTest(hour=hour):
+                res = self.post(reverse("notice-list"), self.payload(event_hour=hour))
+                self.assertEqual(res.status_code, 400, f"{hour} 가 통과했다")
+
+    def test_나중에_지울_수_있다(self):
+        """한번 넣은 시각을 되돌릴 길이 없으면 잘못 고른 사람이 갇힌다."""
+        notice_id = self.post(reverse("notice-list"), self.payload(event_hour=9)).json()["id"]
+
+        res = self.client.patch(
+            reverse("notice-detail", args=[notice_id]),
+            {"event_hour": None},
+            content_type="application/json",
+            headers=self.auth,
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertIsNone(Notice.objects.get(pk=notice_id).event_hour)
+
+    def test_목록에도_실려_온다(self):
+        self.post(reverse("notice-list"), self.payload(event_hour=15))
+        res = self.get(reverse("notice-list") + "?filter=upcoming")
+        self.assertEqual(res.json()[0]["event_hour"], 15)
+
+    def test_같은_날_안에서_시각_순이고_시각_없는_것이_앞이다(self):
+        day = str(self.today + dt.timedelta(days=2))
+        self.post(reverse("notice-list"), self.payload(event_date=day, title="오후3시", event_hour=15))
+        self.post(reverse("notice-list"), self.payload(event_date=day, title="하루종일"))
+        self.post(reverse("notice-list"), self.payload(event_date=day, title="오전9시", event_hour=9))
+
+        res = self.get(reverse("notice-list") + f"?date={day}")
+        self.assertEqual(
+            [row["title"] for row in res.json()],
+            ["하루종일", "오전9시", "오후3시"],
+        )
+
+    def test_기간_목록도_같은_순서다(self):
+        day = str(self.today + dt.timedelta(days=2))
+        self.post(reverse("notice-list"), self.payload(event_date=day, title="저녁", event_hour=20))
+        self.post(reverse("notice-list"), self.payload(event_date=day, title="아침", event_hour=7))
+
+        res = self.get(reverse("notice-list") + f"?from={day}&to={day}")
+        self.assertEqual([row["title"] for row in res.json()], ["아침", "저녁"])

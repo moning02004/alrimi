@@ -11,7 +11,7 @@ import {
   makeCode,
   sortCodes,
 } from "@/lib/alerts";
-import { fullLabel, startOfDay, toISO } from "@/lib/date";
+import { fullLabel, hourLabel, startOfDay, toISO } from "@/lib/date";
 import { firstError } from "@/lib/api";
 import { useCreateNotice, useUpdateNotice } from "@/hooks/useNotices";
 import { onColor } from "@/lib/color";
@@ -20,6 +20,9 @@ import { ZoneMark } from "./ZoneMark";
 import type { NoticeDetail, Priority } from "@/types";
 
 const pad = (n: number) => String(n).padStart(2, "0");
+
+/** 일정 시각으로 고를 수 있는 값. 알림 시각과 달리 하루 24시간을 다 연다 */
+const EVENT_HOURS = Array.from({ length: 24 }, (_, i) => i);
 
 /**
  * 날짜 칸을 누르면 달력을 띄운다.
@@ -55,6 +58,8 @@ export function NoticeForm({ notice, initialDate, onDone }: Props) {
   const [eventDate, setEventDate] = useState(notice?.event_date ?? initialDate ?? "");
   const [title, setTitle] = useState(notice?.title ?? "");
   const [content, setContent] = useState(notice?.content ?? "");
+  // 시각은 선택이다. 기본은 "시각 없음" — 고르라고 재촉하지 않는다.
+  const [eventHour, setEventHour] = useState<number | null>(notice?.event_hour ?? null);
   const [priority, setPriority] = useState<Priority>(notice?.priority ?? 3);
   const [alerts, setAlerts] = useState<string[]>(
     notice ? sortCodes(notice.alerts.map((a) => a.code)) : PRESETS["준비물용"],
@@ -111,6 +116,7 @@ export function NoticeForm({ notice, initialDate, onDone }: Props) {
     const payload = {
       zone: zoneId,
       event_date: eventDate,
+      event_hour: eventHour,
       title: title.trim(),
       content: content.trim(),
       priority,
@@ -131,9 +137,19 @@ export function NoticeForm({ notice, initialDate, onDone }: Props) {
   };
 
   const hint = PRIORITIES.find((p) => p.value === priority)!.hint;
-  const inputCls =
-    "-mx-2 min-w-0 flex-1 rounded-lg bg-transparent px-2 py-1.5 text-base " +
-    "placeholder:text-muted/50 focus:bg-paper focus:outline-none focus:ring-2 focus:ring-pine/40";
+  /*
+    테두리는 늘 보인다. 눌렀을 때만 생기면 없던 것이 튀어나오는 것처럼 읽히고,
+    누르기 전에는 어디가 입력칸인지도 알기 어렵다. 초점에서는 색만 바뀐다.
+  */
+  const fieldCls =
+    "rounded-lg border border-line bg-card px-2.5 focus:border-pine focus:outline-none";
+
+  const inputCls = `${fieldCls} -mx-1 min-w-0 flex-1 py-2 text-base placeholder:text-muted/50`;
+
+  // 한 줄짜리 칸(날짜·시각·제목)은 높이를 못박아 맞춘다 — 글씨 크기가
+  // 달라(16px / 14px) padding 만으로는 몇 px 씩 어긋난다. 이 높이를 공용
+  // 클래스에 넣으면 여러 줄인 "내용" 칸까지 한 줄로 눌린다.
+  const rowFieldCls = "h-10 py-0";
 
   return (
     <>
@@ -187,8 +203,34 @@ export function NoticeForm({ notice, initialDate, onDone }: Props) {
             // 칸 어디를 눌러도 열리게 한다 — 좁은 화면에서 그 아이콘만 겨냥하기 어렵다.
             onClick={(e) => openDatePicker(e.currentTarget)}
             onFocus={(e) => openDatePicker(e.currentTarget)}
-            className={inputCls}
+            className={`${inputCls} ${rowFieldCls}`}
           />
+
+          {/*
+            시각은 선택이라 날짜 옆에 딸려 둔다 — 줄을 따로 만들면 채워야 할 칸이
+            하나 늘어난 것처럼 보인다.
+
+            기본값은 "시각 없음" 이다. "하루 종일" 이라고 하면 종일 이어지는 일정처럼
+            읽히는데, 실제로는 그냥 몇 시인지 안 정했다는 뜻이다.
+
+            분은 받지 않는다 — 준비물처럼 "오전 중" 이면 되는 일이 대부분이라
+            분까지 물으면 없는 정확도를 지어내게 된다.
+          */}
+          <select
+            aria-label="시각 (선택)"
+            value={eventHour ?? ""}
+            onChange={(e) => setEventHour(e.target.value === "" ? null : Number(e.target.value))}
+            className={`${fieldCls} ${rowFieldCls} shrink-0 pr-1 text-sm ${
+              eventHour === null ? "text-muted" : "border-pine text-pine"
+            }`}
+          >
+            <option value="">시각 없음</option>
+            {EVENT_HOURS.map((h) => (
+              <option key={h} value={h}>
+                {hourLabel(h)}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div className="flex items-center gap-3 px-4 py-2">
@@ -205,7 +247,8 @@ export function NoticeForm({ notice, initialDate, onDone }: Props) {
             // 서버가 80자에서 자른다. 다 적고 저장을 눌러서야 알게 되지 않도록
             maxLength={80}
             placeholder="가을 운동회"
-            className={inputCls}
+            // 한 줄짜리 칸끼리 높이를 맞춘다. 여러 줄인 "내용" 만 자기 높이를 갖는다.
+            className={`${inputCls} ${rowFieldCls}`}
           />
         </div>
 
@@ -305,7 +348,8 @@ export function NoticeForm({ notice, initialDate, onDone }: Props) {
               aria-label="며칠 전"
               value={day}
               onChange={(e) => setDay(Number(e.target.value))}
-              className="min-w-0 flex-1 rounded-lg border border-line bg-paper px-2.5 py-2 text-sm"
+              className="min-w-0 flex-1 rounded-lg border border-line bg-paper px-2.5 py-2 text-sm
+                         focus:border-pine focus:outline-none"
             >
               {DAY_OPTIONS.map((o) => (
                 <option key={o.value} value={o.value}>
@@ -318,7 +362,8 @@ export function NoticeForm({ notice, initialDate, onDone }: Props) {
               aria-label="시각"
               value={hour}
               onChange={(e) => setHour(Number(e.target.value))}
-              className="min-w-0 flex-1 rounded-lg border border-line bg-paper px-2.5 py-2 text-sm"
+              className="min-w-0 flex-1 rounded-lg border border-line bg-paper px-2.5 py-2 text-sm
+                         focus:border-pine focus:outline-none"
             >
               {HOUR_OPTIONS.map((h) => (
                 <option key={h} value={h}>

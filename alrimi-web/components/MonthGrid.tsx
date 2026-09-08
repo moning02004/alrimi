@@ -33,7 +33,7 @@ export function MonthGrid({anchor, selected, calendar, onPickDay, size = "sm"}: 
         <div>
             <div className="grid grid-cols-7 pt-2 text-center text-[11px] text-muted">
                 {DAY_NAMES.map((name, i) => (
-                    <span key={name} className={`py-1 ${i === 6 ? "text-red-400" : ""}`}>
+                    <span key={name} className={`py-1 ${i === 0 ? "text-red-400" : ""}`}>
             {name}
           </span>
                 ))}

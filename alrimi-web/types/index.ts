@@ -27,6 +27,8 @@ export interface AlertItem {
 export interface NoticeListItem {
   id: number;
   event_date: string;
+  /** 몇 시 일인지(0~23). 선택이라 비어 있을 수 있고, 그때는 "하루 종일" 이다 */
+  event_hour: number | null;
   title: string;
   priority: Priority;
   /** 완료 표시한 시각. 목록에서는 빠지고 하루 보기에만 흐리게 남는다 */
@@ -45,6 +47,7 @@ export interface NoticeDetail extends Omit<NoticeListItem, "alerts"> {
 export interface NoticePayload {
   zone: number;
   event_date: string;
+  event_hour: number | null;
   title: string;
   content: string;
   priority: Priority;

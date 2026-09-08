@@ -9,7 +9,7 @@ import type { Me } from "@/types";
 
 const inputCls =
   "w-full rounded-xl border border-line bg-card px-3.5 py-3 text-base " +
-  "placeholder:text-muted/50 focus:border-pine focus:outline-none focus:ring-2 focus:ring-pine/40";
+  "placeholder:text-muted/50 focus:border-pine focus:outline-none";
 const submitCls =
   "my-3 w-full rounded-xl bg-pine py-3.5 text-base font-medium text-white disabled:opacity-60";
 

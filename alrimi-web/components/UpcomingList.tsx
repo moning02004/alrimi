@@ -3,7 +3,7 @@
 import { useNotices } from "@/hooks/useNotices";
 import { useZoneMark } from "@/hooks/useZones";
 import { ZoneMark } from "./ZoneMark";
-import { sectionLabel, toDate } from "@/lib/date";
+import { hourLabel, sectionLabel, toDate } from "@/lib/date";
 
 /** 좁은 칸이라 짧게. 가까운 날은 "오늘"·"내일", 나머지는 9/12 꼴 */
 function when(iso: string) {
@@ -70,7 +70,10 @@ export function UpcomingList({
                     size="sm"
                   />
                   <span className="min-w-0 flex-1 truncate text-sm">{notice.title}</span>
-                  <span className="shrink-0 text-[11px] text-muted">{when(notice.event_date)}</span>
+                  <span className="shrink-0 text-[11px] tabular-nums text-muted">
+                    {when(notice.event_date)}
+                    {notice.event_hour !== null && ` ${hourLabel(notice.event_hour)}`}
+                  </span>
                 </button>
               </li>
             );

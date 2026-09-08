@@ -92,7 +92,7 @@ function Form({ zone, onClose }: { zone: Zone; onClose: () => void }) {
         placeholder="어린이집, 우리집, 회사"
         className="w-full rounded-xl border border-line bg-card px-3.5 py-3 text-base
                    placeholder:text-muted/50 focus:border-pine focus:outline-none
-                   focus:ring-2 focus:ring-pine/40"
+                  "
       />
 
       <p className="px-1 pb-1.5 pt-4 text-xs font-medium text-muted">색</p>

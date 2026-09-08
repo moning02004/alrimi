@@ -8,7 +8,7 @@ import { ZoneMark } from "@/components/ZoneMark";
 import { ErrorBlock, LoadingBlock } from "@/components/Loading";
 import { firstError } from "@/lib/api";
 import { codeLabel } from "@/lib/alerts";
-import { fullLabel, monthDayLabel, timeLabel } from "@/lib/date";
+import { fullLabel, hourLabel, monthDayLabel, timeLabel } from "@/lib/date";
 import { BottomSheet } from "@/components/BottomSheet";
 import { NoticeForm } from "@/components/NoticeForm";
 
@@ -85,7 +85,12 @@ export function NoticeDetail({ noticeId, onClose, onDeleted, backLabel = "‚Üê Îí
       </header>
 
       <main className="mx-auto w-full max-w-2xl p-4">
-        <p className="text-xs text-muted">{fullLabel(notice.event_date)}</p>
+        <p className="text-xs text-muted">
+          {fullLabel(notice.event_date)}
+          {notice.event_hour !== null && (
+            <span className="ml-1.5 font-medium text-pine">{hourLabel(notice.event_hour)}</span>
+          )}
+        </p>
         <h1
           className={`mt-1.5 text-xl font-semibold tracking-tight ${
             done ? "text-muted line-through" : ""

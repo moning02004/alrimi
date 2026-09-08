@@ -47,6 +47,7 @@ class NoticeListSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "event_date",
+            "event_hour",
             "title",
             "priority",
             "completed_at",
@@ -73,6 +74,7 @@ class NoticeDetailSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "event_date",
+            "event_hour",
             "title",
             "content",
             "priority",
@@ -101,6 +103,7 @@ class NoticeWriteSerializer(serializers.ModelSerializer):
             "id",
             "zone",
             "event_date",
+            "event_hour",
             "title",
             "content",
             "priority",

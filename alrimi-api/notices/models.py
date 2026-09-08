@@ -1,6 +1,7 @@
 import datetime as dt
 
 from django.core.exceptions import ValidationError
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils import timezone
 
@@ -48,6 +49,16 @@ class Notice(models.Model):
     event_date = models.DateField()
     title = models.CharField(max_length=80)
     content = models.CharField(max_length=200, blank=True, default="")
+    event_hour = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(23)],
+        help_text=(
+            "몇 시 일인지. 비워두면 시각을 정하지 않은 것으로 본다 "
+            "분은 받지 않는다 — 어린이집 준비물처럼 '오전 중' 이면 되는 일이 대부분이라 "
+            "분까지 물으면 없는 정확도를 지어내게 된다."
+        ),
+    )
     priority = models.IntegerField(choices=Priority.choices, default=Priority.NORMAL)
     completed_at = models.DateTimeField(
         null=True,
@@ -58,7 +69,9 @@ class Notice(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ["event_date", "id"]
+        # 날짜가 먼저, 그 안에서 시각 순. 시각을 안 정한 것이 그 날 맨 앞이다
+        # — 달력들이 쓰는 관례이고, "오전 중" 같은 일이 몇 시 일보다 먼저 눈에 든다.
+        ordering = ["event_date", models.F("event_hour").asc(nulls_first=True), "id"]
         indexes = [models.Index(fields=["zone", "event_date"])]
 
     def __str__(self) -> str:

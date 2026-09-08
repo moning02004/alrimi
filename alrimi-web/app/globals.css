@@ -91,11 +91,24 @@ button:disabled {
 /*
   키보드로 옮겨 다닐 때 지금 어디에 있는지 보이게 한다.
   `:focus` 가 아니라 `:focus-visible` 이라 마우스로 누를 때는 뜨지 않는다.
-  입력칸은 각자 `focus:ring` 을 이미 갖고 있고, 그쪽 클래스가 더 구체적이라 이긴다.
 */
 :focus-visible {
   outline: 2px solid var(--color-pine);
   outline-offset: 2px;
+}
+
+/*
+  입력칸은 여기서 뺀다.
+
+  텍스트 칸·선택 칸은 이미 자기 테두리와 얇은 고리로 초점을 말한다. 거기에 이
+  윤곽선까지 겹치면 고리 2px + 간격 2px + 윤곽선 2px = 6px 짜리 띠가 칸을 두르고,
+  칸 자체보다 테두리가 먼저 눈에 든다. `outline-none` 이 아니라 여기서 한 번에
+  빼는 이유는, 칸마다 클래스로 끄면 새로 만드는 칸에서 또 빠뜨리기 때문이다.
+*/
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: none;
 }
 
 /*

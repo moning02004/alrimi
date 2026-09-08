@@ -7,7 +7,7 @@
 
 import datetime as dt
 
-from django.db.models import Q
+from django.db.models import F, Q
 
 FILTERS = ("upcoming", "later", "past")
 
@@ -40,4 +40,6 @@ def ordering_for(name: str) -> list[str]:
     끝까지 스크롤해야 한다.
     """
     date_order = "-event_date" if name == "past" else "event_date"
-    return [date_order, "zone_id", "id"]
+    # 같은 날 안에서는 시각 순. 시각을 안 정한 것이 앞이다.
+    hour_order = F("event_hour").desc(nulls_last=True) if name == "past" else F("event_hour").asc(nulls_first=True)
+    return [date_order, hour_order, "zone_id", "id"]

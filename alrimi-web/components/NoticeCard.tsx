@@ -5,6 +5,7 @@ import toast from "react-hot-toast";
 import { HiCheckCircle, HiOutlineCheckCircle } from "react-icons/hi2";
 import { pageUrl } from "@/constants/routeUrl";
 import { priorityLabel } from "@/lib/alerts";
+import { hourLabel } from "@/lib/date";
 import { useToggleComplete } from "@/hooks/useNotices";
 import { useZoneMark } from "@/hooks/useZones";
 import { AlertDots } from "./AlertDots";
@@ -44,6 +45,16 @@ export function NoticeCard({
       )}
 
       <span className="flex min-w-0 flex-1 items-center gap-2">
+        {/*
+          목록이 같은 날 안에서 시각 순이라 제목 앞에 둔다 — 눈이 훑는 축과 같은
+          자리다. 없는 줄에는 자리도 만들지 않는다: 대부분 시각이 없는데 빈 칸을
+          잡아두면 목록 전체가 그 폭만큼 밀린다.
+        */}
+        {notice.event_hour !== null && (
+          <span className="shrink-0 text-xs tabular-nums text-muted">
+            {hourLabel(notice.event_hour)}
+          </span>
+        )}
         <span className={`truncate font-medium ${done ? "line-through" : ""}`}>
           {notice.title}
         </span>

@@ -43,7 +43,7 @@ export default function LoginPage() {
 
   const inputCls =
     "w-full rounded-xl border border-line bg-card px-3.5 py-3 text-base " +
-    "placeholder:text-muted/50 focus:border-pine focus:outline-none focus:ring-2 focus:ring-pine/40";
+    "placeholder:text-muted/50 focus:border-pine focus:outline-none";
 
   return (
     <main className="mx-auto flex min-h-dvh w-full flex-col justify-center px-7">

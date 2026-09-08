@@ -43,7 +43,7 @@ export function CalendarHeader({
   /**
    * 좌우로 넘기는 폭. 펼쳤으면 한 달, 접었으면 한 주.
    *
-   * 7일을 더하면 요일이 그대로라 `windowDays` 가 잡는 월요일도 정확히 한 주만
+   * 7일을 더하면 요일이 그대로라 `windowDays` 가 잡는 주 시작일도 정확히 한 주만
    * 움직인다 — 창이 겹치거나 벌어지지 않는다.
    */
   const step = useCallback(

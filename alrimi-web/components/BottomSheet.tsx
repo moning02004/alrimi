@@ -10,7 +10,48 @@ interface Props {
   children: React.ReactNode;
 }
 
+/**
+ * 소프트 키보드를 띄우는 칸인지. 날짜·선택 칸은 키보드가 아니라 고르는 판이 뜨므로
+ * 여기서 뺀다 — 그쪽은 밖을 누르면 그냥 닫히는 편이 자연스럽다.
+ */
+const KEYBOARD_TYPES = new Set([
+  "text",
+  "search",
+  "url",
+  "tel",
+  "email",
+  "password",
+  "number",
+  "",
+]);
+
+function raisesKeyboard(el: Element | null): el is HTMLElement {
+  if (el instanceof HTMLTextAreaElement) return true;
+  if (el instanceof HTMLInputElement) return KEYBOARD_TYPES.has(el.type);
+  return false;
+}
+
 export function BottomSheet({ open, onOpenChange, title, description, children }: Props) {
+  /**
+   * 키보드가 올라와 있을 때, 위 빈자리를 누르면 **키보드만** 내린다.
+   *
+   * 모바일에서는 저장 버튼이 키보드에 가려서, 누르려면 먼저 키보드를 내려야 한다.
+   * 그 자연스러운 동작이 빈자리 탭인데 그대로 두면 시트가 통째로 닫혀서 적던 것이
+   * 날아간다. 그래서 첫 탭은 키보드를 내리고, 시트를 닫으려면 한 번 더 누른다.
+   *
+   * 마우스가 있는 기기에서는 그대로 닫는다 — 키보드가 가릴 일이 없고, 바깥 클릭으로
+   * 닫는 것은 굳어진 약속이라 한 번 더 누르게 하면 그쪽이 더 어색하다.
+   */
+  const keepOpenToDismissKeyboard = (event: { preventDefault: () => void }) => {
+    if (!window.matchMedia("(hover: none)").matches) return;
+
+    const focused = document.activeElement;
+    if (!raisesKeyboard(focused)) return;
+
+    event.preventDefault();
+    focused.blur();
+  };
+
   return (
     <Drawer.Root open={open} onOpenChange={onOpenChange} repositionInputs={false}>
       <Drawer.Portal>
@@ -24,6 +65,7 @@ export function BottomSheet({ open, onOpenChange, title, description, children }
           뒤에도 시트 높이의 두 배만큼 빈 자리가 더 굴러간다(601px 시트에서 1202px).
         */}
         <Drawer.Content
+          onPointerDownOutside={keepOpenToDismissKeyboard}
           className="safe-bottom fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92dvh]
                      w-full max-w-md flex-col rounded-t-3xl border-t border-line sm:max-w-2xl
                      bg-paper pt-3 outline-none"
