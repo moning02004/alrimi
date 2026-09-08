@@ -323,11 +323,11 @@ def alert_notices(request):
         title = alert.notice.title
         content = alert.notice.content
         priority = alert.notice.priority
-        event_hour = f"{str(notice.event_hour).zfill(2)}시 " if notice.event_hour else ""
+        event_hour = f"{str(alert.notice.event_hour).zfill(2)}시 " if alert.notice.event_hour else ""
         ids.append(alert.id)
 
         ready_data[alert.notice.zone.owner.ntfy_topic].append({
-            "title": f"{event_hour} [{zone_name}] {title}",
+            "title": f"{event_hour}[{zone_name}] {title}",
             "message": content,
             "priority": priority,
         })
