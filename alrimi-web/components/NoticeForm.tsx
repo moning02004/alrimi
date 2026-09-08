@@ -27,6 +27,7 @@ import {firstError} from "@/lib/api";
 import {useCreateNotice, useUpdateNotice} from "@/hooks/useNotices";
 import {onColor} from "@/lib/color";
 import {useZoneMark, useZones} from "@/hooks/useZones";
+import {Picker} from "./Picker";
 import {ZoneMark} from "./ZoneMark";
 import type {NoticeDetail, Priority} from "@/types";
 
@@ -202,7 +203,6 @@ export function NoticeForm({notice, initialDate, onDone}: Props) {
       접어둔다 — 늘 펼쳐두면 폼에서 가장 큰 자리를 가장 덜 쓰는 것이 차지한다.
       비어 있을 때만 열어둔다. 보여줄 칩이 없으니 채우는 길이 바로 보여야 한다.
     */
-    const [pickerOpen, setPickerOpen] = useState(alerts.length === 0);
     const [error, setError] = useState<string | null>(null);
 
     /**
@@ -266,7 +266,7 @@ export function NoticeForm({notice, initialDate, onDone}: Props) {
             return;
         }
         if (ranged && !endDate) {
-            setError("마지막 날을 골라주세요");
+            setError("종료일을 골라주세요");
             return;
         }
         if (!title.trim()) {
@@ -308,6 +308,15 @@ export function NoticeForm({notice, initialDate, onDone}: Props) {
         });
     };
 
+    /*
+      지금 걸린 목록이 어느 묶음과 똑같은지. 눌러둔 것이 드러나야 "지금 뭐가
+      걸려 있더라" 를 아래 칩으로 되짚지 않는다. 직접 하나라도 더하면 어느
+      묶음과도 달라지므로 표시가 저절로 꺼진다.
+    */
+    const chosenPreset = Object.keys(PRESETS).find(
+        (name) => sortCodes(PRESETS[name]).join() === alerts.join(),
+    );
+
     const hint = PRIORITIES.find((p) => p.value === priority)!.hint;
 
     return (
@@ -346,14 +355,18 @@ export function NoticeForm({notice, initialDate, onDone}: Props) {
                 </div>
 
                 {/*
-          날짜 한 칸. 여러 날에 걸치면 아래로 "마지막" 줄이 한 줄 더 열린다.
+          날짜 한 칸. 여러 날에 걸치면 아래로 "종료" 줄이 한 줄 더 열린다.
           두 줄을 한 칸 안에 두는 것은 둘이 하나의 값(언제부터 언제까지)이라서다
           — 칸을 갈라 놓으면 사이에 줄이 그어져 서로 상관없는 값처럼 보인다.
         */}
                 <div className="py-1">
                     <div ref={dateRow} className={`${dateRowCls} py-1`}>
+                        {/*
+                          하루짜리에는 "날짜" 하나뿐이라 시작이라고 부를 것이 없다. 기간을 켜야
+                          비로소 시작과 끝이 생기므로, 그때 이름도 같이 바뀐다.
+                        */}
                         <label htmlFor="date" className={labelCls}>
-                            날짜
+                            {ranged ? "시작" : "날짜"}
                         </label>
                         <DateField
                             id="date"
@@ -374,29 +387,22 @@ export function NoticeForm({notice, initialDate, onDone}: Props) {
               날짜 칸이 좁아진다.
             */}
                         {hourOpen ? (
-                            <select
-                                aria-label="시간 (선택)"
-                                autoFocus
-                                value={eventHour ?? ""}
-                                onChange={(e) => {
-                                    if (e.target.value === "") {
-                                        setEventHour(null);
-                                        setHourOpen(false);
-                                        return;
-                                    }
-                                    setEventHour(Number(e.target.value));
+                            <Picker
+                                ariaLabel="시간 (선택)"
+                                value={eventHour}
+                                options={[
+                                    // 첫 줄은 되돌리는 길이기도 하다. 고르면 칸이 닫히고 다시 링크로 돌아간다.
+                                    {value: null, label: "미정"},
+                                    ...EVENT_HOURS.map((h) => ({value: h, label: hourLabel(h)})),
+                                ]}
+                                onPick={(picked) => {
+                                    setEventHour(picked);
+                                    if (picked === null) setHourOpen(false);
                                 }}
-                                className={`${fieldCls} ${rowFieldCls} ${tailCls} pr-1 text-sm ${
+                                className={`${fieldCls} ${rowFieldCls} ${tailCls} pr-2 text-sm ${
                                     eventHour === null ? "text-muted" : "border-pine text-pine"
                                 }`}
-                            >
-                                <option value="">미정</option>
-                                {EVENT_HOURS.map((h) => (
-                                    <option key={h} value={h}>
-                                        {hourLabel(h)}
-                                    </option>
-                                ))}
-                            </select>
+                            />
                         ) : null}
                     </div>
 
@@ -404,7 +410,7 @@ export function NoticeForm({notice, initialDate, onDone}: Props) {
                         <>
                             <div ref={endRow} className={`${dateRowCls} py-1`}>
                                 <label htmlFor="end-date" className={labelCls}>
-                                    마지막
+                                    종료
                                 </label>
                                 <DateField
                                     id="end-date"
@@ -580,117 +586,101 @@ export function NoticeForm({notice, initialDate, onDone}: Props) {
           칩·고르는 줄·안내를 쌓는다 — 위 줄들과 같은 선에서 시작한다.
         */}
                 <div className={`${dateRowCls} items-start py-2.5`}>
-                    <span className={`${labelCls} pt-1.5`}>언제</span>
+                    <span className={`${labelCls} pt-0.5`}>언제</span>
 
                     <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap gap-1.5">
-                            {alerts.length === 0 && (
-                                <span className="py-1 text-sm text-muted/70">아직 없어요</span>
-                            )}
-                            {alerts.map((code) => (
-                                <span
-                                    key={code}
-                                    className="inline-flex items-center gap-1 rounded-full border border-pine
-                             bg-pinelt py-1 pl-3 pr-1 text-sm text-pine"
-                                >
-                  {codeLabel(code)}
-                                    <button
-                                        type="button"
-                                        aria-label={`${codeLabel(code)} 삭제`}
-                                        onClick={() => setAlerts(alerts.filter((c) => c !== code))}
-                                        // 보이는 크기는 그대로 두고 누를 수 있는 자리만 넓힌다.
-                                        // 20px 짜리 과녁은 손가락으로 겨냥하기 어렵다 — 옆 칩을 지우게 된다.
-                                        className="-my-1 flex h-7 w-7 items-center justify-center rounded-full
-                               text-pine/60 transition-colors hover:bg-pine/10 hover:text-pine"
-                                    >
-                    ×
-                  </button>
-                </span>
-                            ))}
-                        </div>
-
                         {/*
-              목록을 채우는 세 가지 길을 한 줄에 모은다. 묶음은 통째로 갈아끼우고
-              "직접 고르기" 는 하나씩 더한다 — 앞의 둘이 먼저 눈에 들어야 대부분의
-              사람이 한 번 누르고 끝낸다. 자리는 날짜 줄의 "+ 여러 날에 걸쳐요" 와 같다.
-            */}
-                        <div className="mt-2 flex flex-wrap items-center gap-4 pl-1.5 text-xs text-muted">
+                          고르는 것이 위, 고른 결과가 아래다. 묶음 → 직접 고르기 →
+                          쌓인 시점 순으로 읽히면, 대부분은 첫 줄에서 한 번 누르고 끝난다.
+                        */}
+                        <div className="flex flex-wrap items-center gap-4 pl-1.5 text-xs text-muted">
                             {Object.keys(PRESETS).map((name) => (
                                 <button
                                     key={name}
                                     type="button"
                                     // 무엇으로 바뀌는지는 눌러보기 전에도 알 수 있어야 한다
-                                    title={PRESETS[name].map(codeLabel).join(" · ")}
+                                    title={sortCodes(PRESETS[name]).map(codeLabel).join(" · ")}
+                                    aria-pressed={name === chosenPreset}
                                     onClick={() => {
-                                        setAlerts(PRESETS[name]);
+                                        setAlerts(sortCodes(PRESETS[name]));
                                         setError(null);
                                     }}
-                                    className="shrink-0 transition-colors hover:text-pine"
+                                    className={`shrink-0 transition-colors hover:text-pine ${
+                                        name === chosenPreset ? "font-medium text-pine" : ""
+                                    }`}
                                 >
                                     {name}
                                 </button>
                             ))}
-
-                            {/*
-                열고 닫는 자리를 옮기지 않는다. 더한 뒤 저절로 접으면 방금 누른
-                자리에서 줄이 사라져 손이 허공을 짚는다 — 여러 개를 잇달아
-                더하는 사람도 있어서, 접는 것은 본인이 정하게 둔다.
-              */}
                         </div>
-                        <div className="mt-1 flex flex-wrap items-center gap-4 pl-1.5 text-xs text-muted">
-                            <button
-                                type="button"
-                                onClick={() => setPickerOpen(!pickerOpen)}
-                                className="shrink-0 transition-colors hover:text-pine"
-                            >
-                                {pickerOpen ? "접기" : "+ 직접 고르기"}
-                            </button>
-                        </div>
-                        {pickerOpen && (
-                            <div className="mt-2 flex gap-1.5">
-                                <select
-                                    aria-label="며칠 전"
-                                    value={day}
-                                    onChange={(e) => setDay(Number(e.target.value))}
-                                    className="min-w-0 flex-1 rounded-lg border border-line bg-paper px-2.5 py-2
-                             text-sm focus:border-pine focus:outline-none"
-                                >
-                                    {DAY_OPTIONS.map((o) => (
-                                        <option key={o.value} value={o.value}>
-                                            {o.label}
-                                        </option>
-                                    ))}
-                                </select>
-
-                                <select
-                                    aria-label="알림 시간"
-                                    value={hour}
-                                    onChange={(e) => setHour(Number(e.target.value))}
-                                    className="min-w-0 flex-1 rounded-lg border border-line bg-paper px-2.5 py-2
-                             text-sm focus:border-pine focus:outline-none"
-                                >
-                                    {HOUR_OPTIONS.map((h) => (
-                                        <option key={h} value={h}>
-                                            {pad(h)}:00
-                                        </option>
-                                    ))}
-                                </select>
-
-                                <button
-                                    type="button"
-                                    onClick={addAlert}
-                                    className="shrink-0 rounded-lg border border-pine px-3.5 py-2 text-sm
-                             font-medium text-pine"
-                                >
-                                    추가
-                                </button>
-                            </div>
-                        )}
 
                         {/*
-              며칠짜리면 어느 날에서 세는지가 헷갈린다. 마지막 날 기준으로 읽으면
-              "1일 전" 이 돌아오기 전날이 되어, 짐 싸라는 알림이 여행이 끝날 때 온다.
-            */}
+                          직접 고르는 줄. 접어두지 않는다 — 묶음이 안 맞는 사람은 여기서
+                          바로 더하면 되고, 접혀 있으면 그런 길이 있다는 것부터 찾아야 한다.
+                        */}
+                        <div className="mt-2 flex gap-1.5">
+                            <Picker
+                                ariaLabel="며칠 전"
+                                value={day}
+                                options={DAY_OPTIONS}
+                                onPick={setDay}
+                                className="min-w-0 flex-1 rounded-lg border border-line bg-paper px-2.5 py-2
+                                           text-sm focus:border-pine focus:outline-none"
+                            />
+
+                            <Picker
+                                ariaLabel="알림 시간"
+                                value={hour}
+                                options={HOUR_OPTIONS.map((h) => ({value: h, label: `${pad(h)}:00`}))}
+                                onPick={setHour}
+                                className="min-w-0 flex-1 rounded-lg border border-line bg-paper px-2.5 py-2
+                                           text-sm focus:border-pine focus:outline-none"
+                            />
+
+                            <button
+                                type="button"
+                                onClick={addAlert}
+                                className="shrink-0 rounded-lg border border-pine px-3.5 py-2 text-sm
+                                           font-medium text-pine"
+                            >
+                                추가
+                            </button>
+                        </div>
+
+                        {/* 위에서 고른 결과. 여기 있는 것이 실제로 나갈 알림이다 */}
+                        <div className="mt-2.5 flex flex-wrap gap-1.5">
+                            {alerts.length === 0 ? (
+                                <span className="py-1 text-sm text-muted/70">
+                                    아직 없어요 — 위에서 골라주세요
+                                </span>
+                            ) : (
+                                alerts.map((code) => (
+                                    <span
+                                        key={code}
+                                        className="inline-flex items-center gap-1 rounded-full border border-pine
+                                                   bg-pinelt py-1 pl-3 pr-1 text-sm text-pine"
+                                    >
+                                        {codeLabel(code)}
+                                        <button
+                                            type="button"
+                                            aria-label={`${codeLabel(code)} 삭제`}
+                                            onClick={() => setAlerts(alerts.filter((c) => c !== code))}
+                                            // 보이는 크기는 그대로 두고 누를 수 있는 자리만 넓힌다.
+                                            // 20px 짜리 과녁은 손가락으로 겨냥하기 어렵다 — 옆 칩을 지우게 된다.
+                                            className="-my-1 flex h-7 w-7 items-center justify-center rounded-full
+                                                       text-pine/60 transition-colors hover:bg-pine/10 hover:text-pine"
+                                        >
+                                            ×
+                                        </button>
+                                    </span>
+                                ))
+                            )}
+                        </div>
+
+                        {/*
+                          며칠짜리면 어느 날에서 세는지가 헷갈린다. 마지막 날 기준으로 읽으면
+                          "1일 전" 이 돌아오기 전날이 되어, 짐 싸라는 알림이 여행이 끝날 때 온다.
+                        */}
                         {span > 1 && (
                             <p className="mt-2 pl-1.5 text-xs text-muted">
                                 시점은 시작하는 날에서 셉니다 — &ldquo;1일 전&rdquo;은 떠나기 전날이에요.

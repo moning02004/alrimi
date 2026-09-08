@@ -22,16 +22,38 @@ class CodeTests(TestCase):
         self.assertEqual(parse_code("D-1 20:00"), (1, 20))
         self.assertEqual(parse_code("D 07:00"), (0, 7))
 
+    def test_after_the_event(self):
+        """
+        일정이 지난 뒤로도 잡는다 — 다녀와서 정리할 일이 딸려 오는 일정이 있다.
+        offset 은 "며칠 전" 이라 뒤로 잡은 것은 음수로 나온다.
+        """
+        self.assertEqual(parse_code("D+3 20:00"), (-3, 20))
+        self.assertEqual(parse_code("D+1 07:00"), (-1, 7))
+
     def test_bad_codes_are_rejected(self):
         from django.core.exceptions import ValidationError
 
-        for bad in ["X-1 20:00", "D-1 20:30", "D-1", "D-1 25:00", ""]:
+        bad_codes = [
+            "X-1 20:00",
+            "D-1 20:30",
+            "D-1",
+            "D-1 25:00",
+            "",
+            "D1 20:00",  # 앞인지 뒤인지가 코드에 없다
+            "D+61 20:00",  # 두 달을 넘겨 잡는다
+            "D-61 20:00",
+        ]
+        for bad in bad_codes:
             with self.assertRaises(ValidationError, msg=bad):
                 parse_code(bad)
 
     def test_due_at_is_local_time(self):
         due = due_at_for(dt.date(2026, 9, 11), "D-1 20:00")
         self.assertEqual(timezone.localtime(due).strftime("%Y-%m-%d %H:%M"), "2026-09-10 20:00")
+
+    def test_due_at_after_the_event(self):
+        due = due_at_for(dt.date(2026, 9, 11), "D+3 20:00")
+        self.assertEqual(timezone.localtime(due).strftime("%Y-%m-%d %H:%M"), "2026-09-14 20:00")
 
 
 class FilterBoundaryTests(TestCase):
@@ -99,6 +121,18 @@ class NoticeCrudTests(ApiTestCase):
         self.assertEqual(body["zone_color"], self.zone.color)
         self.assertEqual([a["code"] for a in body["alerts"]], ["D-1 20:00", "D 07:00"])
         self.assertTrue(all(a["sent_at"] is None for a in body["alerts"]))
+
+    def test_an_alert_after_the_event_is_scheduled_after_it(self):
+        """"시작하고 3일 뒤" 처럼 일정이 지난 다음으로도 예약된다."""
+        start = self.today + dt.timedelta(days=1)
+        res = self.post(
+            reverse("notice-list"),
+            self.payload(event_date=str(start), alerts=["D 07:00", "D+3 20:00"]),
+        )
+        self.assertEqual(res.status_code, 201)
+
+        alert = Alert.objects.get(notice_id=res.json()["id"], code="D+3 20:00")
+        self.assertEqual(timezone.localtime(alert.due_at).date(), start + dt.timedelta(days=3))
 
     def test_bad_alert_code_is_400(self):
         res = self.post(reverse("notice-list"), self.payload(alerts=["오늘"]))

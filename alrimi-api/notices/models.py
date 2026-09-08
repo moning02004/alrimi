@@ -7,7 +7,14 @@ from django.utils import timezone
 
 from zones.models import Zone
 
-CODE_HELP = '알림 시점 코드. "D-1 20:00" 처럼 일 오프셋과 정각 시각으로 적는다.'
+CODE_HELP = (
+    '알림 시점 코드. "D-1 20:00"(하루 전) · "D 07:00"(당일) · "D+3 20:00"(사흘 뒤) '
+    "처럼 일 오프셋과 정각 시각으로 적는다."
+)
+
+#  앞뒤로 이만큼까지. 두 달을 넘겨 잡을 일은 없고, 오타 한 번에 엉뚱한 날로
+#  예약이 잡히는 것을 여기서 막는다.
+MAX_ALERT_OFFSET_DAYS = 60
 
 
 class Priority(models.IntegerChoices):
@@ -22,21 +29,40 @@ class Priority(models.IntegerChoices):
 
 
 def parse_code(code: str) -> tuple[int, int]:
-    """'D-1 20:00' → (1, 20). 형식이 어긋나면 ValidationError."""
+    """
+    'D-1 20:00' → (1, 20) · 'D 07:00' → (0, 7) · 'D+3 20:00' → (-3, 20).
+    형식이 어긋나면 ValidationError.
+
+    돌려주는 offset 은 **며칠 전** 이다. 일정이 지난 뒤로 잡은 알림(D+n)은 음수로
+    나오고, 그래야 `due_at_for` 가 시작일에서 빼는 계산 하나로 양쪽을 다 맞춘다.
+    """
     try:
         day, time = code.strip().split(" ")
-        offset = 0 if day == "D" else int(day[2:])
+        # 부호를 그대로 읽고 뒤집는다: "D-1" → -(-1) = 1(전), "D+3" → -(+3) = -3(후)
+        offset = 0 if day == "D" else -int(day[1:])
         hour, minute = (int(part) for part in time.split(":"))
     except (ValueError, IndexError) as exc:
         raise ValidationError(f"알림 코드 형식이 올바르지 않습니다: {code!r}") from exc
 
-    if not day.startswith("D") or offset < 0 or not (0 <= hour <= 23) or minute != 0:
+    if (
+        not day.startswith("D")
+        # 부호 없는 "D1" 은 받지 않는다. 앞인지 뒤인지가 코드에 드러나야 한다.
+        or (len(day) > 1 and day[1] not in "+-")
+        or abs(offset) > MAX_ALERT_OFFSET_DAYS
+        or not (0 <= hour <= 23)
+        or minute != 0
+    ):
         raise ValidationError(f"알림 코드 형식이 올바르지 않습니다: {code!r}")
     return offset, hour
 
 
 def due_at_for(event_date: dt.date, code: str) -> dt.datetime:
-    """일정 날짜와 코드로 실제 발송 시각을 만든다. 기준 시간대는 settings.TIME_ZONE."""
+    """
+    일정 날짜와 코드로 실제 발송 시각을 만든다. 기준 시간대는 settings.TIME_ZONE.
+
+    기준은 늘 시작일이다 — 여러 날에 걸치는 일정도 마지막 날이 아니라 시작일에서
+    센다. "1일 전" 이 돌아오기 전날이 되면 짐 싸라는 알림이 여행 끝에 온다.
+    """
     offset, hour = parse_code(code)
     naive = dt.datetime.combine(event_date - dt.timedelta(days=offset), dt.time(hour=hour))
     return timezone.make_aware(naive, timezone.get_default_timezone())

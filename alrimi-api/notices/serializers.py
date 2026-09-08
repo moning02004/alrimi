@@ -165,7 +165,7 @@ class NoticeWriteSerializer(serializers.ModelSerializer):
 
         if end < start:
             raise serializers.ValidationError(
-                {"end_date": "마지막 날은 시작하는 날보다 앞설 수 없어요."}
+                {"end_date": "종료일은 시작일보다 앞설 수 없어요."}
             )
         if (end - start).days + 1 > MAX_SPAN_DAYS:
             raise serializers.ValidationError(
