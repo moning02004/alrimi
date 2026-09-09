@@ -47,7 +47,19 @@ def publish(topic: str, *, title: str, message: str, priority: int) -> None:
     # ensure_ascii=False 로 한글을 그대로 싣는다. \uXXXX 로도 ntfy 는 알아듣지만
     # 서버 로그나 tcpdump 로 들여다볼 때 읽을 수 있는 편이 낫다.
     body = json.dumps(
-        {"topic": topic, "title": title, "message": message, "priority": priority},
+        {
+            "topic": topic,
+            "title": title,
+            "message": message,
+            "priority": priority,
+            "actions": [
+                {
+                    "action": "view",
+                    "label": "웹으로 이동",
+                    "url": "https://alrimi.jeonghoon.dev"
+                }
+            ]
+        },
         ensure_ascii=False,
     ).encode()
     request = Request(

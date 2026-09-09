@@ -53,7 +53,6 @@ def parse_date(raw: str, field: str) -> dt.date:
 # 같은 날 안에서 시각 순. 시각을 안 정한 것이 앞이다.
 HOUR_ORDER = F("event_hour").asc(nulls_first=True)
 
-
 #  범위를 열어두면 실수 한 번에 몇 년치를 긁는다
 MAX_RANGE_DAYS = 400
 
@@ -349,9 +348,16 @@ def list_weekly(request):
 
         ntfy_data.append({
             "topic": topic,
-            "title": f"[{zone_name}] {start_label} - {end_label}",
+            "title": f"[{zone_name}] {start_label} ~ {end_label} 일정",
             "message": re.sub("\n\n", "\n", "\n".join(content)),
             "priority": 3,
+            "actions": [
+                {
+                    "action": "view",
+                    "label": "웹으로 이동",
+                    "url": "https://alrimi.jeonghoon.dev"
+                }
+            ]
         })
     return Response(ntfy_data)
 
@@ -439,6 +445,13 @@ def list_due_alerts(request):
             # 한 통에 섞였으니 가장 급한 것을 따른다. 낮은 쪽을 따르면 긴급으로
             # 잡아둔 일정이 방해금지에 막혀 조용히 도착한다.
             "priority": max(event.priority for event in events),
+            "actions": [
+                {
+                    "action": "view",
+                    "label": "웹으로 이동",
+                    "url": "https://alrimi.jeonghoon.dev"
+                }
+            ]
         })
 
     return Response({"data": ntfy_data, "ids": ids})
