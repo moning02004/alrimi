@@ -45,13 +45,16 @@ export function EventCard({
     며칠째인지. 여행 둘째 날 카드가 첫날 카드와 똑같이 생기면 목록을 훑다가
     "어제 본 그건가?" 하고 멈추게 된다.
 
-    마지막 날만 숫자 대신 "마지막 날" 이라고 적는다 — 짐을 챙겨 돌아오는 날이라
-    남은 날 수보다 그 사실이 먼저 필요하다.
+    "2/3" 처럼 몇 째 날인지와 며칠짜리인지를 함께 적는다. 며칠째만 적으면 오늘이
+    끝인지 아직 반도 안 왔는지를 알 수 없는데, 그 둘은 다른 하루다. 마지막 날은
+    "3/3" 이라 따로 이름을 붙이지 않아도 끝인 줄 안다.
+
+    `on` 없이 그리는 자리(어느 하루에 놓인 것이 아닐 때)는 셀 기준이 없으므로
+    기간만 적는다.
   */
   const span = spanDays(event.event_date, event.end_date);
   const nth = on ? dayIndex(event.event_date, on) : 0;
-  const dayMark =
-    span < 2 ? null : !nth ? `${span}일간` : nth === span ? "마지막 날" : `${nth}일차`;
+  const dayMark = span < 2 ? null : nth ? `${nth}/${span}` : `${span}일간`;
   const zoneColor = zone?.color ?? event.zone_color;
 
   const inner = (

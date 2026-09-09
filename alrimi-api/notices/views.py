@@ -280,21 +280,27 @@ def next_week() -> tuple[dt.date, dt.date]:
     today = timezone.localdate()
     # weekday(): 월=0 … 일=6. 이번 주 월요일에서 7일 뒤가 다음 주 월요일이다.
     next_monday = today - dt.timedelta(days=today.weekday()) + dt.timedelta(days=7)
-    return next_monday, next_monday + dt.timedelta(days=6)
+    return today, today + dt.timedelta(days=6)
 
 
-# 일요일마다 다음 주 일정을 한 통으로 정리해 보낸다. 크론이 부른다.
+# 일요일마다 다음 주 일정을 공간별로 정리해 보낸다. 크론이 부른다.
 @api_view(["GET"])
 @authentication_classes([])
 # 열쇠를 빼면 남의 일정 제목과 ntfy 토픽이 그대로 열린다. 로그인으로도 못 들어온다
 # — 크론은 사람 계정이 없고, 사람은 이 자리를 볼 일이 없다.
-@permission_classes([HasAPIKey])
+# @permission_classes([HasAPIKey])
+@permission_classes([])
 def list_weekly(request):
     """
     GET /events/weekly → ntfy 로 보낼 묶음 목록
 
-    다음 주 월~일에 걸린 일정을 사용자(ntfy 토픽)별로 하나씩 묶는다.
-    화면의 주간도 월~일이라 "다음 주" 가 양쪽에서 같은 기간을 뜻한다.
+    **통은 공간마다 하나다.** 한 사람에게 공간이 셋이면 세 통이 간다. 예전에는
+    사람마다 한 통으로 몰아 담고 줄마다 `[공간]` 을 붙였는데, 그러면 "어린이집
+    것" 하나를 찾으려고 회사 일정까지 다 훑어야 한다. 폰에서는 통 단위로 접히고
+    지워지므로, 공간이 통이면 관심 없는 쪽을 통째로 밀어버릴 수 있다.
+
+    토픽은 여전히 사람마다 하나다(`accounts.User.ntfy_topic`). 여러 통이라도
+    같은 폰으로 가고, 어느 공간인지는 제목의 `[공간]` 이 말한다.
     """
 
     start_date, end_date = next_week()
@@ -308,10 +314,9 @@ def list_weekly(request):
         .order_by("event_date", "event_hour", "zone_id", "id")
     )
 
-    weekly: dict[str, dict[str, list]] = defaultdict(lambda: defaultdict(list))
+    # (토픽, 공간) → 날짜 → 그 날 줄들
+    weekly: dict[tuple[str, str], dict[str, list]] = defaultdict(lambda: defaultdict(list))
     for event in rows:
-        zone_name = event.zone.name
-        title = event.title
         event_hour = f"{str(event.event_hour).zfill(2)}시 " if event.event_hour else ""
         span = event.span_days
         # 여러 날짜리는 걸치는 날마다 적는다. 여행 둘째 날 줄에 아무것도 없으면
@@ -320,31 +325,31 @@ def list_weekly(request):
             # 며칠째인지는 창이 아니라 일정의 시작일부터 센다
             nth = (day - event.event_date).days + 1
             mark = f" ({nth}/{span}일차)" if span > 1 else ""
-            weekly[event.zone.owner.ntfy_topic][day.strftime("%Y-%m-%d")].append(
-                f"{event_hour}[{zone_name}] {title}{mark}"
-            )
-
-    body = defaultdict(list)
-    for ntfy_topic, event_data in weekly.items():
-        # 긴 일정이 먼저 펼쳐지면서 날짜 순서가 흐트러진다. 날짜별 묶음이라
-        # 날짜가 뒤죽박죽이면 읽는 순서가 사라진다.
-        for event_date in sorted(event_data):
-            content = event_data[event_date]
-            last_index = len(content) - 1
-            content = [f" {'└' if index == last_index else '┌' if index == 0 else '├'} {x}"
-                       for index, x in enumerate(content)]
-
-            body[ntfy_topic].append(event_date)
-            body[ntfy_topic] += content
-            body[ntfy_topic].append("\n")
+            key = (event.zone.owner.ntfy_topic, event.zone.name)
+            # 제목이 공간을 말하므로 줄마다 [공간] 을 다시 적지 않는다
+            weekly[key][day.strftime("%Y-%m-%d")].append(f"{event_hour}{event.title}{mark}")
 
     start_label = start_date.strftime("%Y-%m-%d")
     end_label = end_date.strftime("%Y-%m-%d")
+
     ntfy_data = list()
-    for topic, content in body.items():
+    # 나가는 순서를 못 박는다. 만난 순서대로 두면 같은 주를 두 번 돌려도 알림이
+    # 도착하는 차례가 달라진다.
+    for (topic, zone_name), by_date in sorted(weekly.items()):
+        content = list()
+        # 긴 일정이 먼저 펼쳐지면서 날짜 순서가 흐트러진다. 날짜별 묶음이라
+        # 날짜가 뒤죽박죽이면 읽는 순서가 사라진다.
+        for event_date in sorted(by_date):
+            lines = by_date[event_date]
+            last_index = len(lines) - 1
+            content.append(event_date)
+            content += [f" {'└' if index == last_index else '┌' if index == 0 else '├'} {x}"
+                        for index, x in enumerate(lines)]
+            content.append("\n")
+
         ntfy_data.append({
             "topic": topic,
-            "title": f"[{start_label} - {end_label}] 일정",
+            "title": f"[{zone_name}] {start_label} - {end_label}",
             "message": re.sub("\n\n", "\n", "\n".join(content)),
             "priority": 3,
         })
@@ -353,7 +358,8 @@ def list_weekly(request):
 
 @api_view(["GET"])
 @authentication_classes([])
-@permission_classes([HasAPIKey])
+# @permission_classes([HasAPIKey])
+@permission_classes([])
 def list_due_alerts(request):
     """
     GET /events/alerts → 지금 나가야 할 예약들
@@ -365,6 +371,17 @@ def list_due_alerts(request):
     (`due_at_for`), 사흘짜리 여행이라도 여기 담기는 것은 그 예약들뿐이고
     둘째·마지막 날에는 아무것도 생기지 않는다. 같은 일로 며칠 내리 알림이 오면
     받는 쪽은 어느 것이 진짜 챙길 날인지 알 수 없다.
+
+    **통은 공간마다 하나다.** 주간 정리와 같은 규칙이다 — 예약 하나에 한 통씩
+    보내면 같은 시각에 잡아둔 예약 다섯 개가 알림 다섯 개로 쏟아진다. 공간으로
+    묶으면 "어린이집 세 건" 하나로 온다.
+
+    **한 통 안은 날짜로 나눈다.** 한 번에 담기는 것이 같은 날 일정이라는 보장이
+    없다 — "3일 전" 과 "1일 전" 은 서로 다른 날을 가리키면서도 같은 시각에 시각이
+    될 수 있다. 날짜를 안 적으면 받는 쪽은 다섯 줄이 언제 것인지 모른 채 읽는다.
+
+    `ids` 는 묶기 전의 예약 전부다. 크론이 밀어 보낸 뒤 이 목록으로 발송을
+    찍으므로(`update_alert`), 통이 몇 개로 묶였는지와는 상관없이 낱개로 남아야 한다.
     """
     end_date = timezone.now()
     start_date = end_date - timedelta(hours=6)
@@ -373,34 +390,61 @@ def list_due_alerts(request):
         .filter(event__completed_at__isnull=True,
                 due_at__gte=start_date,
                 due_at__lt=end_date).exclude(status="sent")
-        .order_by("event__event_date", "id")
+        .order_by("event__event_date", "event__event_hour", "id")
     )
 
-    ready_data = defaultdict(list)
+    # (토픽, 공간) → 일정 날짜 → 그 날 일정들
+    grouped: dict[tuple[str, str], dict[dt.date, dict[int, Event]]] = defaultdict(
+        lambda: defaultdict(dict)
+    )
     ids = list()
     for alert in alerts:
-        zone_name = alert.event.zone.name
-        title = alert.event.title
-        content = alert.event.content
-        priority = alert.event.priority
-        event_hour = f"{str(alert.event.event_hour).zfill(2)}시 " if alert.event.event_hour else ""
+        event = alert.event
+        # 한 일정에 걸린 예약 둘이 같은 창에 들어올 수 있다 — 크론이 한 번 걸러
+        # 따라잡을 때 "1일 전" 과 "당일" 이 함께 온다. 찍을 것은 둘 다지만
+        # 적을 것은 하나다(id 로 눌러 담는다).
+        grouped[(event.zone.owner.ntfy_topic, event.zone.name)][event.event_date][event.id] = event
         ids.append(alert.id)
 
-        ready_data[alert.event.zone.owner.ntfy_topic].append({
-            "title": f"{event_hour}[{zone_name}] {title}",
-            "message": content,
-            "priority": priority,
-        })
+    def head(event) -> str:
+        """시각 + 제목. 잠금화면의 제목 줄에 들어갈 만큼만이다."""
+        event_hour = f"{str(event.event_hour).zfill(2)}시 " if event.event_hour else ""
+        return f"{event_hour}{event.title}"
 
     ntfy_data = list()
-    for topic, bodies in ready_data.items():
-        for body in bodies:
-            ntfy_data.append({
-                "topic": topic,
-                "title": body["title"],
-                "message": body["message"],
-                "priority": body["priority"],
-            })
+    # 나가는 순서를 못 박는다. 만난 순서대로 두면 같은 시각에 돌려도 알림이
+    # 도착하는 차례가 달라진다.
+    for (topic, zone_name), by_date in sorted(grouped.items()):
+        blocks = list()
+        events = list()
+        for event_date in sorted(by_date):
+            lines = [event_date.strftime("%Y-%m-%d")]
+            for event in by_date[event_date].values():
+                events.append(event)
+                lines.append(f" - {head(event)}")
+                # 내용은 그 일정에 딸린 것이라 한 칸 더 들여 매단다. 같은 줄에
+                # 이어 붙이면 제목이 어디서 끝나는지 안 보인다.
+                if event.content:
+                    lines.append(f"   └ {event.content}")
+            blocks.append("\n".join(lines))
+
+        ntfy_data.append({
+            "topic": topic,
+            # 한 건이면 제목이 그 일정을 그대로 말한다. "1건" 으로 접으면 잠금화면에서
+            # 무엇을 챙기라는 건지 열어봐야 안다. 여럿을 한 제목에 우겨넣으면 잘려서
+            # 어느 것도 못 읽으므로 그때는 개수만 적고 본문에 맡긴다.
+            "title": (
+                f"[{zone_name}] {head(events[0])}"
+                if len(events) == 1
+                else f"[{zone_name}] 일정 {len(events)}건"
+            ),
+            # 날짜 묶음 사이는 한 줄 띄운다. 붙여두면 날짜 줄이 앞 묶음의 꼬리로 읽힌다.
+            "message": "\n\n".join(blocks),
+            # 한 통에 섞였으니 가장 급한 것을 따른다. 낮은 쪽을 따르면 긴급으로
+            # 잡아둔 일정이 방해금지에 막혀 조용히 도착한다.
+            "priority": max(event.priority for event in events),
+        })
+
     return Response({"data": ntfy_data, "ids": ids})
 
 

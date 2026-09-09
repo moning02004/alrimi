@@ -10,7 +10,7 @@ from django.utils import timezone
 from zones.models import Zone
 
 from .filters import UPCOMING_DAYS, upcoming_end
-from .models import MAX_SPAN_DAYS, EventAlert, Event, due_at_for, parse_code
+from .models import MAX_SPAN_DAYS, EventAlert, Event, Priority, due_at_for, parse_code
 from .views import next_week
 from .ntfy import NtfyError, compose, publish
 
@@ -977,6 +977,163 @@ class CronEndpointTests(TestCase):
         self.assertEqual(len(topics), 2)
         self.assertIn(self.user.ntfy_topic, topics)
         self.assertIn(other.ntfy_topic, topics)
+
+    # ── 통은 공간마다 하나다 ────────────────────────────────────
+
+    @override_settings(N8N_API_KEY="k")
+    def test_공간마다_한_통씩_나간다(self):
+        """
+        한 통에 몰아 담으면 "어린이집 것" 하나를 찾으려고 회사 일정까지 훑어야
+        한다. 폰에서는 통 단위로 접히고 지워지므로 공간이 통이어야 한다.
+        """
+        second = Zone.objects.create(owner=self.user, name="회사")
+        self.make(dt.date(2026, 9, 14), "어린이집_일")
+        Event.objects.create(
+            zone=second, event_date=dt.date(2026, 9, 15), title="회사_일", content="", priority=4
+        )
+
+        with patch("notices.views.timezone.localdate", return_value=dt.date(2026, 9, 13)):
+            rows = self.client.get("/events/weekly", headers={"x-api-key": "k"}).json()
+
+        # 토픽은 사람마다 하나라 둘 다 같은 폰으로 간다
+        self.assertEqual({row["topic"] for row in rows}, {self.user.ntfy_topic})
+        self.assertEqual(len(rows), 2)
+
+        by_zone = {row["title"].split("]")[0].lstrip("["): row["message"] for row in rows}
+        self.assertEqual(set(by_zone), {"어린이집", "회사"})
+        self.assertIn("어린이집_일", by_zone["어린이집"])
+        self.assertNotIn("회사_일", by_zone["어린이집"])
+
+    @override_settings(N8N_API_KEY="k")
+    def test_제목이_공간을_말하므로_줄마다_다시_적지_않는다(self):
+        self.make(dt.date(2026, 9, 14), "가을 운동회")
+
+        with patch("notices.views.timezone.localdate", return_value=dt.date(2026, 9, 13)):
+            row = self.client.get("/events/weekly", headers={"x-api-key": "k"}).json()[0]
+
+        self.assertTrue(row["title"].startswith("[어린이집]"), row["title"])
+        self.assertNotIn("[어린이집]", row["message"])
+
+    @override_settings(N8N_API_KEY="k")
+    def test_일정이_없는_공간은_통을_만들지_않는다(self):
+        Zone.objects.create(owner=self.user, name="빈_공간")
+        self.make(dt.date(2026, 9, 14), "가을 운동회")
+
+        with patch("notices.views.timezone.localdate", return_value=dt.date(2026, 9, 13)):
+            rows = self.client.get("/events/weekly", headers={"x-api-key": "k"}).json()
+
+        self.assertEqual(len(rows), 1)
+        self.assertNotIn("빈_공간", rows[0]["title"])
+
+    # ── 매시 발송도 공간마다 한 통 ──────────────────────────────
+
+    def due(self, zone, title, *, content="", priority=Priority.NORMAL, event_hour=None,
+            on=None, code="D 08:00"):
+        """방금 시각이 된 예약 하나. `on` 을 주면 그 날 일정에 걸린다."""
+        event = Event.objects.create(
+            zone=zone,
+            event_date=on or timezone.localdate(),
+            title=title,
+            content=content,
+            priority=priority,
+            event_hour=event_hour,
+        )
+        return EventAlert.objects.create(
+            event=event, code=code, due_at=timezone.now() - dt.timedelta(minutes=5)
+        )
+
+    def ready(self) -> dict:
+        return self.client.get("/events/alerts", headers={"x-api-key": "k"}).json()
+
+    @override_settings(N8N_API_KEY="k")
+    def test_같은_공간의_예약은_한_통으로_묶인다(self):
+        """
+        예약 하나에 한 통씩 보내면 같은 시각에 잡아둔 다섯 개가 알림 다섯 개로
+        쏟아진다.
+        """
+        self.due(self.zone, "체육복", content="흰 티셔츠")
+        self.due(self.zone, "준비물")
+
+        body = self.ready()
+        self.assertEqual(len(body["data"]), 1)
+
+        row = body["data"][0]
+        self.assertEqual(row["title"], "[어린이집] 일정 2건")
+        self.assertEqual(
+            row["message"].splitlines(),
+            [
+                str(timezone.localdate()),
+                " - 체육복",
+                "   └ 흰 티셔츠",
+                " - 준비물",
+            ],
+        )
+
+        # 묶여도 발송으로 찍을 것은 낱개다 — 크론이 이 목록으로 update_alert 를 부른다
+        self.assertEqual(len(body["ids"]), 2)
+
+    @override_settings(N8N_API_KEY="k")
+    def test_한_통_안은_날짜로_나뉜다(self):
+        """
+        "3일 전" 과 "1일 전" 은 서로 다른 날을 가리키면서도 같은 시각에 시각이 될
+        수 있다. 날짜를 안 적으면 받는 쪽은 줄들이 언제 것인지 모른 채 읽는다.
+        """
+        today = timezone.localdate()
+        soon, later = today + dt.timedelta(days=1), today + dt.timedelta(days=3)
+        self.due(self.zone, "모레 것", on=later, code="D-3 20:00")
+        self.due(self.zone, "내일 것", on=soon, code="D-1 20:00")
+
+        message = self.ready()["data"][0]["message"]
+        self.assertEqual(
+            message.splitlines(),
+            [str(soon), " - 내일 것", "", str(later), " - 모레 것"],
+        )
+
+    @override_settings(N8N_API_KEY="k")
+    def test_한_일정에_걸린_예약_둘이_같은_창에_와도_한_번만_적는다(self):
+        """크론이 한 번 걸러 따라잡으면 "1일 전" 과 "당일" 이 함께 온다."""
+        alert = self.due(self.zone, "체육복")
+        EventAlert.objects.create(
+            event=alert.event, code="D-1 20:00", due_at=timezone.now() - dt.timedelta(minutes=10)
+        )
+
+        body = self.ready()
+        self.assertEqual(body["data"][0]["message"].count("체육복"), 1)
+        # 적는 것은 하나지만 발송으로 찍을 것은 둘이다
+        self.assertEqual(len(body["ids"]), 2)
+
+    @override_settings(N8N_API_KEY="k")
+    def test_공간이_다르면_통도_나뉜다(self):
+        other = Zone.objects.create(owner=self.user, name="회사")
+        self.due(self.zone, "체육복")
+        self.due(other, "회의 자료")
+
+        rows = self.ready()["data"]
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(
+            {row["title"] for row in rows}, {"[어린이집] 체육복", "[회사] 회의 자료"}
+        )
+
+    @override_settings(N8N_API_KEY="k")
+    def test_한_건이면_제목이_그_일정을_그대로_말한다(self):
+        """"1건" 으로 접으면 잠금화면에서 무엇을 챙기라는 건지 열어봐야 안다."""
+        self.due(self.zone, "체육복", content="흰 티셔츠", event_hour=7)
+
+        row = self.ready()["data"][0]
+        self.assertEqual(row["title"], "[어린이집] 07시 체육복")
+        # 본문은 한 건일 때도 같은 모양이다 — 제목에 없는 날짜가 여기 있다
+        self.assertEqual(
+            row["message"].splitlines(),
+            [str(timezone.localdate()), " - 07시 체육복", "   └ 흰 티셔츠"],
+        )
+
+    @override_settings(N8N_API_KEY="k")
+    def test_묶인_통은_가장_급한_중요도를_따른다(self):
+        """낮은 쪽을 따르면 긴급으로 잡아둔 일정이 방해금지에 막혀 조용히 도착한다."""
+        self.due(self.zone, "조용한 것", priority=Priority.LOW)
+        self.due(self.zone, "급한 것", priority=Priority.URGENT)
+
+        self.assertEqual(self.ready()["data"][0]["priority"], Priority.URGENT)
 
 
 class EventHourTests(ApiTestCase):
