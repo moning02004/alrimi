@@ -280,7 +280,7 @@ def next_week() -> tuple[dt.date, dt.date]:
     today = timezone.localdate()
     # weekday(): 월=0 … 일=6. 이번 주 월요일에서 7일 뒤가 다음 주 월요일이다.
     next_monday = today - dt.timedelta(days=today.weekday()) + dt.timedelta(days=7)
-    return today, today + dt.timedelta(days=6)
+    return next_monday, next_monday + dt.timedelta(days=6)
 
 
 # 일요일마다 다음 주 일정을 공간별로 정리해 보낸다. 크론이 부른다.
