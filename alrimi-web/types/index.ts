@@ -24,7 +24,7 @@ export interface AlertItem {
   sent_at: string | null;
 }
 
-export interface NoticeListItem {
+export interface EventListItem {
   id: number;
   /** 시작하는 날. 알림 시점(D-1 …)도 이 날을 기준으로 잰다 */
   event_date: string;
@@ -41,13 +41,13 @@ export interface NoticeListItem {
   alerts: AlertSummary;
 }
 
-export interface NoticeDetail extends Omit<NoticeListItem, "alerts"> {
+export interface EventDetail extends Omit<EventListItem, "alerts"> {
   content: string;
   zone_name: string;
   alerts: AlertItem[];
 }
 
-export interface NoticePayload {
+export interface EventPayload {
   zone: number;
   event_date: string;
   /** 하루짜리면 `event_date` 와 같은 값을 보낸다 */
@@ -61,14 +61,29 @@ export interface NoticePayload {
   completed?: boolean;
 }
 
-/** 그 날 일정이 있는 공간 하나. 색만으로는 색약에서 못 읽어 id 도 함께 온다 */
-export interface CalendarZone {
+/**
+ * 달력이 띠 하나를 그리는 데 필요한 최소한. 본문(내용·알림·우선순위)은 안 온다 —
+ * 주를 넘길 때마다 목록을 통째로 다시 받지 않으려는 것이다.
+ *
+ * **양끝이 그대로 온다.** 날마다 잘라 받으면 사흘짜리 여행이 하루짜리 셋과
+ * 구별되지 않아 띠로 이을 수 없다. 창 밖까지 뻗은 것도 자르지 않고 오고,
+ * 창에 맞춰 자르는 일은 그리는 쪽이 한다.
+ */
+export interface CalendarEvent {
+  id: number;
+  /** 색만으로는 색약에서 어느 공간인지 못 읽어 id 도 함께 온다 */
   zone: number;
   color: string;
+  event_date: string;
+  end_date: string;
+  /** 띠에 붙는 이름. 스크린리더가 "일정 1건" 대신 이것을 읽는다 */
+  title: string;
+  /**
+   * 여기 실려 오는 완료 일정은 늘 지난 것이다(앞으로의 것은 서버가 뺀다).
+   * 그냥 지나간 것과 치운 것을 달력이 다르게 그리려면 이 값이 있어야 한다.
+   */
+  completed: boolean;
 }
-
-/** 날짜 → 그 날 일정이 있는 공간들 */
-export type CalendarMap = Record<string, CalendarZone[]>;
 
 export interface Me {
   username: string;

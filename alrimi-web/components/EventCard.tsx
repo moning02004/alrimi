@@ -6,11 +6,11 @@ import { HiCheckCircle, HiOutlineCheckCircle } from "react-icons/hi2";
 import { pageUrl } from "@/constants/routeUrl";
 import { priorityLabel } from "@/lib/alerts";
 import { dayIndex, hourLabel, spanDays } from "@/lib/date";
-import { useToggleComplete } from "@/hooks/useNotices";
+import { useToggleComplete } from "@/hooks/useEvents";
 import { useZoneMark } from "@/hooks/useZones";
 import { AlertDots } from "./AlertDots";
 import { ZoneMark } from "./ZoneMark";
-import type { NoticeListItem } from "@/types";
+import type { EventListItem } from "@/types";
 
 /**
  * 한 줄. 왼쪽 머리글자 딱지가 공간을 나타낸다.
@@ -21,25 +21,25 @@ import type { NoticeListItem } from "@/types";
  * 오른쪽 동그라미로 여기서 바로 완료할 수 있다. 아침에 목록을 훑으며 끝난 것을
  * 지우는 게 이 앱의 주 용도인데, 그때마다 상세로 들어갔다 나오면 두 번씩 오간다.
  */
-export function NoticeCard({
-  notice,
+export function EventCard({
+  event,
   /** 주면 링크 대신 이 함수를 부른다 — PC 2단에서 옆 칸에 펼치려고 */
   onSelect,
   on,
 }: {
-  notice: NoticeListItem;
-  onSelect?: (noticeId: number) => void;
+  event: EventListItem;
+  onSelect?: (eventId: number) => void;
   /**
    * 이 카드가 놓인 날 (YYYY-MM-DD). 며칠에 걸치는 일정은 걸치는 날마다 한 장씩
    * 나오므로, 지금 몇 일째를 그리는 중인지 알아야 "2일차" 를 적을 수 있다.
    */
   on?: string;
 }) {
-  const badge = priorityLabel(notice.priority);
-  const zone = useZoneMark()(notice.zone_id);
+  const badge = priorityLabel(event.priority);
+  const zone = useZoneMark()(event.zone_id);
   // 목록에서는 완료한 것이 아예 빠진다. 기간·하루 보기에만 흐리게 남아 되돌릴 수 있다.
-  const done = notice.completed_at !== null;
-  const toggle = useToggleComplete(notice.id);
+  const done = event.completed_at !== null;
+  const toggle = useToggleComplete(event.id);
 
   /*
     며칠째인지. 여행 둘째 날 카드가 첫날 카드와 똑같이 생기면 목록을 훑다가
@@ -48,10 +48,11 @@ export function NoticeCard({
     마지막 날만 숫자 대신 "마지막 날" 이라고 적는다 — 짐을 챙겨 돌아오는 날이라
     남은 날 수보다 그 사실이 먼저 필요하다.
   */
-  const span = spanDays(notice.event_date, notice.end_date);
-  const nth = on ? dayIndex(notice.event_date, on) : 0;
+  const span = spanDays(event.event_date, event.end_date);
+  const nth = on ? dayIndex(event.event_date, on) : 0;
   const dayMark =
     span < 2 ? null : !nth ? `${span}일간` : nth === span ? "마지막 날" : `${nth}일차`;
+  const zoneColor = zone?.color ?? event.zone_color;
 
   const inner = (
     <>
@@ -59,7 +60,7 @@ export function NoticeCard({
         <ZoneMark mark={zone.mark} color={zone.color} name={zone.name} />
       ) : (
         // 공간 목록이 아직 안 왔을 때. 자리를 비워두면 제목 줄이 흔들린다.
-        <span className="h-6 w-6 shrink-0 rounded-lg" style={{ background: notice.zone_color }} />
+        <span className="h-6 w-6 shrink-0 rounded-lg" style={{ background: zoneColor }} />
       )}
 
       <span className="flex min-w-0 flex-1 items-center gap-2">
@@ -68,13 +69,13 @@ export function NoticeCard({
           자리다. 없는 줄에는 자리도 만들지 않는다: 대부분 시각이 없는데 빈 칸을
           잡아두면 목록 전체가 그 폭만큼 밀린다.
         */}
-        {notice.event_hour !== null && (
+        {event.event_hour !== null && (
           <span className="shrink-0 text-xs tabular-nums text-muted">
-            {hourLabel(notice.event_hour)}
+            {hourLabel(event.event_hour)}
           </span>
         )}
         <span className={`truncate font-medium ${done ? "line-through" : ""}`}>
-          {notice.title}
+          {event.title}
         </span>
         {badge === "긴급" && (
           <span className="shrink-0 rounded-full bg-amberlt px-2 py-0.5 text-xs text-amber">
@@ -90,7 +91,7 @@ export function NoticeCard({
         </span>
       )}
 
-      {!done && <AlertDots alerts={notice.alerts} />}
+      {!done && <AlertDots alerts={event.alerts} />}
     </>
   );
 
@@ -99,15 +100,35 @@ export function NoticeCard({
   return (
     // 링크 안에 버튼을 넣으면 안 된다(중첩 조작 요소). 나란히 둔다.
     <div
-      className={`flex items-center rounded-xl border border-line bg-card transition-colors
-                  hover:border-muted/40 hover:bg-paper ${done ? "opacity-55" : ""}`}
+      className={`relative flex items-center overflow-hidden rounded-xl border border-line
+                  bg-card transition-colors hover:border-muted/40 hover:bg-paper
+                  ${done ? "opacity-55" : ""}`}
     >
+      {/*
+        며칠에 걸치는 일정만 왼쪽에 띠가 선다.
+
+        그런 일정은 걸치는 날마다 한 장씩 나오는데, 목록을 훑을 때 "2일차" 딱지는
+        카드 오른쪽 끝에 있어서 제목까지 다 읽은 뒤에야 눈에 든다. 왼쪽 띠는 훑는
+        눈이 지나가는 자리라, 읽기 전에 이미 "이건 이어지는 일" 이라고 말한다.
+
+        파스텔이다 — 공간 색을 그대로 세우면 왼쪽 딱지와 같은 색이 두 번 나와
+        시끄럽고, 제목보다 띠가 먼저 읽힌다. 있는 줄만 알면 되는 표시다.
+        `overflow-hidden` 은 이 띠를 카드의 둥근 모서리에 맞춰 잘라준다.
+      */}
+      {span > 1 && (
+        <span
+          aria-hidden="true"
+          className="absolute inset-y-0 left-0 w-1.5"
+          style={{ background: zoneColor, opacity: 0.3 }}
+        />
+      )}
+
       {onSelect ? (
-        <button type="button" onClick={() => onSelect(notice.id)} className={openCls}>
+        <button type="button" onClick={() => onSelect(event.id)} className={openCls}>
           {inner}
         </button>
       ) : (
-        <Link href={pageUrl.notice(notice.id)} className={openCls}>
+        <Link href={pageUrl.event(event.id)} className={openCls}>
           {inner}
         </Link>
       )}
@@ -126,7 +147,7 @@ export function NoticeCard({
         }
         disabled={toggle.isPending}
         aria-pressed={done}
-        aria-label={`${notice.title} ${done ? "완료 취소" : "완료로 표시"}`}
+        aria-label={`${event.title} ${done ? "완료 취소" : "완료로 표시"}`}
         title={done ? "완료 취소" : "완료로 표시"}
         className="mr-1.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-full
                    transition-colors hover:bg-pinelt disabled:opacity-40"

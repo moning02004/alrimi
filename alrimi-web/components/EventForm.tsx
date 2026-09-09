@@ -24,12 +24,12 @@ import {
     toISO,
 } from "@/lib/date";
 import {firstError} from "@/lib/api";
-import {useCreateNotice, useUpdateNotice} from "@/hooks/useNotices";
+import {useCreateEvent, useUpdateEvent} from "@/hooks/useEvents";
 import {onColor} from "@/lib/color";
 import {useZoneMark, useZones} from "@/hooks/useZones";
 import {Picker} from "./Picker";
 import {ZoneMark} from "./ZoneMark";
-import type {NoticeDetail, Priority} from "@/types";
+import type {EventDetail, Priority} from "@/types";
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
@@ -148,22 +148,22 @@ function DateField({id, ariaLabel, value, min, max, placeholder, onPick, row}: D
 
 interface Props {
     /** 있으면 수정, 없으면 등록 */
-    notice?: NoticeDetail;
+    event?: EventDetail;
     /** 달력에서 빈 날을 눌러 열었을 때 미리 채워지는 날짜 */
     initialDate?: string | null;
     onDone: () => void;
 }
 
-export function NoticeForm({notice, initialDate, onDone}: Props) {
-    const editing = Boolean(notice);
+export function EventForm({event, initialDate, onDone}: Props) {
+    const editing = Boolean(event);
     const {zones, defaultZone} = useZones();
     const markOf = useZoneMark();
 
     // 공간 목록이 아직 안 왔으면 기본 공간도 정할 수 없다. 직접 고르기 전까지는
     // 기본값을 매 렌더 다시 보게 해서, 목록이 늦게 와도 빈 채로 굳지 않게 한다.
-    const [picked, setPicked] = useState<number | null>(notice?.zone_id ?? null);
+    const [picked, setPicked] = useState<number | null>(event?.zone_id ?? null);
     const zoneId = picked ?? defaultZone?.id ?? null;
-    const [eventDate, setEventDate] = useState(notice?.event_date ?? initialDate ?? "");
+    const [eventDate, setEventDate] = useState(event?.event_date ?? initialDate ?? "");
     /*
       여러 날에 걸치는 일정(여행·행사). 대부분은 하루짜리라 기본은 꺼짐이고,
       켜야 마지막 날 칸이 나온다 — 늘 두 칸을 물으면 하루짜리에도 채울 칸이
@@ -173,23 +173,23 @@ export function NoticeForm({notice, initialDate, onDone}: Props) {
       하나로는 "안 켰다" 와 "켰는데 아직 안 골랐다" 를 구분하지 못한다.
     */
     const [ranged, setRanged] = useState(
-        Boolean(notice && notice.end_date > notice.event_date),
+        Boolean(event && event.end_date > event.event_date),
     );
     const [endDate, setEndDate] = useState(
-        notice && notice.end_date > notice.event_date ? notice.end_date : "",
+        event && event.end_date > event.event_date ? event.end_date : "",
     );
-    const [title, setTitle] = useState(notice?.title ?? "");
-    const [content, setContent] = useState(notice?.content ?? "");
+    const [title, setTitle] = useState(event?.title ?? "");
+    const [content, setContent] = useState(event?.content ?? "");
     /*
       시각은 선택이다. 기본은 아예 안 묻는다 — 대부분은 몇 시인지 정해져 있지 않고,
       빈 칸이 놓여 있으면 채워야 할 것이 하나 더 있는 것처럼 보인다. "여러 날" 과
       같이 눌러야 열린다.
     */
-    const [eventHour, setEventHour] = useState<number | null>(notice?.event_hour ?? null);
-    const [hourOpen, setHourOpen] = useState(notice?.event_hour != null);
-    const [priority, setPriority] = useState<Priority>(notice?.priority ?? 4);
+    const [eventHour, setEventHour] = useState<number | null>(event?.event_hour ?? null);
+    const [hourOpen, setHourOpen] = useState(event?.event_hour != null);
+    const [priority, setPriority] = useState<Priority>(event?.priority ?? 4);
     const [alerts, setAlerts] = useState<string[]>(
-        notice ? sortCodes(notice.alerts.map((a) => a.code)) : PRESETS["기본으로"],
+        event ? sortCodes(event.alerts.map((a) => a.code)) : PRESETS["기본으로"],
     );
 
     // 달력을 띄울 기준. 날짜 칸이 아니라 그 줄 전체다 — DateField 주석 참고
@@ -211,7 +211,7 @@ export function NoticeForm({notice, initialDate, onDone}: Props) {
      * 이미 있는 지난 일정을 고치는 중이면 그 날짜는 그대로 둔다.
      */
     const today = toISO(startOfDay(new Date()));
-    const minDate = notice && notice.event_date < today ? notice.event_date : today;
+    const minDate = event && event.event_date < today ? event.event_date : today;
 
     /*
       마지막 날은 시작일보다 앞설 수 없고, 서버가 60일에서 끊는다. 달력이 아예
@@ -224,8 +224,8 @@ export function NoticeForm({notice, initialDate, onDone}: Props) {
     const lastDate = ranged && endDate ? endDate : eventDate;
     const span = spanDays(eventDate, lastDate);
 
-    const create = useCreateNotice();
-    const update = useUpdateNotice(notice?.id ?? 0);
+    const create = useCreateEvent();
+    const update = useUpdateEvent(event?.id ?? 0);
     const mutation = editing ? update : create;
 
     /**

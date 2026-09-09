@@ -1,6 +1,6 @@
 export const API_HOST = process.env.NEXT_PUBLIC_API_HOST ?? "http://localhost:8000";
 
-export type NoticeFilter = "upcoming" | "later" | "past";
+export type EventFilter = "upcoming" | "later" | "past";
 
 const withZone = (path: string, zoneId: number | null) =>
   zoneId ? `${path}&zone=${zoneId}` : path;
@@ -19,19 +19,19 @@ export const apiUrl = {
   zone: (zoneId: number) => `/zones/${zoneId}`,
 
   // 존은 선택 필터일 뿐, 목록의 축은 날짜다
-  notices: (filter: NoticeFilter, zoneId: number | null) =>
-    withZone(`/notices?filter=${filter}`, zoneId),
+  events: (filter: EventFilter, zoneId: number | null) =>
+    withZone(`/events?filter=${filter}`, zoneId),
   // 주간 스트립이 그린 기간만. 그 밖은 ‹ › 로 넘겨서 본다
-  noticesInRange: (from: string, to: string, zoneId: number | null) =>
-    withZone(`/notices?from=${from}&to=${to}`, zoneId),
+  eventsInRange: (from: string, to: string, zoneId: number | null) =>
+    withZone(`/events?from=${from}&to=${to}`, zoneId),
   // 달력을 펼쳤을 때 선택한 하루만
-  noticesByDate: (date: string, zoneId: number | null) =>
-    withZone(`/notices?date=${date}`, zoneId),
-  createNotice: "/notices",
-  notice: (noticeId: number) => `/notices/${noticeId}`,
+  eventsByDate: (date: string, zoneId: number | null) =>
+    withZone(`/events?date=${date}`, zoneId),
+  createEvent: "/events",
+  event: (eventId: number) => `/events/${eventId}`,
   // 발송 단위는 Alert 하나다. 상세 화면의 "보내기" 가 쓴다
-  sendAlert: (noticeId: number, alertId: number) =>
-    `/notices/${noticeId}/alerts/${alertId}/send`,
+  sendAlert: (eventId: number, alertId: number) =>
+    `/events/${eventId}/alerts/${alertId}/send`,
 
   calendar: (from: string, to: string, zoneId: number | null) =>
     withZone(`/calendar?from=${from}&to=${to}`, zoneId),
@@ -42,5 +42,5 @@ export const pageUrl = {
   home: "/home",
   past: "/past",
   settings: "/settings",
-  notice: (noticeId: number) => `/notices/${noticeId}`,
+  event: (eventId: number) => `/events/${eventId}`,
 } as const;

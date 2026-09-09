@@ -19,11 +19,11 @@ def with_counts(queryset, today=None):
     return queryset.annotate(
         # 앞으로 남은 할 일. 완료한 것은 세지 않는다.
         upcoming_count=Count(
-            "notices",
-            filter=Q(notices__event_date__gte=today, notices__completed_at__isnull=True),
+            "events",
+            filter=Q(events__event_date__gte=today, events__completed_at__isnull=True),
             distinct=True,
         ),
-        past_count=Count("notices", filter=Q(notices__event_date__lt=today), distinct=True),
+        past_count=Count("events", filter=Q(events__event_date__lt=today), distinct=True),
     )
 
 

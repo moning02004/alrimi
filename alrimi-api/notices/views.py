@@ -18,18 +18,18 @@ from rest_framework.views import APIView
 from accounts.permissions import HasAPIKey
 
 from .filters import FILTERS, filter_q, ordering_for
-from .models import Alert, Notice
+from .models import EventAlert, Event
 from .ntfy import NtfyError, send_alert
 from .serializers import (
-    AlertItemSerializer,
-    NoticeDetailSerializer,
-    NoticeListSerializer,
-    NoticeWriteSerializer,
+    EventAlertItemSerializer,
+    EventDetailSerializer,
+    EventListSerializer,
+    EventWriteSerializer,
 )
 
 
-def owned_notices(user):
-    return Notice.objects.filter(zone__owner=user).select_related("zone").prefetch_related("alerts")
+def owned_events(user):
+    return Event.objects.filter(zone__owner=user).select_related("zone").prefetch_related("alerts")
 
 
 def zone_filter(request) -> Q:
@@ -63,7 +63,7 @@ def parse_range(params, *, require_end: bool = True) -> tuple[dt.date, dt.date |
     from/to 를 함께 읽는다. 목록과 달력이 같은 규칙을 쓰도록 한곳에 둔다.
 
     목록은 `to` 없이도 부른다 — 웹이 "이 날부터 앞으로 전부"를 한 번에 받아
-    화면에서 기간과 그 이후로 나눠 그린다. 달력 점은 그릴 칸이 정해져 있으므로
+    화면에서 기간과 그 이후로 나눠 그린다. 달력은 그릴 칸이 정해져 있으므로
     항상 양끝을 요구한다.
     """
     if not params.get("from"):
@@ -84,12 +84,12 @@ def parse_range(params, *, require_end: bool = True) -> tuple[dt.date, dt.date |
     return start, end
 
 
-class NoticeListCreateView(generics.ListCreateAPIView):
+class EventListCreateView(generics.ListCreateAPIView):
     """
-    GET  /notices?from=&to=&zone={id}          — 임의 기간. 주간 스트립이 쓴다
-    GET  /notices?date=2026-08-19&zone={id}    — 하루치
-    GET  /notices?filter=upcoming|later|past&zone={id}
-    POST /notices                              — 공간은 본문의 zone
+    GET  /events?from=&to=&zone={id}          — 임의 기간. 주간 스트립이 쓴다
+    GET  /events?date=2026-08-19&zone={id}    — 하루치
+    GET  /events?filter=upcoming|later|past&zone={id}
+    POST /events                              — 공간은 본문의 zone
 
     셋이 겹치면 date > from/to > filter 순으로 이긴다. 화면마다 창이 하나뿐이라
     섞이면 목록이 어느 창을 그린 건지 알 수 없어진다.
@@ -99,7 +99,7 @@ class NoticeListCreateView(generics.ListCreateAPIView):
     pagination_class = None
 
     def get_serializer_class(self):
-        return NoticeWriteSerializer if self.request.method == "POST" else NoticeListSerializer
+        return EventWriteSerializer if self.request.method == "POST" else EventListSerializer
 
     def rows(self, condition, ordering, *, hide_completed: bool = True):
         """
@@ -110,7 +110,7 @@ class NoticeListCreateView(generics.ListCreateAPIView):
         틀리게 남으므로 그대로 두고 웹이 흐리게 그린다.
         하루 보기(`?date=`)도 같은 이유로 전부 돌려준다.
         """
-        queryset = Notice.objects.filter(zone__owner=self.request.user)
+        queryset = Event.objects.filter(zone__owner=self.request.user)
         if hide_completed:
             # 끝난 날짜가 기준이다 — 오늘까지 이어지는 여행을 완료로 덮었다면
             # 마지막 날까지는 앞으로의 목록에서 빠져야 한다.
@@ -161,14 +161,22 @@ class NoticeListCreateView(generics.ListCreateAPIView):
 class CalendarView(APIView):
     """
     GET /calendar?from=&to=&zone={id}
-      → {"2026-08-19": [{"zone": 3, "color": "#2F7A63"}, ...]}
+      → [{"id": 12, "zone": 3, "color": "#2F7A63", "completed": false,
+          "event_date": "2026-08-19", "end_date": "2026-08-21", "title": "여행"}, ...]
 
-    달력 표시만 필요하므로 일정 본문을 실어 보내지 않는다.
-    주를 넘길 때마다 목록을 다시 받지 않아도 되게 하는 것이 목적이다.
+    **날짜맵이 아니라 일정 목록이다.** 예전에는 날마다 어떤 공간의 점이 찍히는지만
+    돌려줬는데, 그러면 사흘짜리 여행이 점 셋으로 흩어져 달력에서 하루짜리 셋과
+    구별되지 않는다. 어디서 시작해 어디서 끝나는지를 그대로 주면 웹이 칸을 가로지르는
+    띠 하나로 그릴 수 있다.
 
-    **색만 주지 않는다.** 색약이면 점 색으로는 어느 공간인지 알 수 없어서, 웹이
-    공간 이름의 머리글자를 함께 그린다. 그러려면 어느 공간인지 알아야 한다.
-    이름까지 싣지 않는 것은 웹이 공간 목록을 이미 들고 있기 때문이다.
+    본문(내용·알림·우선순위)은 여전히 싣지 않는다. 제목만 얹는 것은 띠에 붙는
+    설명(스크린리더가 읽는 이름)이 "일정 1건" 이 아니라 그 일정이어야 하기 때문이다.
+
+    `completed` 도 함께 준다. 여기 담기는 완료 일정은 늘 지난 것이라(아래 exclude),
+    이 값이 없으면 웹이 "그냥 지나간 것" 과 "치운 것" 을 같은 흐림으로 그리게 된다.
+
+    **색만 주지 않는다.** 색약이면 색으로는 어느 공간인지 알 수 없어서, 웹이 공간
+    목록에서 머리글자를 찾아 붙인다. 그러려면 어느 공간인지 알아야 한다.
     """
 
     permission_classes = [IsAuthenticated]
@@ -177,58 +185,63 @@ class CalendarView(APIView):
         start, end = parse_range(request.query_params)
 
         rows = (
-            Notice.objects.filter(
+            Event.objects.filter(
                 zone_filter(request),
                 zone__owner=request.user,
                 # 창에 걸치기만 하면 된다. 창 밖에서 시작한 여행도 창 안의 날들에는
-                # 점이 찍혀야 한다.
+                # 띠가 지나가야 한다.
                 event_date__lte=end,
                 end_date__gte=start,
             )
-            # 목록에서 뺀 것은 점도 찍지 않는다. 점은 있는데 눌러도 아래에 없는
-            # 날을 만들지 않으려는 것이다. 지난 날은 목록에 남으므로 점도 남긴다.
+            # 목록에서 뺀 것은 달력에도 그리지 않는다. 표시는 있는데 눌러도 아래에
+            # 없는 날을 만들지 않으려는 것이다. 지난 날은 목록에 남으므로 함께 남긴다.
             .exclude(completed_at__isnull=False, end_date__gte=timezone.localdate())
-            .values_list("event_date", "end_date", "zone_id", "zone__color")
-            .order_by("event_date", "zone_id")
+            .values_list(
+                "id", "event_date", "end_date", "zone_id", "zone__color", "title", "completed_at"
+            )
         )
 
-        # 여러 날짜리는 걸치는 날마다 찍는다. 같은 날 같은 공간은 한 번만 —
-        # 점은 개수가 아니라 "어느 공간 일이 있는가" 를 말하기 때문이다.
-        seen: set[tuple[str, int]] = set()
-        calendar: dict[str, list[dict]] = defaultdict(list)
-        for event_date, last_date, zone_id, color in rows:
-            day = max(event_date, start)
-            while day <= min(last_date, end):
-                key = (day.isoformat(), zone_id)
-                if key not in seen:
-                    seen.add(key)
-                    calendar[key[0]].append({"zone": zone_id, "color": color})
-                day += dt.timedelta(days=1)
+        # 긴 것이 먼저 와야 웹이 띠를 쌓을 때 위 줄부터 채운다. 짧은 것이 위에
+        # 앉으면 긴 띠가 그 아래에서 여러 줄로 꺾여 보인다. 날짜끼리 빼는 정렬이라
+        # DB 에 맡기지 않고 여기서 한다 — 창 하나치라 길어야 수십 줄이다.
+        rows = sorted(
+            rows,
+            key=lambda row: (row[1], -(row[2] - row[1]).days, row[3], row[0]),
+        )
 
-        # 하루 안에서는 공간 순. 긴 일정이 먼저 펼쳐지는 바람에 날마다 점 순서가
-        # 달라지면, 같은 공간의 점이 날짜마다 다른 자리에 찍혀 눈이 못 따라간다.
         return Response(
-            {day: sorted(items, key=lambda item: item["zone"]) for day, items in calendar.items()}
+            [
+                {
+                    "id": event_id,
+                    "zone": zone_id,
+                    "color": color,
+                    "event_date": event_date,
+                    "end_date": last_date,
+                    "title": title,
+                    "completed": completed_at is not None,
+                }
+                for event_id, event_date, last_date, zone_id, color, title, completed_at in rows
+            ]
         )
 
 
-class NoticeDetailView(generics.RetrieveUpdateDestroyAPIView):
-    """GET/PATCH/DELETE /notices/{id}"""
+class EventDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """GET/PATCH/DELETE /events/{id}"""
 
     permission_classes = [IsAuthenticated]
-    lookup_url_kwarg = "notice_id"
+    lookup_url_kwarg = "event_id"
     http_method_names = ["get", "patch", "delete", "head", "options"]
 
     def get_serializer_class(self):
-        return NoticeWriteSerializer if self.request.method == "PATCH" else NoticeDetailSerializer
+        return EventWriteSerializer if self.request.method == "PATCH" else EventDetailSerializer
 
     def get_queryset(self):
-        return owned_notices(self.request.user)
+        return owned_events(self.request.user)
 
 
-class SendAlertView(APIView):
+class SendEventAlertView(APIView):
     """
-    POST /notices/{notice_id}/alerts/{alert_id}/send — 이 예약을 지금 보낸다.
+    POST /events/{event_id}/alerts/{event_alert_id}/send — 이 예약을 지금 보낸다.
 
     상세 화면의 "보내기" 버튼이 쓴다. 시간이 되기 전에 손으로 한 번 밀어보거나,
     실패한 것을 다시 밀 때다.
@@ -239,22 +252,22 @@ class SendAlertView(APIView):
 
     permission_classes = [IsAuthenticated]
 
-    def post(self, request, notice_id, alert_id):
+    def post(self, request, event_id, event_alert_id):
         alert = get_object_or_404(
-            Alert.objects.select_related("notice__zone__owner"),
-            pk=alert_id,
-            notice_id=notice_id,
-            notice__zone__owner=request.user,
+            EventAlert.objects.select_related("event__zone__owner"),
+            pk=event_alert_id,
+            event_id=event_id,
+            event__zone__owner=request.user,
         )
 
         try:
             send_alert(alert)
         except NtfyError as exc:
-            # 실패도 Alert 에 남는다(status="fail"). 화면이 그 자리에서 까닭을
+            # 실패도 EventAlert 에 남는다(status="fail"). 화면이 그 자리에서 까닭을
             # 보여줄 수 있도록 이유를 그대로 싣는다.
             return Response({"detail": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
 
-        return Response(AlertItemSerializer(alert).data)
+        return Response(EventAlertItemSerializer(alert).data)
 
 
 def next_week() -> tuple[dt.date, dt.date]:
@@ -270,14 +283,15 @@ def next_week() -> tuple[dt.date, dt.date]:
     return next_monday, next_monday + dt.timedelta(days=6)
 
 
-# 일요일마다 다음주 일정을 정리해서 알림을 보낸다.
+# 일요일마다 다음 주 일정을 한 통으로 정리해 보낸다. 크론이 부른다.
 @api_view(["GET"])
 @authentication_classes([])
-# @permission_classes([HasAPIKey])
-@permission_classes([])
+# 열쇠를 빼면 남의 일정 제목과 ntfy 토픽이 그대로 열린다. 로그인으로도 못 들어온다
+# — 크론은 사람 계정이 없고, 사람은 이 자리를 볼 일이 없다.
+@permission_classes([HasAPIKey])
 def list_weekly(request):
     """
-    GET /notices/weekly → ntfy 로 보낼 묶음 목록
+    GET /events/weekly → ntfy 로 보낼 묶음 목록
 
     다음 주 월~일에 걸린 일정을 사용자(ntfy 토픽)별로 하나씩 묶는다.
     화면의 주간도 월~일이라 "다음 주" 가 양쪽에서 같은 기간을 뜻한다.
@@ -285,7 +299,7 @@ def list_weekly(request):
 
     start_date, end_date = next_week()
     rows = (
-        Notice.objects.select_related("zone", "zone__owner").prefetch_related("alerts")
+        Event.objects.select_related("zone", "zone__owner").prefetch_related("alerts")
         # 이 주에 걸치기만 하면 담는다. 지난주에 떠나 이번 주에 돌아오는 여행도
         # 이번 주에 있는 일이다.
         .filter(event_date__lte=end_date,
@@ -295,18 +309,18 @@ def list_weekly(request):
     )
 
     weekly: dict[str, dict[str, list]] = defaultdict(lambda: defaultdict(list))
-    for notice in rows:
-        zone_name = notice.zone.name
-        title = notice.title
-        event_hour = f"{str(notice.event_hour).zfill(2)}시 " if notice.event_hour else ""
-        span = notice.span_days
+    for event in rows:
+        zone_name = event.zone.name
+        title = event.title
+        event_hour = f"{str(event.event_hour).zfill(2)}시 " if event.event_hour else ""
+        span = event.span_days
         # 여러 날짜리는 걸치는 날마다 적는다. 여행 둘째 날 줄에 아무것도 없으면
         # 그 날은 비어 있는 것으로 읽힌다.
-        for day in notice.days(start_date, end_date):
+        for day in event.days(start_date, end_date):
             # 며칠째인지는 창이 아니라 일정의 시작일부터 센다
-            nth = (day - notice.event_date).days + 1
+            nth = (day - event.event_date).days + 1
             mark = f" ({nth}/{span}일차)" if span > 1 else ""
-            weekly[notice.zone.owner.ntfy_topic][day.strftime("%Y-%m-%d")].append(
+            weekly[event.zone.owner.ntfy_topic][day.strftime("%Y-%m-%d")].append(
                 f"{event_hour}[{zone_name}] {title}{mark}"
             )
 
@@ -337,32 +351,42 @@ def list_weekly(request):
     return Response(ntfy_data)
 
 
-# 일요일마다 다음주 일정을 정리해서 알림을 보낸다.
 @api_view(["GET"])
 @authentication_classes([])
 @permission_classes([HasAPIKey])
-def alert_notices(request):
+def list_due_alerts(request):
+    """
+    GET /events/alerts → 지금 나가야 할 예약들
+
+    매시 돈다. 지난 6시간 안에 시각이 된 것 중 아직 안 나간 것을 담는다 —
+    크론이 한 번 걸러도 다음 시간에 따라잡으라는 폭이다.
+
+    **일정 하나에 알림도 한 번뿐이다.** 예약은 시작일 기준으로만 잡히므로
+    (`due_at_for`), 사흘짜리 여행이라도 여기 담기는 것은 그 예약들뿐이고
+    둘째·마지막 날에는 아무것도 생기지 않는다. 같은 일로 며칠 내리 알림이 오면
+    받는 쪽은 어느 것이 진짜 챙길 날인지 알 수 없다.
+    """
     end_date = timezone.now()
     start_date = end_date - timedelta(hours=6)
     alerts = (
-        Alert.objects.select_related("notice", "notice__zone", "notice__zone__owner")
-        .filter(notice__completed_at__isnull=True,
+        EventAlert.objects.select_related("event", "event__zone", "event__zone__owner")
+        .filter(event__completed_at__isnull=True,
                 due_at__gte=start_date,
                 due_at__lt=end_date).exclude(status="sent")
-        .order_by("notice__event_date", "id")
+        .order_by("event__event_date", "id")
     )
 
     ready_data = defaultdict(list)
     ids = list()
     for alert in alerts:
-        zone_name = alert.notice.zone.name
-        title = alert.notice.title
-        content = alert.notice.content
-        priority = alert.notice.priority
-        event_hour = f"{str(alert.notice.event_hour).zfill(2)}시 " if alert.notice.event_hour else ""
+        zone_name = alert.event.zone.name
+        title = alert.event.title
+        content = alert.event.content
+        priority = alert.event.priority
+        event_hour = f"{str(alert.event.event_hour).zfill(2)}시 " if alert.event.event_hour else ""
         ids.append(alert.id)
 
-        ready_data[alert.notice.zone.owner.ntfy_topic].append({
+        ready_data[alert.event.zone.owner.ntfy_topic].append({
             "title": f"{event_hour}[{zone_name}] {title}",
             "message": content,
             "priority": priority,
@@ -380,14 +404,19 @@ def alert_notices(request):
     return Response({"data": ntfy_data, "ids": ids})
 
 
-# 일요일마다 다음주 일정을 정리해서 알림을 보낸다.
 @api_view(["PATCH"])
 @authentication_classes([])
 @permission_classes([HasAPIKey])
 def update_alert(request):
+    """
+    PATCH /events/alerts/status  {"ids": [...]}
+
+    크론이 실제로 밀어 보낸 뒤 부른다. 여기서 발송으로 찍혀야 다음 시간에
+    같은 예약이 다시 담기지 않는다.
+    """
     ids = request.data.get("ids")
     if ids:
-        Alert.objects.filter(id__in=ids).update(
+        EventAlert.objects.filter(id__in=ids).update(
             status="sent",
             sent_at=timezone.now())
     return Response({"detail": f"{len(ids)} alerts updated."})

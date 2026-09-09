@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import type { NoticeListItem } from "@/types";
+import type { EventListItem } from "@/types";
 
 const DAYS = ["일", "월", "화", "수", "목", "금", "토"];
 
@@ -42,7 +42,7 @@ export function startOfWeek(d: Date) {
  * 다음 주가 되기 전까지 창이 그대로다.
  *
  * 대신 주 중반에는 이미 지난 날이 창 안에 들어온다. 그 자리는 비우지 않고
- * 지난 일정을 그대로 보여준다 — 목록도 같은 창을 보므로 스트립에 점이 찍혔는데
+ * 지난 일정을 그대로 보여준다 — 목록도 같은 창을 보므로 스트립에 띠가 그려졌는데
  * 아래에는 없는 날은 생기지 않는다.
  */
 export function windowDays(from: Date = new Date()) {
@@ -54,15 +54,16 @@ export function windowDays(from: Date = new Date()) {
 export const monthLabel = (d: Date) => `${d.getFullYear()}년 ${d.getMonth() + 1}월`;
 
 /**
- * "9월 4일 – 10일". 달을 넘어가면 뒤쪽에도 달을 적는다.
+ * "9월 4일 – 9월 10일". 양끝에 달을 다 적는다.
+ *
+ * 같은 달이면 뒤쪽 달을 줄일 수도 있지만("9월 4일 – 10일") 그러지 않는다. 이 줄은
+ * 화면 맨 위에 붙박이로 남아 목록을 훑는 내내 보이는데, 달이 붙어 있는 줄과 없는
+ * 줄이 주마다 번갈아 나오면 같은 자리의 글자가 계속 길이를 바꾼다.
  * 창이 앞뒤로 움직이므로 지금 무슨 기간을 보고 있는지 머리글이 직접 말해줘야 한다.
  */
 export function rangeLabel(start: Date, end: Date) {
   const head = `${start.getMonth() + 1}월 ${start.getDate()}일`;
-  const tail =
-    start.getMonth() === end.getMonth()
-      ? `${end.getDate()}일`
-      : `${end.getMonth() + 1}월 ${end.getDate()}일`;
+  const tail = `${end.getMonth() + 1}월 ${end.getDate()}일`;
   return `${head} – ${tail}`;
 }
 
@@ -136,7 +137,7 @@ export interface DateGroup {
   /** 스크롤 앵커로 쓴다 */
   iso: string;
   label: string;
-  items: NoticeListItem[];
+  items: EventListItem[];
 }
 
 interface GroupOptions {
@@ -152,28 +153,40 @@ interface GroupOptions {
  *
  * 며칠에 걸치는 일정은 **걸치는 날마다** 들어간다 — 여행 둘째 날 아침에 목록을
  * 열었을 때 비어 있으면 안 되기 때문이다. 같은 일정이 여러 날에 나오므로
- * 그리는 쪽은 열쇠를 `id` 만으로 잡으면 안 된다(NoticeGroups 참고).
+ * 그리는 쪽은 열쇠를 `id` 만으로 잡으면 안 된다(EventGroups 참고).
  *
  * 창(`from`~`to`)을 주면 그 밖의 날은 만들지 않는다. 서버는 창에 **걸치는** 것을
  * 주므로, 자르지 않으면 지난주에 떠난 여행 때문에 이번 주 목록 위에 지난주 날짜가
  * 붙는다.
  */
 export function groupByDate(
-  notices: NoticeListItem[],
+  events: EventListItem[],
   { from, to, desc = false }: GroupOptions = {},
 ): DateGroup[] {
-  const buckets = new Map<string, NoticeListItem[]>();
+  const buckets = new Map<string, EventListItem[]>();
 
-  for (const notice of notices) {
-    const first = from && notice.event_date < from ? from : notice.event_date;
+  for (const event of events) {
+    const start = event.event_date;
     // end_date 가 없던 시절의 응답(캐시)이 섞여도 하루짜리로 읽고 넘어간다
-    const last = notice.end_date && notice.end_date > first ? notice.end_date : first;
-    const stop = to && last > to ? to : last;
+    const end = event.end_date && event.end_date > start ? event.end_date : start;
+
+    /*
+      창에 닿지 않는 것은 아예 만들지 않는다.
+
+      아래에서 시작일을 창 첫날로 당기기 때문에, 이 걸름이 없으면 창보다 앞에서
+      끝난 일정이 창 첫날 줄에 끼어 앉는다 — 주간 목록이 오늘부터 그릴 때
+      "어제 일" 이 오늘 것으로 둔갑한다.
+    */
+    if (from && end < from) continue;
+    if (to && start > to) continue;
+
+    const first = from && start < from ? from : start;
+    const stop = to && end > to ? to : end;
 
     for (let day = first; day <= stop; day = toISO(addDays(toDate(day), 1))) {
       const items = buckets.get(day);
-      if (items) items.push(notice);
-      else buckets.set(day, [notice]);
+      if (items) items.push(event);
+      else buckets.set(day, [event]);
     }
   }
 

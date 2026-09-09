@@ -5,14 +5,14 @@ from rest_framework import serializers
 
 from zones.models import Zone
 
-from .models import MAX_SPAN_DAYS, Alert, Notice, parse_code
+from .models import MAX_SPAN_DAYS, EventAlert, Event, parse_code
 
 _DATETIME = serializers.DateTimeField()
 
 
-class AlertItemSerializer(serializers.ModelSerializer):
+class EventAlertItemSerializer(serializers.ModelSerializer):
     class Meta:
-        model = Alert
+        model = EventAlert
         # status 가 없으면 실패한 알림이 화면에서 "대기 중"으로 보인다
         fields = ["id", "code", "due_at", "status", "sent_at"]
 
@@ -35,7 +35,7 @@ class AlertCodesField(serializers.ListField):
         return list(dict.fromkeys(codes))
 
 
-class NoticeListSerializer(serializers.ModelSerializer):
+class EventListSerializer(serializers.ModelSerializer):
     """목록 카드용. 알림은 점 개수만 알면 되므로 요약으로 줄인다."""
 
     # 카드는 존 이름 대신 왼쪽 색 막대로 공간을 구분한다
@@ -43,7 +43,7 @@ class NoticeListSerializer(serializers.ModelSerializer):
     alerts = serializers.SerializerMethodField()
 
     class Meta:
-        model = Notice
+        model = Event
         fields = [
             "id",
             "event_date",
@@ -58,21 +58,21 @@ class NoticeListSerializer(serializers.ModelSerializer):
             "alerts",
         ]
 
-    def get_alerts(self, notice) -> dict:
-        items = list(notice.alerts.all())
+    def get_alerts(self, event) -> dict:
+        items = list(event.alerts.all())
         return {
             "total": len(items),
-            "sent": sum(1 for alert in items if alert.status == Alert.Status.SENT),
+            "sent": sum(1 for alert in items if alert.status == EventAlert.Status.SENT),
         }
 
 
-class NoticeDetailSerializer(serializers.ModelSerializer):
+class EventDetailSerializer(serializers.ModelSerializer):
     zone_name = serializers.CharField(source="zone.name", read_only=True)
     zone_color = serializers.CharField(source="zone.color", read_only=True)
-    alerts = AlertItemSerializer(many=True, read_only=True)
+    alerts = EventAlertItemSerializer(many=True, read_only=True)
 
     class Meta:
-        model = Notice
+        model = Event
         fields = [
             "id",
             "event_date",
@@ -89,7 +89,7 @@ class NoticeDetailSerializer(serializers.ModelSerializer):
         ]
 
 
-class NoticeWriteSerializer(serializers.ModelSerializer):
+class EventWriteSerializer(serializers.ModelSerializer):
     """
     공간은 경로가 아니라 본문으로 받는다. 목록의 축이 날짜라서
     등록 폼에서 공간을 고르고, 수정할 때 다른 공간으로 옮길 수도 있다.
@@ -101,7 +101,7 @@ class NoticeWriteSerializer(serializers.ModelSerializer):
     completed = serializers.BooleanField(required=False, write_only=True)
 
     class Meta:
-        model = Notice
+        model = Event
         fields = [
             "id",
             "zone",
@@ -180,9 +180,9 @@ class NoticeWriteSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"alerts": "알림을 하나 이상 넣어주세요."})
         validated_data.pop("completed", None)
 
-        notice = Notice.objects.create(**validated_data)
-        notice.sync_alerts(codes)
-        return notice
+        event = Event.objects.create(**validated_data)
+        event.sync_alerts(codes)
+        return event
 
     @transaction.atomic
     def update(self, instance, validated_data):
@@ -206,5 +206,5 @@ class NoticeWriteSerializer(serializers.ModelSerializer):
         return instance
 
     def to_representation(self, instance):
-        instance = Notice.objects.select_related("zone").prefetch_related("alerts").get(pk=instance.pk)
-        return NoticeDetailSerializer(instance, context=self.context).data
+        instance = Event.objects.select_related("zone").prefetch_related("alerts").get(pk=instance.pk)
+        return EventDetailSerializer(instance, context=self.context).data

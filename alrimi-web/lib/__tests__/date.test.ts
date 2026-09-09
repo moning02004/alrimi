@@ -13,7 +13,7 @@ import {
   toISO,
   windowDays,
 } from "../date";
-import type { NoticeListItem } from "@/types";
+import type { EventListItem } from "@/types";
 
 /** 테스트에서 읽기 쉬우라고. `new Date(y, m-1, d)` 는 로컬 자정이다 */
 const d = (iso: string) => {
@@ -94,11 +94,16 @@ describe("monthGridDays", () => {
 });
 
 describe("rangeLabel", () => {
-  it("같은 달이면 뒤쪽 달을 생략한다", () => {
-    expect(rangeLabel(d("2026-09-06"), d("2026-09-12"))).toBe("9월 6일 – 12일");
+  /*
+    같은 달이어도 뒤쪽 달을 줄이지 않는다. 이 줄은 화면 맨 위에 붙박이로 남아
+    목록을 훑는 내내 보이는데, 달이 붙은 줄과 없는 줄이 주마다 번갈아 나오면
+    같은 자리의 글자가 계속 길이를 바꾼다.
+  */
+  it("같은 달이어도 양끝에 달을 적는다", () => {
+    expect(rangeLabel(d("2026-09-06"), d("2026-09-12"))).toBe("9월 6일 – 9월 12일");
   });
 
-  it("달을 넘어가면 뒤쪽에도 달을 적는다", () => {
+  it("달을 넘어가도 같은 모양이다", () => {
     expect(rangeLabel(d("2026-09-27"), d("2026-10-03"))).toBe("9월 27일 – 10월 3일");
   });
 });
@@ -123,7 +128,7 @@ describe("toISO", () => {
 
 
 /** 목록 카드 하나. 이 테스트가 보는 것은 날짜뿐이다 */
-const notice = (id: number, event_date: string, end_date = event_date) =>
+const event = (id: number, event_date: string, end_date = event_date) =>
   ({
     id,
     event_date,
@@ -135,7 +140,7 @@ const notice = (id: number, event_date: string, end_date = event_date) =>
     zone_id: 1,
     zone_color: "#2F7A63",
     alerts: { total: 0, sent: 0 },
-  }) as NoticeListItem;
+  }) as EventListItem;
 
 describe("spanDays — 양끝을 다 세는 날 수", () => {
   it.each([
@@ -184,18 +189,18 @@ describe("spanLabel", () => {
 
 describe("groupByDate — 며칠짜리는 걸치는 날마다 들어간다", () => {
   it("하루짜리는 그 날 묶음에만 들어간다", () => {
-    const groups = groupByDate([notice(1, "2026-09-25")]);
+    const groups = groupByDate([event(1, "2026-09-25")]);
     expect(groups.map((g) => g.iso)).toEqual(["2026-09-25"]);
   });
 
   it("여행은 걸치는 날마다 한 번씩 나온다", () => {
-    const groups = groupByDate([notice(1, "2026-09-25", "2026-09-27")]);
+    const groups = groupByDate([event(1, "2026-09-25", "2026-09-27")]);
     expect(groups.map((g) => g.iso)).toEqual(["2026-09-25", "2026-09-26", "2026-09-27"]);
     expect(groups.every((g) => g.items[0].id === 1)).toBe(true);
   });
 
   it("창 밖은 만들지 않는다 — 서버가 창에 걸치는 것을 주기 때문", () => {
-    const groups = groupByDate([notice(1, "2026-09-20", "2026-09-30")], {
+    const groups = groupByDate([event(1, "2026-09-20", "2026-09-30")], {
       from: "2026-09-25",
       to: "2026-09-27",
     });
@@ -204,8 +209,8 @@ describe("groupByDate — 며칠짜리는 걸치는 날마다 들어간다", () 
 
   it("날짜 순으로 선다 — 긴 일정이 먼저 와도 뒤엉키지 않는다", () => {
     const groups = groupByDate([
-      notice(1, "2026-09-25", "2026-09-28"),
-      notice(2, "2026-09-26"),
+      event(1, "2026-09-25", "2026-09-28"),
+      event(2, "2026-09-26"),
     ]);
     expect(groups.map((g) => g.iso)).toEqual([
       "2026-09-25",
@@ -217,12 +222,35 @@ describe("groupByDate — 며칠짜리는 걸치는 날마다 들어간다", () 
   });
 
   it("지난 일정은 최근 것부터", () => {
-    const groups = groupByDate([notice(1, "2026-09-25", "2026-09-26")], { desc: true });
+    const groups = groupByDate([event(1, "2026-09-25", "2026-09-26")], { desc: true });
     expect(groups.map((g) => g.iso)).toEqual(["2026-09-26", "2026-09-25"]);
   });
 
   it("end_date 가 없는 옛 응답이 섞여도 하루짜리로 읽는다", () => {
-    const stale = { ...notice(1, "2026-09-25"), end_date: undefined } as unknown as NoticeListItem;
+    const stale = { ...event(1, "2026-09-25"), end_date: undefined } as unknown as EventListItem;
     expect(groupByDate([stale]).map((g) => g.iso)).toEqual(["2026-09-25"]);
+  });
+
+  /*
+    주간 목록은 오늘 앞을 잘라내려고 창 첫날을 오늘로 준다. 그때 서버가 준 것에는
+    이미 지난 일정도 섞여 있는데, 걸러내지 않으면 시작일이 창 첫날로 당겨지면서
+    "어제 일" 이 오늘 줄에 끼어 앉는다.
+  */
+  it("창보다 앞에서 끝난 일정은 창 첫날로 당겨지지 않고 아예 빠진다", () => {
+    const groups = groupByDate([event(1, "2026-09-20")], { from: "2026-09-25", to: "2026-09-27" });
+    expect(groups).toEqual([]);
+  });
+
+  it("창 앞에서 시작해 창 안까지 오는 것은 창 첫날부터 그린다", () => {
+    const groups = groupByDate([event(1, "2026-09-24", "2026-09-26")], {
+      from: "2026-09-25",
+      to: "2026-09-27",
+    });
+    expect(groups.map((g) => g.iso)).toEqual(["2026-09-25", "2026-09-26"]);
+  });
+
+  it("창 뒤에서 시작하는 것도 빠진다", () => {
+    const groups = groupByDate([event(1, "2026-09-30")], { from: "2026-09-25", to: "2026-09-27" });
+    expect(groups).toEqual([]);
   });
 });

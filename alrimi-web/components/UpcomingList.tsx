@@ -1,6 +1,6 @@
 "use client";
 
-import { useNotices } from "@/hooks/useNotices";
+import { useEvents } from "@/hooks/useEvents";
 import { useZoneMark } from "@/hooks/useZones";
 import { ZoneMark } from "./ZoneMark";
 import { hourLabel, sectionLabel, spanDays, toDate, toISO } from "@/lib/date";
@@ -44,7 +44,7 @@ export function UpcomingList({
   selected: string;
 }) {
   // 서버의 `upcoming` 은 오늘부터 7일. 완료한 것은 빠져서 "아직 남은 것"만 온다.
-  const { data, isLoading, isError, refetch } = useNotices("upcoming", zoneId);
+  const { data, isLoading, isError, refetch } = useEvents("upcoming", zoneId);
   const markOf = useZoneMark();
   const items = data ?? [];
 
@@ -65,27 +65,27 @@ export function UpcomingList({
         <p className="px-1 text-xs text-muted">앞으로 일주일은 비어 있어요</p>
       ) : (
         <ul className="space-y-0.5">
-          {items.map((notice) => {
-            const zone = markOf(notice.zone_id);
-            const on = notice.event_date === selected;
+          {items.map((event) => {
+            const zone = markOf(event.zone_id);
+            const on = event.event_date === selected;
 
             return (
-              <li key={notice.id}>
+              <li key={event.id}>
                 <button
-                  onClick={() => onPick(notice.event_date)}
+                  onClick={() => onPick(event.event_date)}
                   className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left
                               transition-colors ${on ? "bg-pinelt" : "hover:bg-card"}`}
                 >
                   <ZoneMark
                     mark={zone?.mark ?? ""}
-                    color={zone?.color ?? notice.zone_color}
+                    color={zone?.color ?? event.zone_color}
                     name={zone?.name}
                     size="sm"
                   />
-                  <span className="min-w-0 flex-1 truncate text-sm">{notice.title}</span>
+                  <span className="min-w-0 flex-1 truncate text-sm">{event.title}</span>
                   <span className="shrink-0 text-[11px] tabular-nums text-muted">
-                    {whenSpan(notice.event_date, notice.end_date)}
-                    {notice.event_hour !== null && ` ${hourLabel(notice.event_hour)}`}
+                    {whenSpan(event.event_date, event.end_date)}
+                    {event.event_hour !== null && ` ${hourLabel(event.event_hour)}`}
                   </span>
                 </button>
               </li>

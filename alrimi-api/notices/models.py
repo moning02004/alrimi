@@ -73,10 +73,16 @@ def due_at_for(event_date: dt.date, code: str) -> dt.datetime:
 MAX_SPAN_DAYS = 60
 
 
-class Notice(models.Model):
-    """알려야 할 일정 하나. 하루짜리도 있고 여행처럼 며칠에 걸치는 것도 있다."""
+class Event(models.Model):
+    """
+    알려야 할 일정 하나. 하루짜리도 있고 여행처럼 며칠에 걸치는 것도 있다.
 
-    zone = models.ForeignKey(Zone, on_delete=models.CASCADE, related_name="notices")
+    며칠에 걸쳐도 **한 건**이다 — 날마다 따로 만들지 않는다. 그래서 알림도 시작일
+    하나를 기준으로만 잡히고, 중간이나 마지막 날에는 예약이 생기지 않는다.
+    같은 일을 두고 알림이 며칠 내리 오면 어느 것이 진짜인지 알 수 없다.
+    """
+
+    zone = models.ForeignKey(Zone, on_delete=models.CASCADE, related_name="events")
     event_date = models.DateField(help_text="시작하는 날. 알림 시점(D-1 …)도 이 날을 기준으로 잰다.")
     end_date = models.DateField(
         blank=True,
@@ -102,7 +108,7 @@ class Notice(models.Model):
     completed_at = models.DateTimeField(
         null=True,
         blank=True,
-        help_text="완료 표시한 시각. 완료하면 목록·달력 점에서 빠지고 남은 알림도 나가지 않는다.",
+        help_text="완료 표시한 시각. 완료하면 목록·달력에서 빠지고 남은 알림도 나가지 않는다.",
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -119,7 +125,7 @@ class Notice(models.Model):
         constraints = [
             models.CheckConstraint(
                 condition=models.Q(end_date__gte=models.F("event_date")),
-                name="notice_end_not_before_start",
+                name="event_end_not_before_start",
             ),
         ]
 
@@ -136,7 +142,7 @@ class Notice(models.Model):
         """
         이 일정이 걸치는 날들. `start`·`end` 를 주면 그 창 안으로 잘라서 준다.
 
-        달력 점과 주간 정리가 "이 일정은 이 날에도 있다"를 그리는 데 쓴다 —
+        주간 정리가 "이 일정은 이 날에도 있다"를 적는 데 쓴다 —
         여행 둘째 날 아침에 목록을 열었을 때 비어 있으면 안 되기 때문이다.
         """
         first = max(self.event_date, start) if start else self.event_date
@@ -162,8 +168,8 @@ class Notice(models.Model):
 
     def sync_alerts(self, codes: list[str]) -> None:
         """
-        코드 목록을 통째로 받아 Alert를 맞춘다.
-        이미 발송된 Alert는 기록이므로 코드에서 빠졌더라도 남긴다.
+        코드 목록을 통째로 받아 EventAlert 를 맞춘다.
+        이미 발송된 예약은 기록이므로 코드에서 빠졌더라도 남긴다.
         """
         wanted = list(dict.fromkeys(codes))
         existing = {alert.code: alert for alert in self.alerts.all()}
@@ -171,7 +177,7 @@ class Notice(models.Model):
         for code in wanted:
             alert = existing.get(code)
             if alert is None:
-                Alert.objects.create(notice=self, code=code, due_at=due_at_for(self.event_date, code))
+                EventAlert.objects.create(event=self, code=code, due_at=due_at_for(self.event_date, code))
                 continue
 
             # 날짜가 바뀌었으면 아직 안 나간 알림의 발송 시각만 다시 계산한다
@@ -187,10 +193,10 @@ class Notice(models.Model):
             if code not in wanted and alert.sent_at is None
         ]
         if stale:
-            Alert.objects.filter(pk__in=stale).delete()
+            EventAlert.objects.filter(pk__in=stale).delete()
 
 
-class Alert(models.Model):
+class EventAlert(models.Model):
     """일정 하나에 걸린 발송 예약."""
 
     class Status(models.TextChoices):
@@ -198,7 +204,7 @@ class Alert(models.Model):
         SENT = "sent", "발송됨"
         FAILED = "fail", "발송 실패"
 
-    notice = models.ForeignKey(Notice, on_delete=models.CASCADE, related_name="alerts")
+    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name="alerts")
     code = models.CharField(max_length=16, help_text=CODE_HELP)
     due_at = models.DateTimeField()
     # 실제로 나간 시각. 상세 화면이 "07:00 발송"을 이 값으로 적는다.
@@ -211,12 +217,12 @@ class Alert(models.Model):
     class Meta:
         ordering = ["due_at", "id"]
         constraints = [
-            models.UniqueConstraint(fields=["notice", "code"], name="uniq_alert_code_per_notice"),
+            models.UniqueConstraint(fields=["event", "code"], name="uniq_alert_code_per_event"),
         ]
         indexes = [models.Index(fields=["sent_at", "due_at"])]
 
     def __str__(self) -> str:
-        return f"{self.notice_id} {self.code} {self.due_at.strftime('%Y-%m-%d %H:%M')}"
+        return f"{self.event_id} {self.code} {self.due_at.strftime('%Y-%m-%d %H:%M')}"
 
     def mark_sent(self) -> None:
         self.sent_at = timezone.now()

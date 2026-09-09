@@ -5,16 +5,18 @@ import { MonthGrid } from "./MonthGrid";
 import { PeriodNav } from "./PeriodNav";
 import { WeekStrip } from "./WeekStrip";
 import { WEEK_DAYS, addDays, monthLabel, shiftMonth } from "@/lib/date";
-import type { CalendarMap } from "@/types";
+import type { CalendarEvent } from "@/types";
 
 interface Props {
   expanded: boolean;
   onToggle: (expanded: boolean) => void;
   anchor: Date;
   selected: string;
-  calendar: CalendarMap;
+  events: CalendarEvent[];
   onMove: (nextAnchor: Date) => void;
   onPickDay: (iso: string) => void;
+  /** 아래 목록이 이 날부터 그린다. 그 앞의 칸은 눌러도 갈 곳이 없다 */
+  jumpFrom?: string;
 }
 
 /** 이만큼 끌어야 제스처로 친다. 탭이 스와이프로 오인되지 않을 만큼은 크게 */
@@ -33,9 +35,10 @@ export function CalendarHeader({
   onToggle,
   anchor,
   selected,
-  calendar,
+  events,
   onMove,
   onPickDay,
+  jumpFrom,
 }: Props) {
   const start = useRef<{ x: number; y: number } | null>(null);
   const swiped = useRef(false);
@@ -138,13 +141,13 @@ export function CalendarHeader({
         <MonthGrid
           anchor={anchor}
           selected={selected}
-          calendar={calendar}
+          events={events}
           onPickDay={onPickDay}
         />
       </Fold>
 
       <Fold open={!expanded}>
-        <WeekStrip start={anchor} calendar={calendar} onJumpTo={onPickDay} />
+        <WeekStrip start={anchor} events={events} onJumpTo={onPickDay} jumpFrom={jumpFrom} />
       </Fold>
     </div>
   );

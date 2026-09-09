@@ -1,14 +1,14 @@
 "use client";
 
-import { NoticeCard } from "./NoticeCard";
+import { EventCard } from "./EventCard";
 import { ErrorBlock, LoadingBlock } from "./Loading";
 import { fullLabel, sectionLabel } from "@/lib/date";
-import type { NoticeListItem } from "@/types";
+import type { EventListItem } from "@/types";
 
 interface Props {
   /** 보고 있는 하루 (YYYY-MM-DD) */
   date: string;
-  items: NoticeListItem[];
+  items: EventListItem[];
   isLoading: boolean;
   isError?: boolean;
   onRetry?: () => void;
@@ -16,7 +16,7 @@ interface Props {
   canAdd: boolean;
   onAdd: () => void;
   /** PC 2단에서 카드를 누르면 옆 칸에 펼친다. 없으면 상세 페이지로 이동한다 */
-  onSelect?: (noticeId: number) => void;
+  onSelect?: (eventId: number) => void;
   /** PC 2단의 오른쪽 칸은 이 화면의 주인공이라 머리글을 크게 쓴다 */
   size?: "sm" | "lg";
 }
@@ -67,8 +67,8 @@ export function DayPanel({
       ) : (
         <>
           <div className="space-y-1.5">
-            {items.map((notice) => (
-              <NoticeCard key={notice.id} notice={notice} onSelect={onSelect} on={date} />
+            {items.map((event) => (
+              <EventCard key={event.id} event={event} onSelect={onSelect} on={date} />
             ))}
           </div>
 

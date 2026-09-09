@@ -5,8 +5,8 @@ ntfy 발송.
 그 사람의 토픽 하나로 모인다 — 폰에서 구독을 공간 수만큼 늘리지 않으려는 것이다.
 어느 공간 일인지는 제목의 `[공간]` 이 말한다.
 
-보내는 단위는 Alert 다. 같은 일정이라도 "전날 저녁"과 "당일 아침"은 각각 한 번씩
-나가야 하고, 나갔는지도 Alert 마다 따로 남는다.
+보내는 단위는 EventAlert 다. 같은 일정이라도 "전날 저녁"과 "당일 아침"은 각각 한 번씩
+나가야 하고, 나갔는지도 EventAlert 마다 따로 남는다.
 
 **본문은 JSON 으로 보낸다.** 헤더 방식(`X-Title`)은 값이 ASCII 여야 해서 한글 제목이
 깨진다. JSON publishing 은 UTF-8 을 그대로 받는다.
@@ -69,35 +69,35 @@ def publish(topic: str, *, title: str, message: str, priority: int) -> None:
         raise NtfyError("ntfy 서버에 닿지 못했어요.") from exc
 
 
-def compose(notice) -> tuple[str, str]:
+def compose(event) -> tuple[str, str]:
     """
     알림에 실어 보낼 제목과 본문.
 
     받는 사람은 잠금화면에서 이것만 본다 — 어느 공간 일인지, 언제 일인지가
     한 줄에 다 있어야 앱을 열지 않고도 판단이 된다.
     """
-    title = f"[{notice.zone.name}] {notice.title}"
+    title = f"[{event.zone.name}] {event.title}"
 
-    lines = [formats.date_format(notice.event_date, "n월 j일 (D)")]
-    if notice.content:
-        lines.append(notice.content)
+    lines = [formats.date_format(event.event_date, "n월 j일 (D)")]
+    if event.content:
+        lines.append(event.content)
     return title, "\n".join(lines)
 
 
 def send_alert(alert) -> None:
     """
-    이 예약을 지금 보낸다. 결과는 Alert 에 남는다 — 성공이면 `sent`,
+    이 예약을 지금 보낸다. 결과는 EventAlert 에 남는다 — 성공이면 `sent`,
     실패면 `fail`(보낸 적이 없으므로 `sent_at` 은 비운다).
     """
-    notice = alert.notice
-    title, message = compose(notice)
+    event = alert.event
+    title, message = compose(event)
 
     try:
         publish(
-            notice.zone.owner.ntfy_topic,
+            event.zone.owner.ntfy_topic,
             title=title,
             message=message,
-            priority=notice.priority,
+            priority=event.priority,
         )
     except NtfyError:
         alert.mark_failed()

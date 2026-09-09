@@ -71,8 +71,8 @@ export function useUpdateZone(zoneId: number) {
       api.patch<Zone>(apiUrl.zone(zoneId), patch),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["zones"] });
-      // 카드 막대와 달력 점이 존 색을 쓰므로 같이 새로 그린다
-      qc.invalidateQueries({ queryKey: ["notices"] });
+      // 카드 막대와 달력 띠가 존 색을 쓰므로 같이 새로 그린다
+      qc.invalidateQueries({ queryKey: ["events"] });
       qc.invalidateQueries({ queryKey: ["calendar"] });
     },
   });
@@ -89,7 +89,7 @@ export function useDeleteZone() {
     mutationFn: (zoneId: number) => api.delete<void>(apiUrl.zone(zoneId)),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["zones"] });
-      qc.invalidateQueries({ queryKey: ["notices"] });
+      qc.invalidateQueries({ queryKey: ["events"] });
       qc.invalidateQueries({ queryKey: ["calendar"] });
     },
   });

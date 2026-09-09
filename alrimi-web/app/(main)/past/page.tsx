@@ -1,9 +1,9 @@
 "use client";
 
-import { useNotices } from "@/hooks/useNotices";
+import { useEvents } from "@/hooks/useEvents";
 import { useZones } from "@/hooks/useZones";
 import { groupByDate } from "@/lib/date";
-import { NoticeGroups } from "@/components/NoticeGroups";
+import { EventGroups } from "@/components/EventGroups";
 import { ErrorBlock, LoadingBlock } from "@/components/Loading";
 import { ZoneChips } from "@/components/ZoneChips";
 
@@ -16,8 +16,8 @@ import { ZoneChips } from "@/components/ZoneChips";
  */
 export default function PastPage() {
   const { selectedZoneId } = useZones();
-  const { data, isLoading, isError, refetch } = useNotices("past", selectedZoneId);
-  const notices = data ?? [];
+  const { data, isLoading, isError, refetch } = useEvents("past", selectedZoneId);
+  const events = data ?? [];
 
   return (
     <>
@@ -36,11 +36,11 @@ export default function PastPage() {
 
         {!isLoading &&
           !isError &&
-          (notices.length === 0 ? (
+          (events.length === 0 ? (
             <p className="py-10 text-center text-sm text-muted">지난 일정이 없어요</p>
           ) : (
             // 최근 것부터. 며칠짜리 일정은 걸친 날마다 한 번씩 나온다.
-            <NoticeGroups groups={groupByDate(notices, { desc: true })} />
+            <EventGroups groups={groupByDate(events, { desc: true })} />
           ))}
       </main>
     </>

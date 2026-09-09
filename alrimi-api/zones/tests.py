@@ -6,7 +6,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from notices.filters import upcoming_end
-from notices.models import Notice
+from notices.models import Event
 
 from .models import Zone
 
@@ -77,9 +77,9 @@ class ZoneApiTests(TestCase):
         zone = Zone.objects.create(owner=self.user, name="우리집")
         beyond = upcoming_end(self.today) + dt.timedelta(days=30)
 
-        Notice.objects.create(zone=zone, event_date=self.today, title="오늘")
-        Notice.objects.create(zone=zone, event_date=beyond, title="한참 뒤")
-        Notice.objects.create(zone=zone, event_date=self.today - dt.timedelta(days=1), title="어제")
+        Event.objects.create(zone=zone, event_date=self.today, title="오늘")
+        Event.objects.create(zone=zone, event_date=beyond, title="한참 뒤")
+        Event.objects.create(zone=zone, event_date=self.today - dt.timedelta(days=1), title="어제")
 
         row = self.client.get(reverse("zone-list"), headers=self.auth).json()[0]
         self.assertEqual(row["upcoming_count"], 2)

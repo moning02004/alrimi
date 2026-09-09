@@ -10,7 +10,7 @@ from django.utils import timezone
 from zones.models import Zone
 
 from .filters import UPCOMING_DAYS, upcoming_end
-from .models import MAX_SPAN_DAYS, Alert, Notice, due_at_for, parse_code
+from .models import MAX_SPAN_DAYS, EventAlert, Event, due_at_for, parse_code
 from .views import next_week
 from .ntfy import NtfyError, compose, publish
 
@@ -99,7 +99,7 @@ class ApiTestCase(TestCase):
         return self.client.get(url, headers=self.auth)
 
 
-class NoticeCrudTests(ApiTestCase):
+class EventCrudTests(ApiTestCase):
     def payload(self, **over):
         return {
             "zone": self.zone.id,
@@ -112,7 +112,7 @@ class NoticeCrudTests(ApiTestCase):
         }
 
     def test_create_builds_alerts_from_codes(self):
-        res = self.post(reverse("notice-list"), self.payload())
+        res = self.post(reverse("event-list"), self.payload())
         self.assertEqual(res.status_code, 201)
 
         body = res.json()
@@ -126,16 +126,16 @@ class NoticeCrudTests(ApiTestCase):
         """"시작하고 3일 뒤" 처럼 일정이 지난 다음으로도 예약된다."""
         start = self.today + dt.timedelta(days=1)
         res = self.post(
-            reverse("notice-list"),
+            reverse("event-list"),
             self.payload(event_date=str(start), alerts=["D 07:00", "D+3 20:00"]),
         )
         self.assertEqual(res.status_code, 201)
 
-        alert = Alert.objects.get(notice_id=res.json()["id"], code="D+3 20:00")
+        alert = EventAlert.objects.get(event_id=res.json()["id"], code="D+3 20:00")
         self.assertEqual(timezone.localtime(alert.due_at).date(), start + dt.timedelta(days=3))
 
     def test_bad_alert_code_is_400(self):
-        res = self.post(reverse("notice-list"), self.payload(alerts=["오늘"]))
+        res = self.post(reverse("event-list"), self.payload(alerts=["오늘"]))
         self.assertEqual(res.status_code, 400)
 
     def test_a_past_date_is_refused(self):
@@ -144,22 +144,22 @@ class NoticeCrudTests(ApiTestCase):
         보내는 쪽이 저장 직후 그 일정의 예약을 전부 집어 들고 한꺼번에 쏘게 된다.
         """
         past = str(self.today - dt.timedelta(days=1))
-        res = self.post(reverse("notice-list"), self.payload(event_date=past))
+        res = self.post(reverse("event-list"), self.payload(event_date=past))
         self.assertEqual(res.status_code, 400)
         self.assertIn("event_date", res.json())
 
     def test_today_is_allowed(self):
-        res = self.post(reverse("notice-list"), self.payload(event_date=str(self.today)))
+        res = self.post(reverse("event-list"), self.payload(event_date=str(self.today)))
         self.assertEqual(res.status_code, 201)
 
-    def test_an_existing_past_notice_stays_editable(self):
-        notice = Notice.objects.create(
+    def test_an_existing_past_event_stays_editable(self):
+        event = Event.objects.create(
             zone=self.zone, event_date=self.today - dt.timedelta(days=5), title="지난 것"
         )
-        notice.sync_alerts(["D 07:00"])
+        event.sync_alerts(["D 07:00"])
 
         res = self.client.patch(
-            reverse("notice-detail", args=[notice.id]),
+            reverse("event-detail", args=[event.id]),
             {"title": "이름만 고침"},
             content_type="application/json",
             headers=self.auth,
@@ -167,13 +167,13 @@ class NoticeCrudTests(ApiTestCase):
         self.assertEqual(res.status_code, 200)
         self.assertEqual(res.json()["title"], "이름만 고침")
 
-    def test_moving_a_notice_into_the_past_is_refused(self):
-        notice_id = self.post(
-            reverse("notice-list"), self.payload()
+    def test_moving_an_event_into_the_past_is_refused(self):
+        event_id = self.post(
+            reverse("event-list"), self.payload()
         ).json()["id"]
 
         res = self.client.patch(
-            reverse("notice-detail", args=[notice_id]),
+            reverse("event-detail", args=[event_id]),
             {"event_date": str(self.today - dt.timedelta(days=1))},
             content_type="application/json",
             headers=self.auth,
@@ -181,19 +181,19 @@ class NoticeCrudTests(ApiTestCase):
         self.assertEqual(res.status_code, 400)
 
     def test_empty_alerts_is_400(self):
-        res = self.post(reverse("notice-list"), self.payload(alerts=[]))
+        res = self.post(reverse("event-list"), self.payload(alerts=[]))
         self.assertEqual(res.status_code, 400)
 
     def test_update_keeps_sent_alerts_and_replaces_the_rest(self):
-        notice_id = self.post(
-            reverse("notice-list"), self.payload()
+        event_id = self.post(
+            reverse("event-list"), self.payload()
         ).json()["id"]
 
-        sent = Alert.objects.get(notice_id=notice_id, code="D-1 20:00")
+        sent = EventAlert.objects.get(event_id=event_id, code="D-1 20:00")
         sent.mark_sent()
 
         res = self.client.patch(
-            reverse("notice-detail", args=[notice_id]),
+            reverse("event-detail", args=[event_id]),
             {"alerts": ["D-3 20:00"]},
             content_type="application/json",
             headers=self.auth,
@@ -206,48 +206,48 @@ class NoticeCrudTests(ApiTestCase):
         self.assertNotIn("D 07:00", codes)  # 아직 안 나간 건 교체된다
 
     def test_moving_the_date_reschedules_pending_alerts(self):
-        notice_id = self.post(
-            reverse("notice-list"), self.payload()
+        event_id = self.post(
+            reverse("event-list"), self.payload()
         ).json()["id"]
         moved = self.today + dt.timedelta(days=10)
 
         self.client.patch(
-            reverse("notice-detail", args=[notice_id]),
+            reverse("event-detail", args=[event_id]),
             {"event_date": str(moved)},
             content_type="application/json",
             headers=self.auth,
         )
-        alert = Alert.objects.get(notice_id=notice_id, code="D 07:00")
+        alert = EventAlert.objects.get(event_id=event_id, code="D 07:00")
         self.assertEqual(timezone.localtime(alert.due_at).date(), moved)
 
-    def test_other_users_notice_is_404(self):
-        notice = Notice.objects.create(
+    def test_other_users_event_is_404(self):
+        event = Event.objects.create(
             zone=Zone.objects.create(owner=self.other, name="남의집"),
             event_date=self.today,
             title="비밀",
         )
-        self.assertEqual(self.get(reverse("notice-detail", args=[notice.id])).status_code, 404)
+        self.assertEqual(self.get(reverse("event-detail", args=[event.id])).status_code, 404)
 
     def test_delete_removes_alerts(self):
-        notice_id = self.post(
-            reverse("notice-list"), self.payload()
+        event_id = self.post(
+            reverse("event-list"), self.payload()
         ).json()["id"]
 
-        res = self.client.delete(reverse("notice-detail", args=[notice_id]), headers=self.auth)
+        res = self.client.delete(reverse("event-detail", args=[event_id]), headers=self.auth)
         self.assertEqual(res.status_code, 204)
-        self.assertFalse(Alert.objects.filter(notice_id=notice_id).exists())
+        self.assertFalse(EventAlert.objects.filter(event_id=event_id).exists())
 
 
-class NoticeListTests(ApiTestCase):
-    def make(self, offset_days: int, title: str) -> Notice:
-        return Notice.objects.create(
+class EventListTests(ApiTestCase):
+    def make(self, offset_days: int, title: str) -> Event:
+        return Event.objects.create(
             zone=self.zone,
             event_date=self.today + dt.timedelta(days=offset_days),
             title=title,
         )
 
     def titles(self, filter_name: str) -> list[str]:
-        url = f"{reverse('notice-list')}?filter={filter_name}"
+        url = f"{reverse('event-list')}?filter={filter_name}"
         return [n["title"] for n in self.get(url).json()]
 
     def setUp(self):
@@ -272,21 +272,21 @@ class NoticeListTests(ApiTestCase):
 
     def test_list_summarises_alerts_for_the_dots(self):
         """카드의 점은 '몇 개 중 몇 개 나갔나'만 말한다."""
-        notice = self.make(1, "점 확인")
-        Alert.objects.create(notice=notice, code="D-1 20:00", due_at=timezone.now()).mark_sent()
-        Alert.objects.create(notice=notice, code="D 07:00", due_at=timezone.now()).mark_failed()
-        Alert.objects.create(notice=notice, code="D-2 20:00", due_at=timezone.now())
+        event = self.make(1, "점 확인")
+        EventAlert.objects.create(event=event, code="D-1 20:00", due_at=timezone.now()).mark_sent()
+        EventAlert.objects.create(event=event, code="D 07:00", due_at=timezone.now()).mark_failed()
+        EventAlert.objects.create(event=event, code="D-2 20:00", due_at=timezone.now())
 
-        url = f"{reverse('notice-list')}?filter=upcoming"
+        url = f"{reverse('event-list')}?filter=upcoming"
         row = next(n for n in self.get(url).json() if n["title"] == "점 확인")
         self.assertEqual(row["alerts"], {"total": 3, "sent": 1})
 
     def test_a_failed_alert_is_not_counted_as_sent(self):
         """실패는 나간 것이 아니다. 점이 초록으로 차면 온 줄 알게 된다."""
-        notice = self.make(1, "실패 확인")
-        Alert.objects.create(notice=notice, code="D 07:00", due_at=timezone.now()).mark_failed()
+        event = self.make(1, "실패 확인")
+        EventAlert.objects.create(event=event, code="D 07:00", due_at=timezone.now()).mark_failed()
 
-        url = f"{reverse('notice-list')}?filter=upcoming"
+        url = f"{reverse('event-list')}?filter=upcoming"
         row = next(n for n in self.get(url).json() if n["title"] == "실패 확인")
         self.assertEqual(row["alerts"], {"total": 1, "sent": 0})
 
@@ -297,19 +297,19 @@ class CrossZoneListTests(ApiTestCase):
     def setUp(self):
         super().setUp()
         self.other_zone = Zone.objects.create(owner=self.user, name="어린이집")
-        self.mine = Notice.objects.create(zone=self.zone, event_date=self.today, title="우리집 일")
-        self.theirs = Notice.objects.create(
+        self.mine = Event.objects.create(zone=self.zone, event_date=self.today, title="우리집 일")
+        self.theirs = Event.objects.create(
             zone=self.other_zone, event_date=self.today, title="어린이집 일"
         )
         # 남의 계정 것은 절대 섞이면 안 된다
-        Notice.objects.create(
+        Event.objects.create(
             zone=Zone.objects.create(owner=self.other, name="남의집"),
             event_date=self.today,
             title="남의 일",
         )
 
     def titles(self, query: str = "") -> list[str]:
-        return [n["title"] for n in self.get(f"{reverse('notice-list')}{query}").json()]
+        return [n["title"] for n in self.get(f"{reverse('event-list')}{query}").json()]
 
     def test_default_spans_every_zone_of_the_owner(self):
         self.assertEqual(sorted(self.titles("?filter=upcoming")), ["어린이집 일", "우리집 일"])
@@ -322,34 +322,34 @@ class CrossZoneListTests(ApiTestCase):
         self.assertEqual(self.titles(f"?filter=upcoming&zone={stranger.id}"), [])
 
     def test_non_numeric_zone_is_400(self):
-        res = self.get(f"{reverse('notice-list')}?filter=upcoming&zone=abc")
+        res = self.get(f"{reverse('event-list')}?filter=upcoming&zone=abc")
         self.assertEqual(res.status_code, 400)
 
     def test_same_day_groups_by_zone(self):
-        rows = self.get(f"{reverse('notice-list')}?filter=upcoming").json()
+        rows = self.get(f"{reverse('event-list')}?filter=upcoming").json()
         self.assertEqual([r["zone_id"] for r in rows], sorted(r["zone_id"] for r in rows))
 
     def test_rows_carry_the_zone_colour_for_the_card_bar(self):
-        row = next(r for r in self.get(f"{reverse('notice-list')}?filter=upcoming").json())
+        row = next(r for r in self.get(f"{reverse('event-list')}?filter=upcoming").json())
         self.assertTrue(row["zone_color"].startswith("#"))
 
     def test_date_query_returns_just_that_day(self):
-        Notice.objects.create(
+        Event.objects.create(
             zone=self.zone, event_date=self.today + dt.timedelta(days=1), title="내일 일"
         )
         self.assertEqual(sorted(self.titles(f"?date={self.today}")), ["어린이집 일", "우리집 일"])
 
     def test_date_wins_over_filter(self):
         past = self.today - dt.timedelta(days=3)
-        Notice.objects.create(zone=self.zone, event_date=past, title="지난 일")
+        Event.objects.create(zone=self.zone, event_date=past, title="지난 일")
         # filter=upcoming 이어도 date 가 이긴다
         self.assertEqual(self.titles(f"?date={past}&filter=upcoming"), ["지난 일"])
 
     def test_malformed_date_is_400(self):
-        self.assertEqual(self.get(f"{reverse('notice-list')}?date=8월19일").status_code, 400)
+        self.assertEqual(self.get(f"{reverse('event-list')}?date=8월19일").status_code, 400)
 
 
-class CreateNoticeZoneTests(ApiTestCase):
+class CreateEventZoneTests(ApiTestCase):
     def body(self, zone_id):
         return {
             "zone": zone_id,
@@ -361,26 +361,26 @@ class CreateNoticeZoneTests(ApiTestCase):
         }
 
     def test_zone_comes_from_the_body(self):
-        res = self.post(reverse("notice-list"), self.body(self.zone.id))
+        res = self.post(reverse("event-list"), self.body(self.zone.id))
         self.assertEqual(res.status_code, 201)
         self.assertEqual(res.json()["zone_id"], self.zone.id)
 
-    def test_cannot_plant_a_notice_in_someone_elses_zone(self):
+    def test_cannot_plant_an_event_in_someone_elses_zone(self):
         stranger = Zone.objects.create(owner=self.other, name="남의집")
-        res = self.post(reverse("notice-list"), self.body(stranger.id))
+        res = self.post(reverse("event-list"), self.body(stranger.id))
         self.assertEqual(res.status_code, 400)
 
     def test_zone_is_required(self):
         payload = self.body(self.zone.id)
         del payload["zone"]
-        self.assertEqual(self.post(reverse("notice-list"), payload).status_code, 400)
+        self.assertEqual(self.post(reverse("event-list"), payload).status_code, 400)
 
-    def test_a_notice_can_be_moved_to_another_zone(self):
-        notice_id = self.post(reverse("notice-list"), self.body(self.zone.id)).json()["id"]
+    def test_an_event_can_be_moved_to_another_zone(self):
+        event_id = self.post(reverse("event-list"), self.body(self.zone.id)).json()["id"]
         target = Zone.objects.create(owner=self.user, name="회사")
 
         res = self.client.patch(
-            reverse("notice-detail", args=[notice_id]),
+            reverse("event-detail", args=[event_id]),
             {"zone": target.id},
             content_type="application/json",
             headers=self.auth,
@@ -390,56 +390,93 @@ class CreateNoticeZoneTests(ApiTestCase):
 
 
 class CalendarTests(ApiTestCase):
+    """
+    /calendar 는 날짜맵이 아니라 **일정 목록**이다. 여러 날짜리를 날마다 잘라
+    보내면 웹이 그것을 다시 하나로 붙일 수 없어 띠를 못 그린다.
+    """
+
     def setUp(self):
         super().setUp()
         self.other_zone = Zone.objects.create(owner=self.user, name="어린이집")
-        Notice.objects.create(zone=self.zone, event_date=self.today, title="a")
-        Notice.objects.create(zone=self.zone, event_date=self.today, title="b")
-        Notice.objects.create(zone=self.other_zone, event_date=self.today, title="c")
+        Event.objects.create(zone=self.zone, event_date=self.today, title="a")
+        Event.objects.create(zone=self.zone, event_date=self.today, title="b")
+        Event.objects.create(zone=self.other_zone, event_date=self.today, title="c")
 
-    def calendar(self, query: str) -> dict:
+    def calendar(self, query: str) -> list:
         return self.get(f"{reverse('calendar')}{query}").json()
 
     def span(self, days: int = 7) -> str:
         return f"?from={self.today}&to={self.today + dt.timedelta(days=days)}"
 
-    def test_returns_one_row_per_zone_not_per_notice(self):
-        """같은 공간에 일정이 두 개여도 표시는 하나다."""
-        data = self.calendar(self.span())
-        self.assertEqual(
-            data[str(self.today)],
-            [
-                {"zone": self.zone.id, "color": self.zone.color},
-                {"zone": self.other_zone.id, "color": self.other_zone.color},
-            ],
+    def test_every_event_comes_back_on_its_own(self):
+        """같은 공간에 둘이 있어도 접지 않는다 — 띠는 일정마다 하나씩 그려진다."""
+        self.assertEqual({row["title"] for row in self.calendar(self.span())}, {"a", "b", "c"})
+
+    def test_a_row_carries_both_ends_so_the_web_can_draw_a_band(self):
+        trip = Event.objects.create(
+            zone=self.zone,
+            event_date=self.today + dt.timedelta(days=1),
+            end_date=self.today + dt.timedelta(days=3),
+            title="제주 여행",
         )
+        row = next(row for row in self.calendar(self.span()) if row["id"] == trip.id)
+        self.assertEqual(row["event_date"], str(trip.event_date))
+        self.assertEqual(row["end_date"], str(trip.end_date))
 
     def test_each_row_says_which_zone_not_just_a_colour(self):
         """색약이면 색만으로는 어느 공간인지 못 읽는다. 웹이 머리글자를 그린다."""
-        row = self.calendar(self.span())[str(self.today)][0]
+        row = self.calendar(self.span())[0]
         self.assertEqual(row["zone"], self.zone.id)
+        self.assertEqual(row["color"], self.zone.color)
 
-    def test_days_without_notices_are_absent(self):
-        data = self.calendar(self.span())
-        self.assertEqual(list(data), [str(self.today)])
+    def test_a_row_carries_the_title_for_the_bands_label(self):
+        """띠에 붙는 이름이 '일정 1건' 이면 스크린리더로는 못 읽는다."""
+        self.assertIn("a", {row["title"] for row in self.calendar(self.span())})
 
-    def test_zone_query_narrows_the_dots(self):
-        data = self.calendar(f"{self.span()}&zone={self.zone.id}")
-        self.assertEqual(data[str(self.today)], [{"zone": self.zone.id, "color": self.zone.color}])
+    def test_a_row_says_whether_it_was_completed(self):
+        """
+        여기 담기는 완료 일정은 늘 지난 것이다. 이 값이 없으면 웹이 "그냥 지나간 것"
+        과 "치운 것" 을 같은 흐림으로 그린다.
+        """
+        day = self.today - dt.timedelta(days=3)
+        done = Event.objects.create(zone=self.zone, event_date=day, title="치운 것")
+        done.set_completed(True)
+        Event.objects.create(zone=self.zone, event_date=day, title="그냥 지난 것")
+
+        rows = {row["title"]: row["completed"] for row in self.calendar(f"?from={day}&to={day}")}
+        self.assertEqual(rows, {"치운 것": True, "그냥 지난 것": False})
+
+    def test_an_empty_window_is_an_empty_list(self):
+        far = self.today + dt.timedelta(days=30)
+        self.assertEqual(self.calendar(f"?from={far}&to={far}"), [])
+
+    def test_zone_query_narrows_the_rows(self):
+        rows = self.calendar(f"{self.span()}&zone={self.zone.id}")
+        self.assertEqual({row["zone"] for row in rows}, {self.zone.id})
+
+    def test_longer_events_come_first_so_the_web_stacks_them_from_the_top(self):
+        """짧은 것이 위에 앉으면 긴 띠가 그 아래에서 여러 줄로 꺾여 보인다."""
+        Event.objects.create(
+            zone=self.zone,
+            event_date=self.today,
+            end_date=self.today + dt.timedelta(days=4),
+            title="긴 것",
+        )
+        self.assertEqual(self.calendar(self.span())[0]["title"], "긴 것")
 
     def test_range_is_inclusive_on_both_ends(self):
         edge = self.today + dt.timedelta(days=3)
-        Notice.objects.create(zone=self.zone, event_date=edge, title="끝날")
-        data = self.calendar(f"?from={edge}&to={edge}")
-        self.assertEqual(list(data), [str(edge)])
+        Event.objects.create(zone=self.zone, event_date=edge, title="끝날")
+        rows = self.calendar(f"?from={edge}&to={edge}")
+        self.assertEqual([row["title"] for row in rows], ["끝날"])
 
-    def test_other_owners_notices_never_appear(self):
-        Notice.objects.create(
+    def test_other_owners_events_never_appear(self):
+        Event.objects.create(
             zone=Zone.objects.create(owner=self.other, name="남의집"),
             event_date=self.today,
             title="남의 일",
         )
-        self.assertEqual(len(self.calendar(self.span())[str(self.today)]), 2)
+        self.assertNotIn("남의 일", {row["title"] for row in self.calendar(self.span())})
 
     def test_missing_range_is_400(self):
         self.assertEqual(self.get(reverse("calendar")).status_code, 400)
@@ -462,7 +499,7 @@ class RangeQueryTests(ApiTestCase):
     def setUp(self):
         super().setUp()
         self.days = {
-            offset: Notice.objects.create(
+            offset: Event.objects.create(
                 zone=self.zone,
                 event_date=self.today + dt.timedelta(days=offset),
                 title=f"D{offset:+d}",
@@ -471,7 +508,7 @@ class RangeQueryTests(ApiTestCase):
         }
 
     def titles(self, query: str) -> list[str]:
-        return [n["title"] for n in self.get(f"{reverse('notice-list')}{query}").json()]
+        return [n["title"] for n in self.get(f"{reverse('event-list')}{query}").json()]
 
     def span(self, start_offset: int) -> str:
         start = self.today + dt.timedelta(days=start_offset)
@@ -490,7 +527,7 @@ class RangeQueryTests(ApiTestCase):
         # 겹치지도 빠지지도 않는다
         self.assertEqual(set(first) & set(second), set())
 
-    def test_previous_window_reaches_past_notices(self):
+    def test_previous_window_reaches_past_events(self):
         self.assertIn("D-1", self.titles(self.span(-UPCOMING_DAYS)))
 
     def test_range_is_inclusive_on_both_ends(self):
@@ -499,7 +536,7 @@ class RangeQueryTests(ApiTestCase):
 
     def test_zone_query_still_narrows_it(self):
         other = Zone.objects.create(owner=self.user, name="어린이집")
-        Notice.objects.create(zone=other, event_date=self.today, title="남의 공간")
+        Event.objects.create(zone=other, event_date=self.today, title="남의 공간")
         self.assertNotIn("남의 공간", self.titles(f"{self.span(0)}&zone={self.zone.id}"))
 
     def test_range_wins_over_filter(self):
@@ -515,7 +552,7 @@ class RangeQueryTests(ApiTestCase):
         self.assertEqual(rows, ["D+0", "D+6", "D+7", "D+13"])
 
     def test_to_without_from_is_400(self):
-        self.assertEqual(self.get(f"{reverse('notice-list')}?to={self.today}").status_code, 400)
+        self.assertEqual(self.get(f"{reverse('event-list')}?to={self.today}").status_code, 400)
 
     def test_calendar_still_needs_both_ends(self):
         res = self.get(f"{reverse('calendar')}?from={self.today}")
@@ -524,13 +561,13 @@ class RangeQueryTests(ApiTestCase):
     def test_reversed_range_is_400(self):
         back = self.today - dt.timedelta(days=1)
         self.assertEqual(
-            self.get(f"{reverse('notice-list')}?from={self.today}&to={back}").status_code, 400
+            self.get(f"{reverse('event-list')}?from={self.today}&to={back}").status_code, 400
         )
 
     def test_absurd_range_is_refused(self):
         far = self.today + dt.timedelta(days=500)
         self.assertEqual(
-            self.get(f"{reverse('notice-list')}?from={self.today}&to={far}").status_code, 400
+            self.get(f"{reverse('event-list')}?from={self.today}&to={far}").status_code, 400
         )
 
 
@@ -539,16 +576,16 @@ class AlertStatusTests(ApiTestCase):
 
     def setUp(self):
         super().setUp()
-        self.notice = Notice.objects.create(zone=self.zone, event_date=self.today, title="준비물")
-        self.notice.sync_alerts(["D 07:00"])
-        self.alert = self.notice.alerts.get()
+        self.event = Event.objects.create(zone=self.zone, event_date=self.today, title="준비물")
+        self.event.sync_alerts(["D 07:00"])
+        self.alert = self.event.alerts.get()
 
     def detail(self) -> dict:
-        rows = self.get(reverse("notice-detail", args=[self.notice.id])).json()["alerts"]
+        rows = self.get(reverse("event-detail", args=[self.event.id])).json()["alerts"]
         return rows[0]
 
     def test_a_new_alert_is_pending(self):
-        self.assertEqual(self.alert.status, Alert.Status.PENDING)
+        self.assertEqual(self.alert.status, EventAlert.Status.PENDING)
         self.assertIsNone(self.alert.sent_at)
         self.assertEqual(self.detail()["status"], "")
 
@@ -556,7 +593,7 @@ class AlertStatusTests(ApiTestCase):
         self.alert.mark_sent()
 
         self.alert.refresh_from_db()
-        self.assertEqual(self.alert.status, Alert.Status.SENT)
+        self.assertEqual(self.alert.status, EventAlert.Status.SENT)
         self.assertIsNotNone(self.alert.sent_at)
 
         row = self.detail()
@@ -568,7 +605,7 @@ class AlertStatusTests(ApiTestCase):
         self.alert.mark_failed()
 
         self.alert.refresh_from_db()
-        self.assertEqual(self.alert.status, Alert.Status.FAILED)
+        self.assertEqual(self.alert.status, EventAlert.Status.FAILED)
         self.assertIsNone(self.alert.sent_at)
 
     def test_the_detail_screen_can_tell_failed_from_pending(self):
@@ -578,28 +615,28 @@ class AlertStatusTests(ApiTestCase):
 
 
 class CompletionTests(ApiTestCase):
-    """완료한 일정은 목록·달력 점·발송에서 모두 빠진다."""
+    """완료한 일정은 목록·달력·발송에서 모두 빠진다."""
 
     def setUp(self):
         super().setUp()
-        self.notice = Notice.objects.create(
+        self.event = Event.objects.create(
             zone=self.zone, event_date=self.today, title="체육복 챙기기", content="흰 티셔츠"
         )
-        self.notice.sync_alerts(["D 07:00"])
-        self.alert = self.notice.alerts.get()
+        self.event.sync_alerts(["D 07:00"])
+        self.alert = self.event.alerts.get()
         # 오늘 07:00 은 이미 지난 시각이라 발송 대상이다
-        Alert.objects.filter(pk=self.alert.pk).update(due_at=timezone.now() - dt.timedelta(hours=1))
+        EventAlert.objects.filter(pk=self.alert.pk).update(due_at=timezone.now() - dt.timedelta(hours=1))
 
     def complete(self, value: bool):
         return self.client.patch(
-            reverse("notice-detail", args=[self.notice.id]),
+            reverse("event-detail", args=[self.event.id]),
             {"completed": value},
             content_type="application/json",
             headers=self.auth,
         )
 
     def agenda(self) -> list[str]:
-        url = f"{reverse('notice-list')}?from={self.today}"
+        url = f"{reverse('event-list')}?from={self.today}"
         return [n["title"] for n in self.get(url).json()]
 
     def test_patch_completed_sets_and_clears_the_timestamp(self):
@@ -612,29 +649,29 @@ class CompletionTests(ApiTestCase):
     def test_completing_only_needs_the_flag(self):
         """알림 코드를 통째로 다시 보내지 않아도 된다."""
         self.complete(True)
-        self.assertEqual(self.notice.alerts.count(), 1)
+        self.assertEqual(self.event.alerts.count(), 1)
 
-    def test_a_completed_past_notice_stays_in_the_list(self):
+    def test_a_completed_past_event_stays_in_the_list(self):
         """지난 일정은 기록이다. 끝낸 것을 지우면 그 날이 틀리게 남는다."""
-        past = Notice.objects.create(
+        past = Event.objects.create(
             zone=self.zone, event_date=self.today - dt.timedelta(days=3), title="독감 예방접종"
         )
         past.set_completed(True)
 
         start = self.today - dt.timedelta(days=7)
-        url = f"{reverse('notice-list')}?from={start}&to={self.today}"
+        url = f"{reverse('event-list')}?from={start}&to={self.today}"
         rows = self.get(url).json()
 
         row = next(n for n in rows if n["title"] == "독감 예방접종")
         self.assertIsNotNone(row["completed_at"])
 
-    def test_a_completed_past_notice_keeps_its_calendar_dot(self):
+    def test_a_completed_past_event_keeps_its_calendar_band(self):
         day = self.today - dt.timedelta(days=3)
-        past = Notice.objects.create(zone=self.zone, event_date=day, title="독감 예방접종")
+        past = Event.objects.create(zone=self.zone, event_date=day, title="독감 예방접종")
         past.set_completed(True)
 
-        data = self.get(f"{reverse('calendar')}?from={day}&to={day}").json()
-        self.assertEqual(data[str(day)], [{"zone": self.zone.id, "color": self.zone.color}])
+        rows = self.get(f"{reverse('calendar')}?from={day}&to={day}").json()
+        self.assertEqual([row["title"] for row in rows], ["독감 예방접종"])
 
     def test_it_stays_in_the_window_but_is_marked_done(self):
         """
@@ -644,13 +681,13 @@ class CompletionTests(ApiTestCase):
         self.assertIn("체육복 챙기기", self.agenda())
 
         self.complete(True)
-        rows = self.get(f"{reverse('notice-list')}?from={self.today}").json()
+        rows = self.get(f"{reverse('event-list')}?from={self.today}").json()
         row = next(r for r in rows if r["title"] == "체육복 챙기기")
         self.assertIsNotNone(row["completed_at"])
 
     def test_it_drops_out_of_the_upcoming_filter(self):
         """`filter=upcoming` 은 '아직 남은 것'을 묻는 질문이라 빠진다."""
-        url = f"{reverse('notice-list')}?filter=upcoming"
+        url = f"{reverse('event-list')}?filter=upcoming"
         titles = lambda: [n["title"] for n in self.get(url).json()]  # noqa: E731
 
         self.assertIn("체육복 챙기기", titles())
@@ -665,17 +702,17 @@ class CompletionTests(ApiTestCase):
     def test_the_day_view_still_shows_it(self):
         """되돌릴 길이 있어야 한다 — 하루 보기가 그 자리다."""
         self.complete(True)
-        url = f"{reverse('notice-list')}?date={self.today}"
+        url = f"{reverse('event-list')}?date={self.today}"
         rows = self.get(url).json()
         self.assertEqual([n["title"] for n in rows], ["체육복 챙기기"])
         self.assertIsNotNone(rows[0]["completed_at"])
 
-    def test_the_calendar_dot_disappears(self):
+    def test_the_calendar_band_disappears(self):
         span = f"?from={self.today}&to={self.today}"
-        self.assertIn(str(self.today), self.get(f"{reverse('calendar')}{span}").json())
+        self.assertNotEqual(self.get(f"{reverse('calendar')}{span}").json(), [])
 
         self.complete(True)
-        self.assertEqual(self.get(f"{reverse('calendar')}{span}").json(), {})
+        self.assertEqual(self.get(f"{reverse('calendar')}{span}").json(), [])
 
     def test_completing_keeps_the_alerts_so_undo_restores_them(self):
         """
@@ -683,15 +720,15 @@ class CompletionTests(ApiTestCase):
         되살아난다. 발송하는 쪽은 `completed_at` 이 빈 것만 골라 보내면 된다.
         """
         self.complete(True)
-        self.assertEqual(self.notice.alerts.count(), 1)
+        self.assertEqual(self.event.alerts.count(), 1)
 
-        alert = self.notice.alerts.get()
+        alert = self.event.alerts.get()
         self.assertIsNone(alert.sent_at, "완료했다고 보낸 것으로 처리하면 안 된다")
 
         self.complete(False)
-        self.notice.refresh_from_db()
-        self.assertIsNone(self.notice.completed_at)
-        self.assertEqual(self.notice.alerts.count(), 1)
+        self.event.refresh_from_db()
+        self.assertIsNone(self.event.completed_at)
+        self.assertEqual(self.event.alerts.count(), 1)
 
     def test_it_stops_counting_towards_upcoming_count(self):
         before = self.get(reverse("zone-list")).json()[0]["upcoming_count"]
@@ -737,23 +774,23 @@ class NtfyPublishTests(TestCase):
 
 
 class SendAlertTests(ApiTestCase):
-    """POST /notices/{id}/alerts/{id}/send — 상세 화면의 '보내기'."""
+    """POST /events/{id}/alerts/{id}/send — 상세 화면의 '보내기'."""
 
     def setUp(self):
         super().setUp()
-        self.notice = Notice.objects.create(
+        self.event = Event.objects.create(
             zone=self.zone,
             event_date=self.today + dt.timedelta(days=1),
             title="준비물",
             content="흰 티셔츠",
         )
-        self.notice.sync_alerts(["D-1 20:00"])
-        self.alert = self.notice.alerts.get()
+        self.event.sync_alerts(["D-1 20:00"])
+        self.alert = self.event.alerts.get()
 
-    def url(self, notice_id=None, alert_id=None):
+    def url(self, event_id=None, event_alert_id=None):
         return reverse(
             "alert-send",
-            args=[notice_id or self.notice.id, alert_id or self.alert.id],
+            args=[event_id or self.event.id, event_alert_id or self.alert.id],
         )
 
     def test_sending_goes_to_the_owners_topic_and_records_it(self):
@@ -765,10 +802,10 @@ class SendAlertTests(ApiTestCase):
         topic = publish_mock.call_args.args[0]
         self.assertEqual(topic, self.user.ntfy_topic)
         # 우선순위는 일정의 것을 그대로 쓴다 — 값이 ntfy 등급(1~5)과 같은 축이다
-        self.assertEqual(publish_mock.call_args.kwargs["priority"], self.notice.priority)
+        self.assertEqual(publish_mock.call_args.kwargs["priority"], self.event.priority)
 
         self.alert.refresh_from_db()
-        self.assertEqual(self.alert.status, Alert.Status.SENT)
+        self.assertEqual(self.alert.status, EventAlert.Status.SENT)
         self.assertIsNotNone(self.alert.sent_at)
         self.assertEqual(res.json()["status"], "sent")
 
@@ -780,12 +817,12 @@ class SendAlertTests(ApiTestCase):
         self.assertIn("닿지 못했", res.json()["detail"])
 
         self.alert.refresh_from_db()
-        self.assertEqual(self.alert.status, Alert.Status.FAILED)
+        self.assertEqual(self.alert.status, EventAlert.Status.FAILED)
         # 실패에 sent_at 이 차면 목록의 발송 점이 나간 것으로 센다
         self.assertIsNone(self.alert.sent_at)
 
     def test_other_peoples_alerts_are_not_reachable(self):
-        theirs = Notice.objects.create(
+        theirs = Event.objects.create(
             zone=Zone.objects.create(owner=self.other, name="남의집"),
             event_date=self.today + dt.timedelta(days=1),
             title="남의 일정",
@@ -798,9 +835,9 @@ class SendAlertTests(ApiTestCase):
         self.assertEqual(res.status_code, 404)
         publish_mock.assert_not_called()
 
-    def test_the_alert_has_to_belong_to_that_notice(self):
+    def test_the_alert_has_to_belong_to_that_event(self):
         """경로의 두 id 가 어긋나면 남의 알림을 밀 수 있다."""
-        elsewhere = Notice.objects.create(
+        elsewhere = Event.objects.create(
             zone=self.zone, event_date=self.today + dt.timedelta(days=2), title="다른 일정"
         )
         elsewhere.sync_alerts(["D-1 20:00"])
@@ -810,11 +847,11 @@ class SendAlertTests(ApiTestCase):
 
     def test_the_message_says_which_space_and_when(self):
         """잠금화면에서 이것만 보고 판단한다."""
-        title, message = compose(self.notice)
+        title, message = compose(self.event)
 
         self.assertEqual(title, "[우리집] 준비물")
         self.assertIn("흰 티셔츠", message)
-        self.assertIn(str(self.notice.event_date.day), message)
+        self.assertIn(str(self.event.event_date.day), message)
 
 
 class CronEndpointTests(TestCase):
@@ -830,7 +867,7 @@ class CronEndpointTests(TestCase):
         self.zone = Zone.objects.create(owner=self.user, name="어린이집")
 
     def make(self, event_date, title="가을 운동회"):
-        return Notice.objects.create(
+        return Event.objects.create(
             zone=self.zone, event_date=event_date, title=title, content="", priority=4
         )
 
@@ -838,24 +875,24 @@ class CronEndpointTests(TestCase):
 
     @override_settings(N8N_API_KEY="right-key")
     def test_헤더가_없으면_막힌다(self):
-        for url in ("/notices/weekly", "/notices/alerts"):
+        for url in ("/events/weekly", "/events/alerts"):
             with self.subTest(url=url):
                 self.assertEqual(self.client.get(url).status_code, 403)
 
     @override_settings(N8N_API_KEY="right-key")
     def test_틀린_열쇠는_막힌다(self):
-        res = self.client.get("/notices/weekly", headers={"x-api-key": "wrong-key"})
+        res = self.client.get("/events/weekly", headers={"x-api-key": "wrong-key"})
         self.assertEqual(res.status_code, 403)
 
     @override_settings(N8N_API_KEY="right-key")
     def test_맞는_열쇠는_통과한다(self):
-        res = self.client.get("/notices/weekly", headers={"x-api-key": "right-key"})
+        res = self.client.get("/events/weekly", headers={"x-api-key": "right-key"})
         self.assertEqual(res.status_code, 200)
 
     @override_settings(N8N_API_KEY="")
     def test_서버에_열쇠가_없으면_열어두지_않는다(self):
         """설정이 비었을 때 통과시키면 아무나 들어온다. 막는 쪽이 맞다."""
-        res = self.client.get("/notices/weekly", headers={"x-api-key": "anything"})
+        res = self.client.get("/events/weekly", headers={"x-api-key": "anything"})
         self.assertEqual(res.status_code, 403)
 
     @override_settings(N8N_API_KEY="right-key")
@@ -867,7 +904,7 @@ class CronEndpointTests(TestCase):
             content_type="application/json",
         )
         auth = {"authorization": f"Bearer {res.json()['access_token']}"}
-        self.assertEqual(self.client.get("/notices/weekly", headers=auth).status_code, 403)
+        self.assertEqual(self.client.get("/events/weekly", headers=auth).status_code, 403)
 
     # ── 주간 정리는 "다음 주 월~일" 이다 ─────────────────────────
 
@@ -887,7 +924,7 @@ class CronEndpointTests(TestCase):
         self.make(next_sunday + dt.timedelta(days=1), "다다음주_월요일")
 
         with patch("notices.views.timezone.localdate", return_value=sunday):
-            res = self.client.get("/notices/weekly", headers={"x-api-key": "k"})
+            res = self.client.get("/events/weekly", headers={"x-api-key": "k"})
 
         self.assertEqual(res.status_code, 200)
         message = "\n".join(item["message"] for item in res.json())
@@ -908,19 +945,19 @@ class CronEndpointTests(TestCase):
         titles = set()
         for day in (dt.date(2026, 9, 12), dt.date(2026, 9, 13)):  # 토, 일
             with patch("notices.views.timezone.localdate", return_value=day):
-                res = self.client.get("/notices/weekly", headers={"x-api-key": "k"})
+                res = self.client.get("/events/weekly", headers={"x-api-key": "k"})
             titles.add(res.json()[0]["title"])
 
         self.assertEqual(len(titles), 1, f"요일마다 기간이 달라졌다: {titles}")
 
     @override_settings(N8N_API_KEY="k")
     def test_완료한_일정은_빠진다(self):
-        notice = self.make(dt.date(2026, 9, 14), "끝난_것")
-        notice.completed_at = timezone.now()
-        notice.save()
+        event = self.make(dt.date(2026, 9, 14), "끝난_것")
+        event.completed_at = timezone.now()
+        event.save()
 
         with patch("notices.views.timezone.localdate", return_value=dt.date(2026, 9, 13)):
-            res = self.client.get("/notices/weekly", headers={"x-api-key": "k"})
+            res = self.client.get("/events/weekly", headers={"x-api-key": "k"})
 
         self.assertEqual(res.json(), [])
 
@@ -929,12 +966,12 @@ class CronEndpointTests(TestCase):
         other = User.objects.create_user(username="cron-other", password="pw-strong-1234")
         other_zone = Zone.objects.create(owner=other, name="회사")
         self.make(dt.date(2026, 9, 14), "내_일정")
-        Notice.objects.create(
+        Event.objects.create(
             zone=other_zone, event_date=dt.date(2026, 9, 14), title="남_일정", content="", priority=3
         )
 
         with patch("notices.views.timezone.localdate", return_value=dt.date(2026, 9, 13)):
-            res = self.client.get("/notices/weekly", headers={"x-api-key": "k"})
+            res = self.client.get("/events/weekly", headers={"x-api-key": "k"})
 
         topics = {item["topic"] for item in res.json()}
         self.assertEqual(len(topics), 2)
@@ -963,52 +1000,52 @@ class EventHourTests(ApiTestCase):
         return body
 
     def test_시각_없이_등록된다(self):
-        res = self.post(reverse("notice-list"), self.payload())
+        res = self.post(reverse("event-list"), self.payload())
         self.assertEqual(res.status_code, 201)
-        self.assertIsNone(Notice.objects.get(pk=res.json()["id"]).event_hour)
+        self.assertIsNone(Event.objects.get(pk=res.json()["id"]).event_hour)
 
     def test_시각을_담아_등록된다(self):
-        res = self.post(reverse("notice-list"), self.payload(event_hour=9))
+        res = self.post(reverse("event-list"), self.payload(event_hour=9))
         self.assertEqual(res.status_code, 201)
-        self.assertEqual(Notice.objects.get(pk=res.json()["id"]).event_hour, 9)
+        self.assertEqual(Event.objects.get(pk=res.json()["id"]).event_hour, 9)
 
     def test_자정과_23시는_받는다(self):
         for hour in (0, 23):
             with self.subTest(hour=hour):
-                res = self.post(reverse("notice-list"), self.payload(event_hour=hour))
+                res = self.post(reverse("event-list"), self.payload(event_hour=hour))
                 self.assertEqual(res.status_code, 201, res.json())
 
     def test_범위_밖은_거부한다(self):
         for hour in (-1, 24, 100):
             with self.subTest(hour=hour):
-                res = self.post(reverse("notice-list"), self.payload(event_hour=hour))
+                res = self.post(reverse("event-list"), self.payload(event_hour=hour))
                 self.assertEqual(res.status_code, 400, f"{hour} 가 통과했다")
 
     def test_나중에_지울_수_있다(self):
         """한번 넣은 시각을 되돌릴 길이 없으면 잘못 고른 사람이 갇힌다."""
-        notice_id = self.post(reverse("notice-list"), self.payload(event_hour=9)).json()["id"]
+        event_id = self.post(reverse("event-list"), self.payload(event_hour=9)).json()["id"]
 
         res = self.client.patch(
-            reverse("notice-detail", args=[notice_id]),
+            reverse("event-detail", args=[event_id]),
             {"event_hour": None},
             content_type="application/json",
             headers=self.auth,
         )
         self.assertEqual(res.status_code, 200)
-        self.assertIsNone(Notice.objects.get(pk=notice_id).event_hour)
+        self.assertIsNone(Event.objects.get(pk=event_id).event_hour)
 
     def test_목록에도_실려_온다(self):
-        self.post(reverse("notice-list"), self.payload(event_hour=15))
-        res = self.get(reverse("notice-list") + "?filter=upcoming")
+        self.post(reverse("event-list"), self.payload(event_hour=15))
+        res = self.get(reverse("event-list") + "?filter=upcoming")
         self.assertEqual(res.json()[0]["event_hour"], 15)
 
     def test_같은_날_안에서_시각_순이고_시각_없는_것이_앞이다(self):
         day = str(self.today + dt.timedelta(days=2))
-        self.post(reverse("notice-list"), self.payload(event_date=day, title="오후3시", event_hour=15))
-        self.post(reverse("notice-list"), self.payload(event_date=day, title="하루종일"))
-        self.post(reverse("notice-list"), self.payload(event_date=day, title="오전9시", event_hour=9))
+        self.post(reverse("event-list"), self.payload(event_date=day, title="오후3시", event_hour=15))
+        self.post(reverse("event-list"), self.payload(event_date=day, title="하루종일"))
+        self.post(reverse("event-list"), self.payload(event_date=day, title="오전9시", event_hour=9))
 
-        res = self.get(reverse("notice-list") + f"?date={day}")
+        res = self.get(reverse("event-list") + f"?date={day}")
         self.assertEqual(
             [row["title"] for row in res.json()],
             ["하루종일", "오전9시", "오후3시"],
@@ -1016,19 +1053,19 @@ class EventHourTests(ApiTestCase):
 
     def test_기간_목록도_같은_순서다(self):
         day = str(self.today + dt.timedelta(days=2))
-        self.post(reverse("notice-list"), self.payload(event_date=day, title="저녁", event_hour=20))
-        self.post(reverse("notice-list"), self.payload(event_date=day, title="아침", event_hour=7))
+        self.post(reverse("event-list"), self.payload(event_date=day, title="저녁", event_hour=20))
+        self.post(reverse("event-list"), self.payload(event_date=day, title="아침", event_hour=7))
 
-        res = self.get(reverse("notice-list") + f"?from={day}&to={day}")
+        res = self.get(reverse("event-list") + f"?from={day}&to={day}")
         self.assertEqual([row["title"] for row in res.json()], ["아침", "저녁"])
 
 
-class MultiDayNoticeTests(ApiTestCase):
+class MultiDayEventTests(ApiTestCase):
     """
     여행·행사처럼 며칠에 걸치는 일정.
 
     경계가 전부 "겹치는가" 로 바뀌는 자리다 — 하루 보기, 주간 창, 다가올/지난,
-    달력 점, 주간 정리까지. 한 군데만 옛 규칙(시작일이 창 안인가)으로 남으면
+    달력 띠, 주간 정리까지. 한 군데만 옛 규칙(시작일이 창 안인가)으로 남으면
     여행 둘째 날 아침에 목록이 비어 보인다.
     """
 
@@ -1043,10 +1080,10 @@ class MultiDayNoticeTests(ApiTestCase):
             **over,
         }
 
-    def make(self, start: int, days: int, title="제주 여행", **over) -> Notice:
+    def make(self, start: int, days: int, title="제주 여행", **over) -> Event:
         """오늘로부터 `start`일 뒤에 시작해 `days`일 이어지는 일정."""
         first = self.today + dt.timedelta(days=start)
-        return Notice.objects.create(
+        return Event.objects.create(
             zone=self.zone,
             event_date=first,
             end_date=first + dt.timedelta(days=days - 1),
@@ -1055,34 +1092,34 @@ class MultiDayNoticeTests(ApiTestCase):
         )
 
     def titles(self, query: str) -> list[str]:
-        return [n["title"] for n in self.get(f"{reverse('notice-list')}{query}").json()]
+        return [n["title"] for n in self.get(f"{reverse('event-list')}{query}").json()]
 
     # ── 저장 ────────────────────────────────────────────────────
 
-    def test_a_notice_without_an_end_date_is_a_single_day(self):
+    def test_an_event_without_an_end_date_is_a_single_day(self):
         """대부분은 하루짜리다. 폼이 안 보내도 마지막 날은 시작일로 채워진다."""
-        body = self.post(reverse("notice-list"), self.payload()).json()
+        body = self.post(reverse("event-list"), self.payload()).json()
         self.assertEqual(body["end_date"], body["event_date"])
 
     def test_a_span_round_trips(self):
         start = self.today + dt.timedelta(days=1)
         body = self.post(
-            reverse("notice-list"),
+            reverse("event-list"),
             self.payload(end_date=str(start + dt.timedelta(days=2))),
         ).json()
         self.assertEqual(body["event_date"], str(start))
         self.assertEqual(body["end_date"], str(start + dt.timedelta(days=2)))
-        self.assertEqual(Notice.objects.get(pk=body["id"]).span_days, 3)
+        self.assertEqual(Event.objects.get(pk=body["id"]).span_days, 3)
 
     def test_an_end_before_the_start_is_refused(self):
-        res = self.post(reverse("notice-list"), self.payload(end_date=str(self.today)))
+        res = self.post(reverse("event-list"), self.payload(end_date=str(self.today)))
         self.assertEqual(res.status_code, 400)
         self.assertIn("end_date", res.json())
 
     def test_an_absurdly_long_span_is_refused(self):
         """연도를 잘못 골라 몇 달치 달력이 통째로 칠해지는 사고를 여기서 잡는다."""
         far = self.today + dt.timedelta(days=MAX_SPAN_DAYS + 5)
-        res = self.post(reverse("notice-list"), self.payload(end_date=str(far)))
+        res = self.post(reverse("event-list"), self.payload(end_date=str(far)))
         self.assertEqual(res.status_code, 400)
 
     def test_moving_the_start_carries_the_end_along(self):
@@ -1091,7 +1128,7 @@ class MultiDayNoticeTests(ApiTestCase):
         moved = self.today + dt.timedelta(days=8)
 
         res = self.client.patch(
-            reverse("notice-detail", args=[trip.id]),
+            reverse("event-detail", args=[trip.id]),
             {"event_date": str(moved)},
             content_type="application/json",
             headers=self.auth,
@@ -1110,6 +1147,63 @@ class MultiDayNoticeTests(ApiTestCase):
         self.assertEqual(
             timezone.localtime(alert.due_at).date(), trip.event_date - dt.timedelta(days=1)
         )
+
+    def test_a_span_gets_one_alert_per_code_not_one_per_day(self):
+        """
+        나흘짜리 여행이라고 알림이 나흘 오지 않는다. 같은 일을 두고 며칠 내리
+        울리면 받는 쪽은 어느 날이 진짜 챙길 날인지 알 수 없다.
+        """
+        trip = self.make(3, 4)
+        trip.sync_alerts(["D-1 20:00", "D 08:00"])
+
+        self.assertEqual(trip.alerts.count(), 2)
+        self.assertEqual(
+            sorted(timezone.localtime(a.due_at).date() for a in trip.alerts.all()),
+            [trip.event_date - dt.timedelta(days=1), trip.event_date],
+        )
+
+    def test_stretching_the_end_date_adds_no_alerts(self):
+        """마지막 날을 미뤄도 예약은 시작일에 걸린 그대로다."""
+        trip = self.make(3, 2)
+        trip.sync_alerts(["D-1 20:00"])
+        before = timezone.localtime(trip.alerts.get().due_at)
+
+        res = self.client.patch(
+            reverse("event-detail", args=[trip.id]),
+            {"end_date": str(trip.event_date + dt.timedelta(days=6))},
+            content_type="application/json",
+            headers=self.auth,
+        )
+        self.assertEqual(res.status_code, 200)
+
+        trip.refresh_from_db()
+        self.assertEqual(trip.alerts.count(), 1)
+        self.assertEqual(timezone.localtime(trip.alerts.get().due_at), before)
+
+    @override_settings(N8N_API_KEY="right-key")
+    def test_the_hourly_run_finds_nothing_on_a_middle_day(self):
+        """
+        매시 발송은 시각이 된 예약만 집는다. 예약이 시작일에만 걸리므로 여행
+        둘째 날에는 집을 것이 없다 — 여기가 "중간에는 안 보낸다"가 지켜지는 자리다.
+        """
+        trip = self.make(-1, 3)  # 어제 떠나 내일 돌아온다
+        trip.sync_alerts(["D 08:00"])  # 어제 아침에 이미 나갔어야 할 예약
+
+        res = self.client.get("/events/alerts", headers={"x-api-key": "right-key"})
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()["data"], [])
+
+    @override_settings(N8N_API_KEY="right-key")
+    def test_the_hourly_run_fires_once_at_the_start(self):
+        """반대쪽 못. 시작점의 예약은 시각이 되면 담겨야 한다."""
+        trip = self.make(0, 3)
+        alert = EventAlert.objects.create(
+            event=trip, code="D 08:00", due_at=timezone.now() - dt.timedelta(minutes=5)
+        )
+
+        res = self.client.get("/events/alerts", headers={"x-api-key": "right-key"})
+        self.assertEqual(res.json()["ids"], [alert.id])
+        self.assertEqual(len(res.json()["data"]), 1)
 
     # ── 하루 보기 ───────────────────────────────────────────────
 
@@ -1149,40 +1243,48 @@ class MultiDayNoticeTests(ApiTestCase):
         self.make(-1, 3, completed_at=timezone.now())
         self.assertEqual(self.titles("?filter=upcoming"), [])
 
-    # ── 달력 점 ─────────────────────────────────────────────────
+    # ── 달력 띠 ─────────────────────────────────────────────────
 
-    def calendar(self, query: str) -> dict:
+    def calendar(self, query: str) -> list:
         return self.get(f"{reverse('calendar')}{query}").json()
 
-    def test_every_day_of_the_span_gets_a_dot(self):
-        self.make(1, 3)
-        data = self.calendar(f"?from={self.today}&to={self.today + dt.timedelta(days=7)}")
-        self.assertEqual(
-            list(data),
-            [str(self.today + dt.timedelta(days=offset)) for offset in (1, 2, 3)],
-        )
+    def test_the_span_comes_back_whole_not_cut_into_days(self):
+        """
+        여기서 날마다 잘라 보내면 웹이 그것을 다시 붙일 수 없다 — 사흘짜리 여행이
+        하루짜리 셋과 구별되지 않고, 띠가 아니라 점 셋으로 그려진다.
+        """
+        trip = self.make(1, 3)
+        rows = self.calendar(f"?from={self.today}&to={self.today + dt.timedelta(days=7)}")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["event_date"], str(trip.event_date))
+        self.assertEqual(rows[0]["end_date"], str(trip.end_date))
 
-    def test_dots_are_clipped_to_the_window(self):
-        """창 밖에서 시작한 여행도 창 안의 날에는 점이 찍히고, 창 밖에는 안 찍힌다."""
-        self.make(-3, 10)
-        data = self.calendar(f"?from={self.today}&to={self.today + dt.timedelta(days=2)}")
-        self.assertEqual(
-            list(data), [str(self.today + dt.timedelta(days=offset)) for offset in (0, 1, 2)]
-        )
+    def test_a_trip_that_began_before_the_window_still_comes(self):
+        """창 밖에서 시작한 여행도 창 안의 날들을 지나므로 담겨야 한다."""
+        trip = self.make(-3, 10)
+        rows = self.calendar(f"?from={self.today}&to={self.today + dt.timedelta(days=2)}")
+        self.assertEqual(len(rows), 1)
+        # 자르지 않고 원래 양끝을 준다. 어디까지 이어지는지는 웹이 창에 맞춰 자른다.
+        self.assertEqual(rows[0]["event_date"], str(trip.event_date))
+        self.assertEqual(rows[0]["end_date"], str(trip.end_date))
 
-    def test_one_dot_per_zone_even_on_a_day_with_two_overlapping_notices(self):
-        """점은 개수가 아니라 어느 공간 일인지를 말한다. 겹쳐도 하나다."""
+    def test_a_trip_that_ends_before_the_window_does_not_come(self):
+        self.make(-9, 3)
+        self.assertEqual(self.calendar(f"?from={self.today}&to={self.today}"), [])
+
+    def test_two_events_on_the_same_day_are_two_rows(self):
+        """예전에는 공간별로 접었다. 띠는 일정마다 하나씩 그려지므로 접지 않는다."""
         self.make(0, 3)
         self.make(1, 1, title="같은 날 다른 일")
         day = str(self.today + dt.timedelta(days=1))
-        self.assertEqual(len(self.calendar(f"?from={day}&to={day}")[day]), 1)
+        self.assertEqual(len(self.calendar(f"?from={day}&to={day}")), 2)
 
     # ── 주간 정리(ntfy) ─────────────────────────────────────────
 
-    def trip_in_next_week(self, days: int, title="제주 여행") -> Notice:
+    def trip_in_next_week(self, days: int, title="제주 여행") -> Event:
         """주간 정리가 담는 창(다음 주) 첫날부터 `days`일 이어지는 일정."""
         start, _ = next_week()
-        return Notice.objects.create(
+        return Event.objects.create(
             zone=self.zone,
             event_date=start,
             end_date=start + dt.timedelta(days=days - 1),
@@ -1198,7 +1300,7 @@ class MultiDayNoticeTests(ApiTestCase):
         # 창은 views.next_week() 이 정한다. 여기서 다시 세면 그쪽이 바뀔 때
         # 이 테스트만 조용히 창 밖을 가리키게 된다.
         self.trip_in_next_week(3)
-        res = self.client.get("/notices/weekly", headers={"x-api-key": "right-key"})
+        res = self.client.get("/events/weekly", headers={"x-api-key": "right-key"})
         self.assertEqual(res.status_code, 200)
 
         lines = [line for line in res.json()[0]["message"].splitlines() if "제주 여행" in line]
@@ -1208,8 +1310,8 @@ class MultiDayNoticeTests(ApiTestCase):
         self.assertEqual(len(set(lines)), len(lines))
 
     @override_settings(N8N_API_KEY="right-key")
-    def test_a_single_day_notice_gets_no_day_marker(self):
+    def test_a_single_day_event_gets_no_day_marker(self):
         self.trip_in_next_week(1, title="상담")
-        res = self.client.get("/notices/weekly", headers={"x-api-key": "right-key"})
+        res = self.client.get("/events/weekly", headers={"x-api-key": "right-key"})
         line = next(line for line in res.json()[0]["message"].splitlines() if "상담" in line)
         self.assertNotIn("일차", line)

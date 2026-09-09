@@ -15,6 +15,23 @@
   --font-sans: Pretendard, system-ui, sans-serif;
 }
 
+/*
+  화면 위에 붙어 서는 것들의 높이. 홈이 제 것을 재서 덮어쓴다
+  (`app/(main)/home/page.tsx`).
+
+  `--header-h` 는 머리글(달력·존 칩)까지, `--sticky-h` 는 그 아래 붙는 기간 줄까지
+  더한 값이다. 기간 줄은 `--header-h` 에 서고, 목록의 날짜 줄은 스트립에서 날짜를
+  눌렀을 때 `--sticky-h` 만큼 비켜서야 붙박이들 밑에 깔리지 않는다.
+
+  높이는 그리는 주마다 다르다 — 띠가 몇 줄인지에 따라 스트립이 오르내린다.
+  그래서 px 로 박아두지 않는다. 여기 값은 실측이 오기 전(첫 그림)과 머리글이
+  다른 화면이 쓰는 밑값이다.
+*/
+:root {
+  --header-h: 10rem;
+  --sticky-h: 12rem;
+}
+
 html,
 body {
   background: var(--color-paper);

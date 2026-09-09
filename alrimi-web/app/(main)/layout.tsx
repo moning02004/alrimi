@@ -7,7 +7,7 @@ import {LoadingScreen} from "@/components/Loading";
 import {TabBar} from "@/components/TabBar";
 import {SideNav} from "@/components/SideNav";
 import {BottomSheet} from "@/components/BottomSheet";
-import {NoticeForm} from "@/components/NoticeForm";
+import {EventForm} from "@/components/EventForm";
 import {useAddSheet} from "@/store/ui";
 
 export default function MainLayout({children}: { children: React.ReactNode }) {
@@ -22,7 +22,7 @@ export default function MainLayout({children}: { children: React.ReactNode }) {
      * 탭바를 두면 나가는 문이 둘이 되는데 둘이 가는 곳이 다르다(뒤로 vs 홈).
      * 알림을 손으로 밀어보는 버튼도 여기 있어서, 아래를 비워두는 편이 낫다.
      */
-    const bare = pathname.startsWith("/notices/");
+    const bare = pathname.startsWith("/events/");
 
     /**
      * 키보드로 일정 등록. 마우스를 탭바까지 내렸다 올리지 않아도 된다.
@@ -80,7 +80,7 @@ export default function MainLayout({children}: { children: React.ReactNode }) {
                 onOpenChange={(next) => (next ? openAdd(initialDate ?? undefined) : closeAdd())}
                 title="일정 등록"
             >
-                <NoticeForm initialDate={initialDate} onDone={closeAdd}/>
+                <EventForm initialDate={initialDate} onDone={closeAdd}/>
             </BottomSheet>
         </div>
     );

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import toast from "react-hot-toast";
-import { useDeleteNotice, useNotice, useSendAlert, useToggleComplete } from "@/hooks/useNotices";
+import { useDeleteEvent, useEvent, useSendAlert, useToggleComplete } from "@/hooks/useEvents";
 import { useZoneMark } from "@/hooks/useZones";
 import { ZoneMark } from "@/components/ZoneMark";
 import { ErrorBlock, LoadingBlock } from "@/components/Loading";
@@ -10,10 +10,10 @@ import { firstError } from "@/lib/api";
 import { codeLabel } from "@/lib/alerts";
 import { hourLabel, monthDayLabel, spanLabel, timeLabel } from "@/lib/date";
 import { BottomSheet } from "@/components/BottomSheet";
-import { NoticeForm } from "@/components/NoticeForm";
+import { EventForm } from "@/components/EventForm";
 
 interface Props {
-  noticeId: number;
+  eventId: number;
   /** "뒤로" 를 눌렀을 때. 전체 화면이면 히스토리 뒤로, 옆 칸이면 목록으로 */
   onClose: () => void;
   /** 지운 뒤 갈 곳 */
@@ -24,27 +24,27 @@ interface Props {
 /**
  * 일정 하나를 들여다보는 화면.
  *
- * 전체 페이지(`/notices/[id]`)와 PC 2단의 오른쪽 칸이 같은 것을 쓴다 — 따로 두면
+ * 전체 페이지(`/events/[id]`)와 PC 2단의 오른쪽 칸이 같은 것을 쓴다 — 따로 두면
  * 알림 보내기나 완료 처리 같은 것이 한쪽에서만 고쳐진다.
  */
-export function NoticeDetail({ noticeId, onClose, onDeleted, backLabel = "← 뒤로" }: Props) {
+export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤로" }: Props) {
   const [editing, setEditing] = useState(false);
-  const { data: notice, isLoading, isError, refetch } = useNotice(noticeId);
-  const remove = useDeleteNotice();
-  const toggleComplete = useToggleComplete(noticeId);
-  const send = useSendAlert(noticeId);
+  const { data: event, isLoading, isError, refetch } = useEvent(eventId);
+  const remove = useDeleteEvent();
+  const toggleComplete = useToggleComplete(eventId);
+  const send = useSendAlert(eventId);
   const markOf = useZoneMark();
 
   if (isLoading) return <LoadingBlock />;
-  if (isError || !notice) return <ErrorBlock onRetry={() => refetch()} />;
+  if (isError || !event) return <ErrorBlock onRetry={() => refetch()} />;
 
-  const done = notice.completed_at !== null;
+  const done = event.completed_at !== null;
   // 이 화면은 공간 이름을 그대로 적으므로 딱지는 목록에서 본 것과 같은지 확인시켜 준다
-  const zoneMark = markOf(notice.zone_id)?.mark ?? "";
+  const zoneMark = markOf(event.zone_id)?.mark ?? "";
 
   const onDelete = () => {
     if (!confirm("이 일정을 삭제할까요? 예약된 알림도 함께 사라집니다.")) return;
-    remove.mutate(noticeId, {
+    remove.mutate(eventId, {
       onSuccess: () => {
         toast.success("삭제했어요");
         onDeleted();
@@ -87,9 +87,9 @@ export function NoticeDetail({ noticeId, onClose, onDeleted, backLabel = "← �
       <main className="mx-auto w-full max-w-2xl p-4">
         <p className="text-xs text-muted">
           {/* 하루짜리는 지금까지와 같고, 며칠짜리면 "9월 25일 금 – 27일 일 · 3일간" */}
-          {spanLabel(notice.event_date, notice.end_date)}
-          {notice.event_hour !== null && (
-            <span className="ml-1.5 font-medium text-pine">{hourLabel(notice.event_hour)}</span>
+          {spanLabel(event.event_date, event.end_date)}
+          {event.event_hour !== null && (
+            <span className="ml-1.5 font-medium text-pine">{hourLabel(event.event_hour)}</span>
           )}
         </p>
         <h1
@@ -97,31 +97,31 @@ export function NoticeDetail({ noticeId, onClose, onDeleted, backLabel = "← �
             done ? "text-muted line-through" : ""
           }`}
         >
-          {notice.title}
+          {event.title}
         </h1>
-        {notice.content && <p className="mt-2 text-base text-muted">{notice.content}</p>}
+        {event.content && <p className="mt-2 text-base text-muted">{event.content}</p>}
 
         <div className="mt-3 flex gap-1.5">
           {done && (
             <span className="rounded-full bg-pinelt px-2.5 py-1 text-xs text-pine">완료</span>
           )}
-          {notice.priority === 5 && (
+          {event.priority === 5 && (
             <span className="rounded-full bg-amberlt px-2.5 py-1 text-xs text-amber">긴급</span>
           )}
-          {notice.priority === 2 && (
+          {event.priority === 2 && (
             <span className="rounded-full border border-line px-2.5 py-1 text-xs text-muted">
               낮음
             </span>
           )}
           <span className="flex items-center gap-1.5 rounded-full border border-line py-1 pl-1 pr-2.5 text-xs text-muted">
-            <ZoneMark mark={zoneMark} color={notice.zone_color} size="sm" />
-            {notice.zone_name}
+            <ZoneMark mark={zoneMark} color={event.zone_color} size="sm" />
+            {event.zone_name}
           </span>
         </div>
 
-        <p className="mb-2 mt-6 text-xs font-medium text-muted">알림 {notice.alerts.length}개</p>
+        <p className="mb-2 mt-6 text-xs font-medium text-muted">알림 {event.alerts.length}개</p>
         <ul className="divide-y divide-line rounded-2xl border border-line bg-card">
-          {notice.alerts.map((alert) => (
+          {event.alerts.map((alert) => (
             <li key={alert.id} className="flex items-center justify-between px-4 py-3">
               <div>
                 <p className="text-sm font-medium">{codeLabel(alert.code)}</p>
@@ -184,7 +184,7 @@ export function NoticeDetail({ noticeId, onClose, onDeleted, backLabel = "← �
       </main>
 
       <BottomSheet open={editing} onOpenChange={setEditing} title="일정 수정">
-        <NoticeForm notice={notice} onDone={() => setEditing(false)} />
+        <EventForm event={event} onDone={() => setEditing(false)} />
       </BottomSheet>
     </>
   );
