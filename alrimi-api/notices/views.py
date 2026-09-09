@@ -433,11 +433,7 @@ def list_due_alerts(request):
             # 한 건이면 제목이 그 일정을 그대로 말한다. "1건" 으로 접으면 잠금화면에서
             # 무엇을 챙기라는 건지 열어봐야 안다. 여럿을 한 제목에 우겨넣으면 잘려서
             # 어느 것도 못 읽으므로 그때는 개수만 적고 본문에 맡긴다.
-            "title": (
-                f"[{zone_name}] {head(events[0])}"
-                if len(events) == 1
-                else f"[{zone_name}] 일정 {len(events)}건"
-            ),
+            "title": f"[{zone_name}] 일정 {len(events)}건",
             # 날짜 묶음 사이는 한 줄 띄운다. 붙여두면 날짜 줄이 앞 묶음의 꼬리로 읽힌다.
             "message": "\n\n".join(blocks),
             # 한 통에 섞였으니 가장 급한 것을 따른다. 낮은 쪽을 따르면 긴급으로
