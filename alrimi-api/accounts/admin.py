@@ -3,7 +3,7 @@ from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 
-from accounts.models import User
+from accounts.models import PushSubscription, User
 
 from .subscribe import qr_svg, subscribe_link, web_link
 
@@ -57,3 +57,30 @@ class UserAdmin(DjangoUserAdmin):
             web_link(obj.ntfy_topic),
             web_link(obj.ntfy_topic),
         )
+
+
+@admin.register(PushSubscription)
+class PushSubscriptionAdmin(admin.ModelAdmin):
+    """
+    기기 목록. 여기서 할 일은 대개 "안 오는데요" 를 확인하는 것이라, 언제 등록됐고
+    마지막으로 언제 닿았는지만 보이면 된다.
+
+    endpoint 는 그 자체가 열쇠다(있으면 누구든 그 기기로 밀어넣을 수 있다). 목록에
+    통째로 늘어놓지 않고 앞머리만 보여준다 — 어느 푸시 서비스인지는 그것으로 안다.
+    """
+
+    list_display = ("user", "service", "user_agent", "created_at", "last_sent_at")
+    list_filter = ("created_at",)
+    search_fields = ("user__username", "user__name")
+    readonly_fields = ("endpoint", "p256dh", "auth", "user_agent", "created_at", "last_sent_at")
+
+    @admin.display(description="푸시 서비스")
+    def service(self, obj):
+        """endpoint 의 호스트. fcm.googleapis.com · updates.push.services.mozilla.com …"""
+        from urllib.parse import urlparse
+
+        return urlparse(obj.endpoint).netloc or "?"
+
+    def has_add_permission(self, request):
+        # 구독은 브라우저가 만든다. 손으로 넣을 수 있는 값이 아니다.
+        return False

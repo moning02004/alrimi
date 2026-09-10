@@ -147,6 +147,32 @@ NTFY_PASSWORD = env("NTFY_PASSWORD")
 # 상세 화면의 "보내기" 가 이 시간만큼 기다린다. 길면 누른 사람이 멈춘 줄 안다.
 NTFY_TIMEOUT_SECONDS = env_int("NTFY_TIMEOUT_SECONDS", 5)
 
+# ── 웹 푸시 ───────────────────────────────────────────────────────────
+#
+# ntfy 와 **함께** 나간다. ntfy 앱을 깔지 않은 사람에게도 알림이 닿게 하려는 것이라,
+# 둘 중 하나가 비어 있어도 나머지는 그대로 동작해야 한다.
+#
+# VAPID 키는 "이 서버가 보냈다"를 푸시 서비스에 증명하는 한 쌍이다. 공개키는 브라우저에
+# 그대로 건네고(구독을 만들 때 필요하다), 개인키는 서버에만 둔다.
+#   python manage.py webpush_keys 로 한 쌍을 만들어 .env 에 붙인다.
+#
+# **키를 바꾸면 기존 구독이 전부 죽는다.** 구독은 그때의 공개키에 묶여 발급되므로,
+# 새 키로 보내면 푸시 서비스가 403 을 준다. 한 번 정하면 그대로 둔다.
+VAPID_PUBLIC_KEY = env("VAPID_PUBLIC_KEY")
+VAPID_PRIVATE_KEY = env("VAPID_PRIVATE_KEY")
+
+# 푸시 서비스가 문제가 생겼을 때 연락할 곳. 규격이 요구하는 값이라 형식만 맞으면 된다.
+VAPID_CLAIM_EMAIL = env("VAPID_CLAIM_EMAIL", "admin@alrimi.jeonghoon.dev")
+
+# 알림을 눌렀을 때 열 곳. 서비스 워커가 이 주소로 창을 띄운다.
+WEB_ORIGIN = env("WEB_ORIGIN", "https://alrimi.jeonghoon.dev").rstrip("/")
+
+WEBPUSH_TIMEOUT_SECONDS = env_int("WEBPUSH_TIMEOUT_SECONDS", 10)
+
+# 기기가 꺼져 있으면 푸시 서비스가 이 시간만큼 들고 있다가 버린다. 하루를 넘겨
+# 배달된 "내일 일정" 은 이미 틀린 말이라, 크론이 따라잡는 창(6시간)에 맞춘다.
+WEBPUSH_TTL_SECONDS = env_int("WEBPUSH_TTL_SECONDS", 6 * 60 * 60)
+
 
 # ── CORS ──────────────────────────────────────────────────────────────
 

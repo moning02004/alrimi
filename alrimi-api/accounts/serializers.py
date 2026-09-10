@@ -71,3 +71,21 @@ class ChangePasswordSerializer(serializers.Serializer):
         except DjangoValidationError as exc:
             raise serializers.ValidationError(list(exc.messages)) from exc
         return value
+
+
+class PushSubscriptionSerializer(serializers.Serializer):
+    """
+    브라우저의 `subscription.toJSON()` 을 그대로 받는다.
+
+    모양을 우리 취향대로 바꾸지 않는다 — 웹은 브라우저가 준 객체를 손대지 않고
+    보내면 되고, 중간에서 키 이름을 갈아끼우면 규격이 바뀌었을 때 양쪽을 다 고쳐야 한다.
+    """
+
+    endpoint = serializers.URLField(max_length=500)
+    keys = serializers.DictField(child=serializers.CharField(max_length=255))
+
+    def validate_keys(self, value):
+        missing = {"p256dh", "auth"} - value.keys()
+        if missing:
+            raise serializers.ValidationError(f"{', '.join(sorted(missing))} 가 없습니다.")
+        return value

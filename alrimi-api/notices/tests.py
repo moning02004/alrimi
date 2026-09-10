@@ -1,5 +1,6 @@
 import datetime as dt
 import json
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
@@ -1472,3 +1473,258 @@ class MultiDayEventTests(ApiTestCase):
         res = self.client.get("/events/weekly", headers={"x-api-key": "right-key"})
         line = next(line for line in res.json()[0]["message"].splitlines() if "상담" in line)
         self.assertNotIn("일차", line)
+
+
+class WebPushTests(TestCase):
+    """
+    웹 푸시. ntfy 옆에 선 두 번째 길이라, **이쪽이 실패해도 저쪽이 멀쩡해야 한다**는
+    것이 대부분의 경계다.
+    """
+
+    def setUp(self):
+        from accounts.models import PushSubscription
+
+        self.model = PushSubscription
+        self.user = User.objects.create_user(username="push-owner", password="pw-strong-1234")
+        self.zone = Zone.objects.create(owner=self.user, name="어린이집")
+        self.today = timezone.localdate()
+        self.phone = self.subscribe("phone")
+
+    def subscribe(self, name):
+        return self.model.objects.create(
+            user=self.user,
+            endpoint=f"https://fcm.googleapis.com/fcm/send/{name}",
+            p256dh="key-material",
+            auth="auth-secret",
+        )
+
+    def make_due_alert(self, title="체육복", priority=4):
+        event = Event.objects.create(
+            zone=self.zone, event_date=self.today, title=title, priority=priority
+        )
+        event.sync_alerts(["D 07:00"])
+        alert = event.alerts.get()
+        # 창(지난 6시간) 안으로 끌어다 놓는다 — 코드가 가리키는 시각은 오늘 07시라
+        # 테스트를 언제 돌리느냐에 따라 창 밖일 수 있다.
+        alert.due_at = timezone.now() - dt.timedelta(minutes=5)
+        alert.save(update_fields=["due_at"])
+        return alert
+
+    # ── 보내는 쪽 ──────────────────────────────────────────────
+
+    @override_settings(**{"VAPID_PUBLIC_KEY": "pub", "VAPID_PRIVATE_KEY": "priv"})
+    def test_켜둔_기기_전부로_간다(self):
+        from notices.webpush import send_to_user
+
+        self.subscribe("pc")
+        with patch("notices.webpush.webpush") as sender:
+            delivered = send_to_user(
+                self.user, title="[어린이집] 체육복", message="9월 10일", priority=4, tag="t"
+            )
+
+        self.assertEqual(delivered, 2)
+        self.assertEqual(sender.call_count, 2)
+        body = json.loads(sender.call_args.kwargs["data"])
+        self.assertEqual(body["title"], "[어린이집] 체육복")
+        self.assertEqual(body["tag"], "t")
+
+    @override_settings(**{"VAPID_PUBLIC_KEY": "pub", "VAPID_PRIVATE_KEY": "priv"})
+    def test_죽은_구독은_그_자리에서_지운다(self):
+        """
+        브라우저를 다시 깔거나 권한을 끄면 구독은 말없이 죽는다. 남겨두면 보낼
+        때마다 실패가 쌓이고, 사람은 알림이 안 오는 까닭을 알 수 없다.
+        """
+        from pywebpush import WebPushException
+
+        from notices.webpush import send_to_user
+
+        gone = WebPushException("gone")
+        gone.response = SimpleNamespace(status_code=410)
+
+        with patch("notices.webpush.webpush", side_effect=gone):
+            delivered = send_to_user(self.user, title="t", message="m", priority=4, tag="t")
+
+        self.assertEqual(delivered, 0)
+        self.assertFalse(self.model.objects.exists())
+
+    @override_settings(**{"VAPID_PUBLIC_KEY": "pub", "VAPID_PRIVATE_KEY": "priv"})
+    def test_저쪽_사정으로_실패한_구독은_남긴다(self):
+        """500·타임아웃은 푸시 서비스의 장애다. 그걸로 지우면 멀쩡한 기기를 잃는다."""
+        from pywebpush import WebPushException
+
+        from notices.webpush import send_to_user
+
+        broken = WebPushException("server error")
+        broken.response = SimpleNamespace(status_code=500)
+
+        with patch("notices.webpush.webpush", side_effect=broken):
+            send_to_user(self.user, title="t", message="m", priority=4, tag="t")
+
+        self.assertTrue(self.model.objects.filter(pk=self.phone.pk).exists())
+
+    @override_settings(**{"VAPID_PUBLIC_KEY": "", "VAPID_PRIVATE_KEY": ""})
+    def test_키가_없으면_조용히_아무것도_하지_않는다(self):
+        """웹 푸시를 안 켠 서버에서도 ntfy 는 그대로 돌아야 한다."""
+        from notices.webpush import send_to_user
+
+        with patch("notices.webpush.webpush") as sender:
+            self.assertEqual(
+                send_to_user(self.user, title="t", message="m", priority=4, tag="t"), 0
+            )
+        sender.assert_not_called()
+
+    @override_settings(**{"VAPID_PUBLIC_KEY": "pub", "VAPID_PRIVATE_KEY": "priv"})
+    def test_긴급은_기기를_바로_깨우라고_적는다(self):
+        from notices.webpush import send_to_user
+
+        with patch("notices.webpush.webpush") as sender:
+            send_to_user(self.user, title="t", message="m", priority=Priority.URGENT, tag="t")
+
+        self.assertEqual(sender.call_args.kwargs["headers"]["Urgency"], "high")
+
+    # ── 크론이 부르는 자리 ─────────────────────────────────────
+
+    @override_settings(N8N_API_KEY="right-key", VAPID_PUBLIC_KEY="pub", VAPID_PRIVATE_KEY="priv")
+    def test_크론이_되돌려준_ids_만_보낸다(self):
+        """
+        ids 는 방금 `GET /events/alerts` 로 받아간 것이다. 창을 다시 재지 않고
+        그 목록만 보내야 ntfy 로 나간 것과 웹 푸시로 나간 것이 같아진다.
+        """
+        due = self.make_due_alert("체육복")
+        other = self.make_due_alert("도시락")
+
+        with patch("notices.webpush.webpush") as sender:
+            res = self.client.post(
+                "/events/alerts/push",
+                {"ids": [due.id]},
+                content_type="application/json",
+                headers={"x-api-key": "right-key"},
+            )
+
+        self.assertEqual(res.status_code, 200)
+        body = json.loads(sender.call_args.kwargs["data"])
+        self.assertIn("체육복", body["body"])
+        self.assertNotIn("도시락", body["body"])
+        self.assertNotIn(str(other.id), body["tag"])
+
+    @override_settings(N8N_API_KEY="right-key", VAPID_PUBLIC_KEY="pub", VAPID_PRIVATE_KEY="priv")
+    def test_같은_공간_여러_건은_한_통으로_묶인다(self):
+        """예약마다 한 통씩 보내면 같은 시각에 잡아둔 것들이 알림 다섯 개로 쏟아진다."""
+        first = self.make_due_alert("체육복")
+        second = self.make_due_alert("도시락")
+
+        with patch("notices.webpush.webpush") as sender:
+            self.client.post(
+                "/events/alerts/push",
+                {"ids": [first.id, second.id]},
+                content_type="application/json",
+                headers={"x-api-key": "right-key"},
+            )
+
+        self.assertEqual(sender.call_count, 1)
+        body = json.loads(sender.call_args.kwargs["data"])
+        self.assertEqual(body["title"], "[어린이집] 일정 2건")
+        self.assertIn("체육복", body["body"])
+        self.assertIn("도시락", body["body"])
+
+    @override_settings(N8N_API_KEY="right-key")
+    def test_열쇠가_없으면_막힌다(self):
+        """
+        여기를 열어두면 남의 기기로 알림을 밀어넣을 수 있다. ids 만 맞히면 되므로
+        추측도 어렵지 않다.
+        """
+        res = self.client.post(
+            "/events/alerts/push", {"ids": [1]}, content_type="application/json"
+        )
+        self.assertEqual(res.status_code, 403)
+
+    @override_settings(N8N_API_KEY="right-key", VAPID_PUBLIC_KEY="pub", VAPID_PRIVATE_KEY="priv")
+    def test_보냈다고_발송_표시를_하지_않는다(self):
+        """
+        찍는 곳은 `PATCH /events/alerts/status` 한 곳뿐이다. 여기서도 찍으면
+        ntfy 가 실패한 예약이 웹 푸시 때문에 나간 것으로 남는다.
+        """
+        due = self.make_due_alert()
+
+        with patch("notices.webpush.webpush"):
+            self.client.post(
+                "/events/alerts/push",
+                {"ids": [due.id]},
+                content_type="application/json",
+                headers={"x-api-key": "right-key"},
+            )
+
+        due.refresh_from_db()
+        self.assertEqual(due.status, EventAlert.Status.PENDING)
+        self.assertIsNone(due.sent_at)
+
+
+class SendAlertBothChannelsTests(ApiTestCase):
+    """상세 화면의 "보내기" 는 두 길로 나간다."""
+
+    def setUp(self):
+        super().setUp()
+        from accounts.models import PushSubscription
+
+        self.event = Event.objects.create(
+            zone=self.zone, event_date=self.today + dt.timedelta(days=1), title="준비물"
+        )
+        self.event.sync_alerts(["D-1 20:00"])
+        self.alert = self.event.alerts.get()
+        self.subscription = PushSubscription.objects.create(
+            user=self.user,
+            endpoint="https://fcm.googleapis.com/fcm/send/phone",
+            p256dh="key-material",
+            auth="auth-secret",
+        )
+        self.url = reverse("alert-send", args=[self.event.id, self.alert.id])
+
+    @override_settings(VAPID_PUBLIC_KEY="pub", VAPID_PRIVATE_KEY="priv")
+    def test_두_길_모두로_같은_문구가_나간다(self):
+        with patch("notices.ntfy.publish") as ntfy, patch("notices.webpush.webpush") as push:
+            res = self.post(self.url, {})
+
+        self.assertEqual(res.status_code, 200)
+        pushed = json.loads(push.call_args.kwargs["data"])
+        self.assertEqual(pushed["title"], ntfy.call_args.kwargs["title"])
+        self.assertEqual(pushed["body"], ntfy.call_args.kwargs["message"])
+
+    @override_settings(VAPID_PUBLIC_KEY="pub", VAPID_PRIVATE_KEY="priv")
+    def test_ntfy_가_막혀도_웹_푸시로_닿았으면_나간_것이다(self):
+        """
+        여기서 실패로 적으면 화면에는 안 간 것으로 보이고, 시각이 되면 같은 알림이
+        한 번 더 나간다 — 받는 쪽은 이미 받은 알림을 두 번 받는다.
+        """
+        with patch("notices.ntfy.publish", side_effect=NtfyError("닿지 못했어요")), patch(
+            "notices.webpush.webpush"
+        ):
+            res = self.post(self.url, {})
+
+        self.assertEqual(res.status_code, 200)
+        self.alert.refresh_from_db()
+        self.assertEqual(self.alert.status, EventAlert.Status.SENT)
+
+    @override_settings(VAPID_PUBLIC_KEY="pub", VAPID_PRIVATE_KEY="priv")
+    def test_둘_다_막히면_실패다(self):
+        from pywebpush import WebPushException
+
+        broken = WebPushException("nope")
+        broken.response = SimpleNamespace(status_code=500)
+
+        with patch("notices.ntfy.publish", side_effect=NtfyError("닿지 못했어요")), patch(
+            "notices.webpush.webpush", side_effect=broken
+        ):
+            res = self.post(self.url, {})
+
+        self.assertEqual(res.status_code, 502)
+        self.alert.refresh_from_db()
+        self.assertEqual(self.alert.status, EventAlert.Status.FAILED)
+
+    @override_settings(VAPID_PUBLIC_KEY="", VAPID_PRIVATE_KEY="")
+    def test_웹_푸시가_꺼진_서버에서도_ntfy_는_그대로다(self):
+        with patch("notices.ntfy.publish") as ntfy, patch("notices.webpush.webpush") as push:
+            res = self.post(self.url, {})
+
+        self.assertEqual(res.status_code, 200)
+        ntfy.assert_called_once()
+        push.assert_not_called()

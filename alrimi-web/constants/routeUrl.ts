@@ -14,6 +14,11 @@ export const apiUrl = {
   me: "/users/me",
   changePassword: "/users/me/password",
 
+  // 웹 푸시. 구독은 계정이 아니라 기기마다 하나라 users/ 아래가 아니다
+  pushKey: "/push/key",
+  pushSubscriptions: "/push/subscriptions",
+  pushTest: "/push/test",
+
   zones: "/zones",
   palette: "/zones/palette",
   zone: (zoneId: number) => `/zones/${zoneId}`,

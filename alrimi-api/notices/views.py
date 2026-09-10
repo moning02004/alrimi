@@ -3,6 +3,7 @@ import re
 from collections import defaultdict
 from datetime import timedelta
 
+from django.conf import settings
 from django.db.models import F, Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -20,6 +21,7 @@ from accounts.permissions import HasAPIKey
 from .filters import FILTERS, filter_q, ordering_for
 from .models import EventAlert, Event
 from .ntfy import NtfyError, send_alert
+from .webpush import send_alert as push_alert, send_to_user
 from .serializers import (
     EventAlertItemSerializer,
     EventDetailSerializer,
@@ -247,6 +249,9 @@ class SendEventAlertView(APIView):
 
     보낸 것으로 기록되므로 나중에 예약 시각이 와도 다시 나가지 않는다 —
     같은 알림을 두 번 받는 것이 안 오는 것보다 성가시다.
+
+    두 길로 나간다(ntfy · 웹 푸시). 웹 푸시는 먼저 밀어보되 실패해도 넘어간다 —
+    켜둔 기기가 없는 것이 대부분이고, 그것 때문에 ntfy 발송까지 실패로 되돌릴 이유가 없다.
     """
 
     permission_classes = [IsAuthenticated]
@@ -259,9 +264,16 @@ class SendEventAlertView(APIView):
             event__zone__owner=request.user,
         )
 
+        pushed = push_alert(alert)
+
         try:
             send_alert(alert)
         except NtfyError as exc:
+            if pushed:
+                # 한 길이 막혔어도 알림은 닿았다. 실패로 적으면 화면에는 안 간 것으로
+                # 보이고, 시각이 되면 같은 알림이 한 번 더 나간다.
+                alert.mark_sent()
+                return Response(EventAlertItemSerializer(alert).data)
             # 실패도 EventAlert 에 남는다(status="fail"). 화면이 그 자리에서 까닭을
             # 보여줄 수 있도록 이유를 그대로 싣는다.
             return Response({"detail": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
@@ -362,67 +374,49 @@ def list_weekly(request):
     return Response(ntfy_data)
 
 
-@api_view(["GET"])
-@authentication_classes([])
-# @permission_classes([HasAPIKey])
-@permission_classes([])
-def list_due_alerts(request):
+def due_alert_groups(alerts) -> list[dict]:
     """
-    GET /events/alerts → 지금 나가야 할 예약들
+    예약들을 **(사람, 공간)** 으로 묶고 통마다 제목·본문·우선순위를 짓는다.
 
-    매시 돈다. 지난 6시간 안에 시각이 된 것 중 아직 안 나간 것을 담는다 —
-    크론이 한 번 걸러도 다음 시간에 따라잡으라는 폭이다.
+    ntfy 와 웹 푸시가 같은 문구를 쓰도록 여기 한 곳에서만 만든다 — 두 길이 같은
+    예약을 두고 다른 말을 하면, 폰에서 나란히 받았을 때 어느 쪽이 맞는지 알 수 없다.
 
-    **일정 하나에 알림도 한 번뿐이다.** 예약은 시작일 기준으로만 잡히므로
-    (`due_at_for`), 사흘짜리 여행이라도 여기 담기는 것은 그 예약들뿐이고
-    둘째·마지막 날에는 아무것도 생기지 않는다. 같은 일로 며칠 내리 알림이 오면
-    받는 쪽은 어느 것이 진짜 챙길 날인지 알 수 없다.
-
-    **통은 공간마다 하나다.** 주간 정리와 같은 규칙이다 — 예약 하나에 한 통씩
-    보내면 같은 시각에 잡아둔 예약 다섯 개가 알림 다섯 개로 쏟아진다. 공간으로
-    묶으면 "어린이집 세 건" 하나로 온다.
+    **통은 공간마다 하나다.** 예약 하나에 한 통씩 보내면 같은 시각에 잡아둔 예약
+    다섯 개가 알림 다섯 개로 쏟아진다. 공간으로 묶으면 "어린이집 3건" 하나로 온다.
 
     **한 통 안은 날짜로 나눈다.** 한 번에 담기는 것이 같은 날 일정이라는 보장이
     없다 — "3일 전" 과 "1일 전" 은 서로 다른 날을 가리키면서도 같은 시각에 시각이
     될 수 있다. 날짜를 안 적으면 받는 쪽은 다섯 줄이 언제 것인지 모른 채 읽는다.
 
-    `ids` 는 묶기 전의 예약 전부다. 크론이 밀어 보낸 뒤 이 목록으로 발송을
-    찍으므로(`update_alert`), 통이 몇 개로 묶였는지와는 상관없이 낱개로 남아야 한다.
+    `ids` 는 그 통에 담긴 예약들이다. 발송을 찍는 단위는 여전히 낱개라
+    (`update_alert`), 묶였다고 뭉뚱그리지 않는다.
     """
-    end_date = timezone.now()
-    start_date = end_date - timedelta(hours=6)
-    alerts = (
-        EventAlert.objects.select_related("event", "event__zone", "event__zone__owner")
-        .filter(event__completed_at__isnull=True,
-                due_at__gte=start_date,
-                due_at__lt=end_date).exclude(status="sent")
-        .order_by("event__event_date", "event__event_hour", "id")
-    )
+    # (사람, 공간) → 일정 날짜 → 그 날 일정들
+    grouped: dict[tuple, dict[dt.date, dict[int, Event]]] = defaultdict(lambda: defaultdict(dict))
+    ids: dict[tuple, list[int]] = defaultdict(list)
 
-    # (토픽, 공간) → 일정 날짜 → 그 날 일정들
-    grouped: dict[tuple[str, str], dict[dt.date, dict[int, Event]]] = defaultdict(
-        lambda: defaultdict(dict)
-    )
-    ids = list()
     for alert in alerts:
         event = alert.event
+        key = (event.zone.owner_id, event.zone.owner, event.zone.name)
         # 한 일정에 걸린 예약 둘이 같은 창에 들어올 수 있다 — 크론이 한 번 걸러
         # 따라잡을 때 "1일 전" 과 "당일" 이 함께 온다. 찍을 것은 둘 다지만
         # 적을 것은 하나다(id 로 눌러 담는다).
-        grouped[(event.zone.owner.ntfy_topic, event.zone.name)][event.event_date][event.id] = event
-        ids.append(alert.id)
+        grouped[key][event.event_date][event.id] = event
+        ids[key].append(alert.id)
 
     def head(event) -> str:
         """시각 + 제목. 잠금화면의 제목 줄에 들어갈 만큼만이다."""
         event_hour = f"{str(event.event_hour).zfill(2)}시 " if event.event_hour else ""
         return f"{event_hour}{event.title}"
 
-    ntfy_data = list()
+    groups = []
     # 나가는 순서를 못 박는다. 만난 순서대로 두면 같은 시각에 돌려도 알림이
-    # 도착하는 차례가 달라진다.
-    for (topic, zone_name), by_date in sorted(grouped.items()):
-        blocks = list()
-        events = list()
+    # 도착하는 차례가 달라진다. 사람 객체는 정렬 기준이 못 되므로 id 로 줄 세운다.
+    for key in sorted(grouped, key=lambda k: (k[0], k[2])):
+        owner, zone_name = key[1], key[2]
+        by_date = grouped[key]
+        blocks = []
+        events = []
         for event_date in sorted(by_date):
             lines = [event_date.strftime("%Y-%m-%d")]
             for event in by_date[event_date].values():
@@ -434,8 +428,9 @@ def list_due_alerts(request):
                     lines.append(f"   └ {event.content}")
             blocks.append("\n".join(lines))
 
-        ntfy_data.append({
-            "topic": topic,
+        groups.append({
+            "owner": owner,
+            "zone_name": zone_name,
             # 한 건이면 제목이 그 일정을 그대로 말한다. "1건" 으로 접으면 잠금화면에서
             # 무엇을 챙기라는 건지 열어봐야 안다. 여럿을 한 제목에 우겨넣으면 잘려서
             # 어느 것도 못 읽으므로 그때는 개수만 적고 본문에 맡긴다.
@@ -445,16 +440,118 @@ def list_due_alerts(request):
             # 한 통에 섞였으니 가장 급한 것을 따른다. 낮은 쪽을 따르면 긴급으로
             # 잡아둔 일정이 방해금지에 막혀 조용히 도착한다.
             "priority": max(event.priority for event in events),
+            "ids": ids[key],
+        })
+
+    return groups
+
+
+def due_alerts(*, ids: list[int] | None = None):
+    """
+    지금 나가야 할 예약들. `ids` 를 주면 그 예약들만 (크론이 되짚어 부를 때).
+
+    시각 창은 지난 6시간이다 — 크론이 한 번 걸러도 다음 시간에 따라잡으라는 폭이다.
+
+    **일정 하나에 알림도 한 번뿐이다.** 예약은 시작일 기준으로만 잡히므로
+    (`due_at_for`), 사흘짜리 여행이라도 여기 담기는 것은 그 예약들뿐이고
+    둘째·마지막 날에는 아무것도 생기지 않는다. 같은 일로 며칠 내리 알림이 오면
+    받는 쪽은 어느 것이 진짜 챙길 날인지 알 수 없다.
+    """
+    queryset = EventAlert.objects.select_related(
+        "event", "event__zone", "event__zone__owner"
+    ).filter(event__completed_at__isnull=True)
+
+    if ids is None:
+        end_date = timezone.now()
+        queryset = queryset.filter(due_at__gte=end_date - timedelta(hours=6), due_at__lt=end_date)
+        queryset = queryset.exclude(status="sent")
+    else:
+        # 크론이 방금 받아간 목록이다. 발송 표시(`update_alert`)는 웹 푸시까지 끝난
+        # 뒤에 찍히므로 여기서 status 로 다시 거르지 않는다 — 순서가 어떻든 같은
+        # 한 바퀴 안의 일이고, 거르면 재시도 때 아무것도 안 나간다.
+        queryset = queryset.filter(id__in=ids)
+
+    return queryset.order_by("event__event_date", "event__event_hour", "id")
+
+
+@api_view(["GET"])
+@authentication_classes([])
+# @permission_classes([HasAPIKey])
+@permission_classes([])
+def list_due_alerts(request):
+    """
+    GET /events/alerts → 지금 나가야 할 예약들 (ntfy 로 보낼 묶음)
+
+    매시 돈다. 크론이 이 목록으로 ntfy 를 쏘고, 이어서 `POST /events/alerts/push` 로
+    웹 푸시를 보낸 뒤, `PATCH /events/alerts/status` 로 발송을 찍는다.
+
+    `ids` 는 묶기 전의 예약 전부다 — 통이 몇 개로 묶였는지와 상관없이 낱개로 남아야
+    다음 두 걸음이 같은 것을 가리킨다.
+    """
+    groups = due_alert_groups(due_alerts())
+
+    ntfy_data = [
+        {
+            "topic": group["owner"].ntfy_topic,
+            "title": group["title"],
+            "message": group["message"],
+            "priority": group["priority"],
             "actions": [
                 {
                     "action": "view",
                     "label": "웹으로 이동",
-                    "url": "https://alrimi.jeonghoon.dev"
+                    "url": settings.WEB_ORIGIN,
                 }
-            ]
-        })
+            ],
+        }
+        for group in groups
+    ]
+    ids = [alert_id for group in groups for alert_id in group["ids"]]
 
     return Response({"data": ntfy_data, "ids": ids})
+
+
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([HasAPIKey])
+def push_due_alerts(request):
+    """
+    POST /events/alerts/push  {"ids": [...]} → 그 예약들을 웹 푸시로 보낸다
+
+    크론이 `GET /events/alerts` 로 받아간 ids 를 그대로 되돌려준다. 한 바퀴는
+    이렇게 돈다:
+
+        GET /events/alerts → (n8n 이 ntfy 발행) → POST /events/alerts/push
+        → PATCH /events/alerts/status
+
+    **왜 n8n 이 직접 못 쏘는가.** 웹 푸시는 본문을 기기의 공개키로 암호화해서
+    보내야 한다(VAPID + aes128gcm). 그 열쇠는 이 서버에만 있으므로, ntfy 처럼
+    "보낼 내용을 건네주면 남이 쏘는" 방식이 성립하지 않는다.
+
+    **발송 표시는 여기서 하지 않는다.** 찍는 곳은 `update_alert` 한 곳뿐이다.
+    두 곳에서 찍으면 어느 채널이 성공했을 때 넘어가는 것인지가 흐려진다 —
+    ntfy 와 웹 푸시는 나란히 선 두 길이고, 한 길이 막혀도 예약은 나간 것으로 친다.
+    """
+    ids = request.data.get("ids") or []
+    if not ids:
+        return Response({"delivered": 0, "devices": 0})
+
+    delivered = devices = 0
+    for group in due_alert_groups(due_alerts(ids=ids)):
+        sent = send_to_user(
+            group["owner"],
+            title=group["title"],
+            message=group["message"],
+            priority=group["priority"],
+            # 같은 묶음이 두 번 도착해도 알림은 하나로 덮인다. 크론이 한 번 걸러
+            # 따라잡을 때 앞서 나간 것과 겹칠 수 있다.
+            tag=f"due-{min(group['ids'])}",
+        )
+        devices += sent
+        delivered += 1 if sent else 0
+
+    # 기기가 없는 사람은 조용히 넘어간다 — 웹 푸시를 안 켠 것뿐이고 ntfy 로는 받았다.
+    return Response({"delivered": delivered, "devices": devices})
 
 
 @api_view(["PATCH"])

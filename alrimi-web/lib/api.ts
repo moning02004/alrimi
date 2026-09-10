@@ -81,8 +81,14 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   if (!res.ok) {
     throw new ApiError(res.status, await res.json().catch(() => undefined));
   }
-  if (res.status === 204) return undefined as T;
-  return (await res.json()) as T;
+  /*
+    본문이 비어 있을 수 있다 — 204 만이 아니다. 201 로 "만들었다" 만 답하는 자리도
+    있고(웹 푸시 구독 등록), 그때 `res.json()` 은 빈 문자열을 파싱하다 터진다.
+    부르는 쪽에서는 그것이 "요청이 실패했다" 로 보여서, 실제로는 성공한 일을
+    실패로 그리게 된다.
+  */
+  const text = await res.text();
+  return (text ? JSON.parse(text) : undefined) as T;
 }
 
 export const api = {
@@ -90,5 +96,7 @@ export const api = {
   post: <T>(path: string, body?: unknown, opts?: RequestOptions) =>
     request<T>(path, { ...opts, method: "POST", body }),
   patch: <T>(path: string, body?: unknown) => request<T>(path, { method: "PATCH", body }),
-  delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
+  // 지울 것을 본문으로 짚는 자리가 있다(웹 푸시 구독은 endpoint 로 가리킨다).
+  // 경로에 담지 않는 이유는 그 값이 URL 이라 인코딩해도 로그·기록에 그대로 남기 때문이다.
+  delete: <T>(path: string, body?: unknown) => request<T>(path, { method: "DELETE", body }),
 };
