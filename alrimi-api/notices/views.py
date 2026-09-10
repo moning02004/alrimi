@@ -446,9 +446,9 @@ def due_alert_groups(alerts) -> list[dict]:
     return groups
 
 
-def due_alerts():
+def due_alerts(*, ids: list[int] | None = None):
     """
-    지금 나가야 할 예약들.
+    지금 나가야 할 예약들. `ids` 를 주면 그 예약들만 (크론이 되짚어 부를 때).
 
     시각 창은 지난 6시간이다 — 크론이 한 번 걸러도 다음 시간에 따라잡으라는 폭이다.
 
@@ -457,15 +457,38 @@ def due_alerts():
     둘째·마지막 날에는 아무것도 생기지 않는다. 같은 일로 며칠 내리 알림이 오면
     받는 쪽은 어느 것이 진짜 챙길 날인지 알 수 없다.
     """
-    end_date = timezone.now()
-    queryset = (
-        EventAlert.objects.select_related("event", "event__zone", "event__zone__owner")
-        .filter(event__completed_at__isnull=True)
-        .filter(due_at__gte=end_date - timedelta(hours=6), due_at__lt=end_date)
-        .exclude(status="sent")
-    )
+    queryset = EventAlert.objects.select_related(
+        "event", "event__zone", "event__zone__owner"
+    ).filter(event__completed_at__isnull=True)
+
+    if ids is None:
+        end_date = timezone.now()
+        queryset = queryset.filter(due_at__gte=end_date - timedelta(hours=6), due_at__lt=end_date)
+        queryset = queryset.exclude(status="sent")
+    else:
+        # 크론이 방금 `GET /events/alerts` 로 받아간 목록이다. 창을 다시 재면 그 사이
+        # 시각이 지난 예약이 끼어들어, ntfy 로 나간 것과 웹 푸시로 나간 것이 어긋난다.
+        # 발송 표시(`update_alert`)는 이 뒤에 찍히므로 status 로 다시 거르지 않는다.
+        queryset = queryset.filter(id__in=ids)
 
     return queryset.order_by("event__event_date", "event__event_hour", "id")
+
+
+def ntfy_payload(group) -> dict:
+    """묶음 하나를 n8n 이 그대로 ntfy 로 POST 할 수 있는 모양으로."""
+    return {
+        "topic": group["owner"].ntfy_topic,
+        "title": group["title"],
+        "message": group["message"],
+        "priority": group["priority"],
+        "actions": [
+            {
+                "action": "view",
+                "label": "웹으로 이동",
+                "url": settings.WEB_ORIGIN,
+            }
+        ],
+    }
 
 
 def push_group(group) -> int:
@@ -487,51 +510,70 @@ def push_group(group) -> int:
 @permission_classes([])
 def list_due_alerts(request):
     """
-    GET /events/alerts → 웹 푸시로 못 닿은 묶음만 (ntfy 로 보낼 것)
+    GET /events/alerts → 지금 나가야 할 예약들. **읽기만 한다.**
 
-    매시 돈다. **부르면 웹 푸시가 먼저 나간다** — 읽기만 하는 자리가 아니다.
-    돌려주는 `data` 는 그러고도 닿지 못한 것들이고, 크론은 그것만 ntfy 로 쏜 뒤
-    `PATCH /events/alerts/status` 로 발송을 찍는다.
+    매시 도는 한 바퀴의 첫 걸음이다. 보내는 것은 다음 걸음(`push_due_alerts`)이
+    맡는다 — 조회와 발송을 한 자리에 합치면 워크플로만 봐서는 언제 알림이
+    나가는지 알 수 없다.
 
-        GET /events/alerts  (웹 푸시 발송) → (n8n 이 남은 것만 ntfy 발행)
-        → PATCH /events/alerts/status
+    `data` 는 **묶음 전부**다. 웹 푸시로 닿을 것까지 들어 있으므로 **여기 것을
+    ntfy 로 쏘면 안 된다** — 두 길을 다 켜둔 사람이 같은 알림을 두 번 받는다.
+    ntfy 로 쏠 것은 `POST /events/alerts/push` 가 걸러 돌려주는 쪽이다.
+    이 자리의 `data` 는 "이번 시간에 무엇이 나가나" 를 눈으로 보는 용도다.
 
-    **웹 푸시를 이 서버가 직접 보내는 이유.** 본문을 기기의 공개키로 암호화해야
-    한다(VAPID + aes128gcm). 그 열쇠는 여기에만 있으므로 ntfy 처럼 "보낼 내용을
-    건네주면 남이 쏘는" 방식이 성립하지 않는다. 그래서 조회하는 이 자리가 발송까지
-    겸한다 — 크론을 한 번 더 부르게 해서 얻을 것이 없다.
-
-    **왜 나란히 보내지 않는가.** 두 길을 다 켜둔 사람은 같은 알림을 폰에서 두 번
-    받는다. 웹 푸시로 한 대라도 닿았으면 그 묶음은 목록에서 빠지고, ntfy 는 닿은
-    기기가 하나도 없을 때만(안 켰거나·구독이 죽었거나·서버에 VAPID 키가 없거나)
-    뒤를 받는다.
-
-    `ids` 는 **묶기 전의 예약 전부**다. 웹 푸시로 나갔든 ntfy 로 나갔든 발송으로
-    찍힐 것은 같으므로, 걸러낸 묶음의 것도 그대로 담는다 — 여기서 빼면 웹 푸시로
-    받은 예약이 pending 으로 남아 다음 시간에 한 번 더 나간다.
+    `ids` 는 묶기 전의 예약 전부다 — 통이 몇 개로 묶였는지와 상관없이 낱개로
+    남아야 다음 두 걸음이 같은 것을 가리킨다.
     """
     groups = due_alert_groups(due_alerts())
 
-    ntfy_data = [
-        {
-            "topic": group["owner"].ntfy_topic,
-            "title": group["title"],
-            "message": group["message"],
-            "priority": group["priority"],
-            "actions": [
-                {
-                    "action": "view",
-                    "label": "웹으로 이동",
-                    "url": settings.WEB_ORIGIN,
-                }
-            ],
-        }
-        for group in groups
-        if not push_group(group)
-    ]
-    ids = [alert_id for group in groups for alert_id in group["ids"]]
+    return Response({
+        "data": [ntfy_payload(group) for group in groups],
+        "ids": [alert_id for group in groups for alert_id in group["ids"]],
+    })
 
-    return Response({"data": ntfy_data, "ids": ids})
+
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([HasAPIKey])
+def push_due_alerts(request):
+    """
+    POST /events/alerts/push  {"ids": [...]}
+      → {"data": [웹 푸시로 못 닿은 묶음만], "ids": [...]}
+
+    **웹 푸시를 보내고, 그러고도 못 닿은 것만 돌려준다.** 크론은 `GET /events/alerts`
+    로 받아간 ids 를 그대로 되돌려주고, 돌아온 `data` 만 ntfy 로 쏜 뒤 `ids` 로
+    발송을 찍는다. 한 바퀴는 이렇게 돈다:
+
+        GET /events/alerts → POST /events/alerts/push (웹 푸시 발송)
+        → (n8n 이 돌아온 data 만 ntfy 발행) → PATCH /events/alerts/status
+
+    **왜 n8n 이 웹 푸시를 직접 못 쏘는가.** 본문을 기기의 공개키로 암호화해서 보내야
+    한다(VAPID + aes128gcm). 그 열쇠는 이 서버에만 있으므로, ntfy 처럼 "보낼 내용을
+    건네주면 남이 쏘는" 방식이 성립하지 않는다.
+
+    **왜 두 길로 나란히 보내지 않는가.** 두 길을 다 켜둔 사람은 같은 알림을 폰에서
+    두 번 받는다 — 브라우저 알림과 ntfy 알림이 같은 문구로 나란히 쌓인다. 웹 푸시로
+    한 대라도 닿았으면 그 묶음은 `data` 에서 빠지고, ntfy 는 닿은 기기가 하나도
+    없을 때만(안 켰거나·구독이 죽었거나·서버에 VAPID 키가 없거나) 뒤를 받는다.
+
+    **돌려주는 `ids` 는 걸러내지 않는다.** 웹 푸시로 나갔든 ntfy 로 나갔든 발송으로
+    찍힐 것은 같아서다. 여기서 빼면 웹 푸시로 받은 예약이 pending 으로 남아 다음
+    시간에 ntfy 로 한 번 더 나간다.
+
+    **발송 표시는 여기서 하지 않는다.** 찍는 곳은 `update_alert` 한 곳뿐이다.
+    여기서 찍으면 크론이 ntfy 를 쏘기도 전에 나간 것으로 남고, 그 사이에 끊기면
+    웹 푸시로 못 닿은 사람은 아무 데서도 못 받는다.
+    """
+    ids = request.data.get("ids") or []
+    if not ids:
+        return Response({"data": [], "ids": []})
+
+    groups = due_alert_groups(due_alerts(ids=ids))
+
+    return Response({
+        "data": [ntfy_payload(group) for group in groups if not push_group(group)],
+        "ids": [alert_id for group in groups for alert_id in group["ids"]],
+    })
 
 
 @api_view(["PATCH"])

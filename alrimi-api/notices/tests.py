@@ -1584,25 +1584,32 @@ class WebPushTests(TestCase):
 
     # ── 크론이 부르는 자리 ─────────────────────────────────────
 
-    def hourly(self, key="right-key"):
-        """매시 크론이 부르는 자리. 부르는 것만으로 웹 푸시가 나간다."""
-        return self.client.get("/events/alerts", headers={"x-api-key": key})
+    def push(self, ids, key="right-key"):
+        """크론의 두 번째 걸음. 받아간 ids 를 되돌려주면 웹 푸시가 나간다."""
+        return self.client.post(
+            "/events/alerts/push",
+            {"ids": ids},
+            content_type="application/json",
+            headers={"x-api-key": key},
+        )
 
     @override_settings(N8N_API_KEY="right-key", VAPID_PUBLIC_KEY="pub", VAPID_PRIVATE_KEY="priv")
-    def test_조회하면_그_자리에서_웹_푸시가_나간다(self):
+    def test_크론이_되돌려준_ids_만_보낸다(self):
         """
-        웹 푸시는 본문을 기기 공개키로 암호화해야 해서 n8n 이 대신 못 쏜다. 그래서
-        조회하는 자리가 발송까지 겸한다 — 크론을 한 번 더 부르게 해서 얻을 것이 없다.
+        ids 는 방금 `GET /events/alerts` 로 받아간 것이다. 창을 다시 재면 그 사이
+        시각이 지난 예약이 끼어들어, 크론이 아는 목록과 어긋난다.
         """
-        self.make_due_alert("체육복")
+        due = self.make_due_alert("체육복")
+        other = self.make_due_alert("도시락")
 
         with patch("notices.webpush.webpush") as sender:
-            res = self.hourly()
+            res = self.push([due.id])
 
         self.assertEqual(res.status_code, 200)
-        sender.assert_called_once()
         body = json.loads(sender.call_args.kwargs["data"])
         self.assertIn("체육복", body["body"])
+        self.assertNotIn("도시락", body["body"])
+        self.assertNotIn(str(other.id), body["tag"])
 
     @override_settings(N8N_API_KEY="right-key", VAPID_PUBLIC_KEY="pub", VAPID_PRIVATE_KEY="priv")
     def test_웹_푸시로_닿은_묶음은_ntfy_목록에서_빠진다(self):
@@ -1610,10 +1617,10 @@ class WebPushTests(TestCase):
         둘 다 보내면 두 길을 켜둔 사람이 같은 알림을 두 번 받는다. ntfy 는 뒤를
         받는 길이라, 닿은 묶음은 크론에게 건네지 않는다.
         """
-        self.make_due_alert("체육복")
+        due = self.make_due_alert("체육복")
 
         with patch("notices.webpush.webpush"):
-            res = self.hourly()
+            res = self.push([due.id])
 
         self.assertEqual(res.json()["data"], [])
 
@@ -1626,7 +1633,7 @@ class WebPushTests(TestCase):
         due = self.make_due_alert("체육복")
 
         with patch("notices.webpush.webpush"):
-            res = self.hourly()
+            res = self.push([due.id])
 
         self.assertEqual(res.json()["ids"], [due.id])
 
@@ -1637,10 +1644,10 @@ class WebPushTests(TestCase):
         broken = WebPushException("nope")
         broken.response = SimpleNamespace(status_code=500)
 
-        self.make_due_alert("체육복")
+        due = self.make_due_alert("체육복")
 
         with patch("notices.webpush.webpush", side_effect=broken):
-            res = self.hourly()
+            res = self.push([due.id])
 
         data = res.json()["data"]
         self.assertEqual(len(data), 1)
@@ -1650,22 +1657,35 @@ class WebPushTests(TestCase):
     @override_settings(N8N_API_KEY="right-key", VAPID_PUBLIC_KEY="", VAPID_PRIVATE_KEY="")
     def test_웹_푸시가_꺼진_서버는_전부_ntfy_로_간다(self):
         """VAPID 키를 안 넣은 서버에서도 알림은 그대로 나가야 한다."""
-        self.make_due_alert("체육복")
+        due = self.make_due_alert("체육복")
 
         with patch("notices.webpush.webpush") as sender:
-            res = self.hourly()
+            res = self.push([due.id])
 
         sender.assert_not_called()
         self.assertEqual(len(res.json()["data"]), 1)
 
     @override_settings(N8N_API_KEY="right-key", VAPID_PUBLIC_KEY="pub", VAPID_PRIVATE_KEY="priv")
-    def test_같은_공간_여러_건은_한_통으로_묶인다(self):
-        """예약마다 한 통씩 보내면 같은 시각에 잡아둔 것들이 알림 다섯 개로 쏟아진다."""
+    def test_조회하는_자리는_보내지_않는다(self):
+        """
+        `GET /events/alerts` 는 읽기만 한다. 거기서 보내버리면 워크플로만 봐서는
+        언제 알림이 나가는지 알 수 없다.
+        """
         self.make_due_alert("체육복")
-        self.make_due_alert("도시락")
 
         with patch("notices.webpush.webpush") as sender:
-            self.hourly()
+            self.client.get("/events/alerts", headers={"x-api-key": "right-key"})
+
+        sender.assert_not_called()
+
+    @override_settings(N8N_API_KEY="right-key", VAPID_PUBLIC_KEY="pub", VAPID_PRIVATE_KEY="priv")
+    def test_같은_공간_여러_건은_한_통으로_묶인다(self):
+        """예약마다 한 통씩 보내면 같은 시각에 잡아둔 것들이 알림 다섯 개로 쏟아진다."""
+        first = self.make_due_alert("체육복")
+        second = self.make_due_alert("도시락")
+
+        with patch("notices.webpush.webpush") as sender:
+            self.push([first.id, second.id])
 
         self.assertEqual(sender.call_count, 1)
         body = json.loads(sender.call_args.kwargs["data"])
@@ -1673,16 +1693,28 @@ class WebPushTests(TestCase):
         self.assertIn("체육복", body["body"])
         self.assertIn("도시락", body["body"])
 
+    @override_settings(N8N_API_KEY="right-key")
+    def test_열쇠가_없으면_막힌다(self):
+        """
+        여기를 열어두면 남의 기기로 알림을 밀어넣을 수 있다. ids 만 맞히면 되므로
+        추측도 어렵지 않다.
+        """
+        res = self.client.post(
+            "/events/alerts/push", {"ids": [1]}, content_type="application/json"
+        )
+        self.assertEqual(res.status_code, 403)
+
     @override_settings(N8N_API_KEY="right-key", VAPID_PUBLIC_KEY="pub", VAPID_PRIVATE_KEY="priv")
     def test_보냈다고_발송_표시를_하지_않는다(self):
         """
         찍는 곳은 `PATCH /events/alerts/status` 한 곳뿐이다. 여기서 찍으면 크론이
-        ntfy 를 쏘기도 전에 나간 것으로 남고, 그 사이에 죽으면 아무도 못 받는다.
+        ntfy 를 쏘기도 전에 나간 것으로 남고, 그 사이에 끊기면 웹 푸시로 못 닿은
+        사람은 아무 데서도 못 받는다.
         """
         due = self.make_due_alert()
 
         with patch("notices.webpush.webpush"):
-            self.hourly()
+            self.push([due.id])
 
         due.refresh_from_db()
         self.assertEqual(due.status, EventAlert.Status.PENDING)
