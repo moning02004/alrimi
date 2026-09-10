@@ -6,7 +6,6 @@ from .views import (
     EventListCreateView,
     SendEventAlertView,
     list_due_alerts,
-    push_due_alerts,
     list_weekly,
     update_alert,
 )
@@ -26,9 +25,6 @@ urlpatterns = [
     path("events/weekly", list_weekly, name="weekly-events"),
     path("events/alerts", list_due_alerts, name="due-alerts"),
     path("events/alerts/status", update_alert, name="due-alerts-status"),
-    # 웹 푸시는 본문을 서버가 암호화해야 해서 크론이 대신 쏘지 못한다. 받아간
-    # ids 를 되돌려주면 이 서버가 그 묶음을 그대로 웹 푸시로 보낸다.
-    path("events/alerts/push", push_due_alerts, name="due-alerts-push"),
 
     path("events/<int:event_id>", EventDetailView.as_view(), name="event-detail"),
     # 알림은 일정에 딸린 것이라 경로도 그 아래에 둔다. 발송 단위는 EventAlert 하나다.

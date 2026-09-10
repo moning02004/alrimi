@@ -250,8 +250,10 @@ class SendEventAlertView(APIView):
     보낸 것으로 기록되므로 나중에 예약 시각이 와도 다시 나가지 않는다 —
     같은 알림을 두 번 받는 것이 안 오는 것보다 성가시다.
 
-    두 길로 나간다(ntfy · 웹 푸시). 웹 푸시는 먼저 밀어보되 실패해도 넘어간다 —
-    켜둔 기기가 없는 것이 대부분이고, 그것 때문에 ntfy 발송까지 실패로 되돌릴 이유가 없다.
+    **웹 푸시가 먼저고, ntfy 는 그 뒤를 받는다.** 예전에는 둘을 나란히 보냈는데
+    그러면 두 길을 다 켜둔 사람은 같은 알림을 폰에서 두 번 받는다 — 브라우저 알림과
+    ntfy 알림이 같은 문구로 나란히 쌓인다. 웹 푸시로 한 대라도 닿았으면 거기서 멈추고,
+    닿은 기기가 하나도 없을 때만 ntfy 를 부른다.
     """
 
     permission_classes = [IsAuthenticated]
@@ -264,18 +266,16 @@ class SendEventAlertView(APIView):
             event__zone__owner=request.user,
         )
 
-        pushed = push_alert(alert)
+        if push_alert(alert):
+            # 닿았으면 발송이다. ntfy 를 건너뛴 것이지 못 보낸 것이 아니다.
+            alert.mark_sent()
+            return Response(EventAlertItemSerializer(alert).data)
 
         try:
             send_alert(alert)
         except NtfyError as exc:
-            if pushed:
-                # 한 길이 막혔어도 알림은 닿았다. 실패로 적으면 화면에는 안 간 것으로
-                # 보이고, 시각이 되면 같은 알림이 한 번 더 나간다.
-                alert.mark_sent()
-                return Response(EventAlertItemSerializer(alert).data)
-            # 실패도 EventAlert 에 남는다(status="fail"). 화면이 그 자리에서 까닭을
-            # 보여줄 수 있도록 이유를 그대로 싣는다.
+            # 두 길이 다 막혔다. 실패도 EventAlert 에 남으므로(status="fail") 화면이
+            # 그 자리에서 까닭을 보여줄 수 있도록 이유를 그대로 싣는다.
             return Response({"detail": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
 
         return Response(EventAlertItemSerializer(alert).data)
@@ -446,9 +446,9 @@ def due_alert_groups(alerts) -> list[dict]:
     return groups
 
 
-def due_alerts(*, ids: list[int] | None = None):
+def due_alerts():
     """
-    지금 나가야 할 예약들. `ids` 를 주면 그 예약들만 (크론이 되짚어 부를 때).
+    지금 나가야 할 예약들.
 
     시각 창은 지난 6시간이다 — 크론이 한 번 걸러도 다음 시간에 따라잡으라는 폭이다.
 
@@ -457,21 +457,28 @@ def due_alerts(*, ids: list[int] | None = None):
     둘째·마지막 날에는 아무것도 생기지 않는다. 같은 일로 며칠 내리 알림이 오면
     받는 쪽은 어느 것이 진짜 챙길 날인지 알 수 없다.
     """
-    queryset = EventAlert.objects.select_related(
-        "event", "event__zone", "event__zone__owner"
-    ).filter(event__completed_at__isnull=True)
-
-    if ids is None:
-        end_date = timezone.now()
-        queryset = queryset.filter(due_at__gte=end_date - timedelta(hours=6), due_at__lt=end_date)
-        queryset = queryset.exclude(status="sent")
-    else:
-        # 크론이 방금 받아간 목록이다. 발송 표시(`update_alert`)는 웹 푸시까지 끝난
-        # 뒤에 찍히므로 여기서 status 로 다시 거르지 않는다 — 순서가 어떻든 같은
-        # 한 바퀴 안의 일이고, 거르면 재시도 때 아무것도 안 나간다.
-        queryset = queryset.filter(id__in=ids)
+    end_date = timezone.now()
+    queryset = (
+        EventAlert.objects.select_related("event", "event__zone", "event__zone__owner")
+        .filter(event__completed_at__isnull=True)
+        .filter(due_at__gte=end_date - timedelta(hours=6), due_at__lt=end_date)
+        .exclude(status="sent")
+    )
 
     return queryset.order_by("event__event_date", "event__event_hour", "id")
+
+
+def push_group(group) -> int:
+    """묶음 하나를 웹 푸시로 민다. 돌려주는 값은 실제로 닿은 기기 수다."""
+    return send_to_user(
+        group["owner"],
+        title=group["title"],
+        message=group["message"],
+        priority=group["priority"],
+        # 같은 묶음이 두 번 도착해도 알림은 하나로 덮인다. 크론이 한 번 걸러
+        # 따라잡을 때 앞서 나간 것과 겹칠 수 있다.
+        tag=f"due-{min(group['ids'])}",
+    )
 
 
 @api_view(["GET"])
@@ -480,13 +487,28 @@ def due_alerts(*, ids: list[int] | None = None):
 @permission_classes([])
 def list_due_alerts(request):
     """
-    GET /events/alerts → 지금 나가야 할 예약들 (ntfy 로 보낼 묶음)
+    GET /events/alerts → 웹 푸시로 못 닿은 묶음만 (ntfy 로 보낼 것)
 
-    매시 돈다. 크론이 이 목록으로 ntfy 를 쏘고, 이어서 `POST /events/alerts/push` 로
-    웹 푸시를 보낸 뒤, `PATCH /events/alerts/status` 로 발송을 찍는다.
+    매시 돈다. **부르면 웹 푸시가 먼저 나간다** — 읽기만 하는 자리가 아니다.
+    돌려주는 `data` 는 그러고도 닿지 못한 것들이고, 크론은 그것만 ntfy 로 쏜 뒤
+    `PATCH /events/alerts/status` 로 발송을 찍는다.
 
-    `ids` 는 묶기 전의 예약 전부다 — 통이 몇 개로 묶였는지와 상관없이 낱개로 남아야
-    다음 두 걸음이 같은 것을 가리킨다.
+        GET /events/alerts  (웹 푸시 발송) → (n8n 이 남은 것만 ntfy 발행)
+        → PATCH /events/alerts/status
+
+    **웹 푸시를 이 서버가 직접 보내는 이유.** 본문을 기기의 공개키로 암호화해야
+    한다(VAPID + aes128gcm). 그 열쇠는 여기에만 있으므로 ntfy 처럼 "보낼 내용을
+    건네주면 남이 쏘는" 방식이 성립하지 않는다. 그래서 조회하는 이 자리가 발송까지
+    겸한다 — 크론을 한 번 더 부르게 해서 얻을 것이 없다.
+
+    **왜 나란히 보내지 않는가.** 두 길을 다 켜둔 사람은 같은 알림을 폰에서 두 번
+    받는다. 웹 푸시로 한 대라도 닿았으면 그 묶음은 목록에서 빠지고, ntfy 는 닿은
+    기기가 하나도 없을 때만(안 켰거나·구독이 죽었거나·서버에 VAPID 키가 없거나)
+    뒤를 받는다.
+
+    `ids` 는 **묶기 전의 예약 전부**다. 웹 푸시로 나갔든 ntfy 로 나갔든 발송으로
+    찍힐 것은 같으므로, 걸러낸 묶음의 것도 그대로 담는다 — 여기서 빼면 웹 푸시로
+    받은 예약이 pending 으로 남아 다음 시간에 한 번 더 나간다.
     """
     groups = due_alert_groups(due_alerts())
 
@@ -505,53 +527,11 @@ def list_due_alerts(request):
             ],
         }
         for group in groups
+        if not push_group(group)
     ]
     ids = [alert_id for group in groups for alert_id in group["ids"]]
 
     return Response({"data": ntfy_data, "ids": ids})
-
-
-@api_view(["POST"])
-@authentication_classes([])
-@permission_classes([HasAPIKey])
-def push_due_alerts(request):
-    """
-    POST /events/alerts/push  {"ids": [...]} → 그 예약들을 웹 푸시로 보낸다
-
-    크론이 `GET /events/alerts` 로 받아간 ids 를 그대로 되돌려준다. 한 바퀴는
-    이렇게 돈다:
-
-        GET /events/alerts → (n8n 이 ntfy 발행) → POST /events/alerts/push
-        → PATCH /events/alerts/status
-
-    **왜 n8n 이 직접 못 쏘는가.** 웹 푸시는 본문을 기기의 공개키로 암호화해서
-    보내야 한다(VAPID + aes128gcm). 그 열쇠는 이 서버에만 있으므로, ntfy 처럼
-    "보낼 내용을 건네주면 남이 쏘는" 방식이 성립하지 않는다.
-
-    **발송 표시는 여기서 하지 않는다.** 찍는 곳은 `update_alert` 한 곳뿐이다.
-    두 곳에서 찍으면 어느 채널이 성공했을 때 넘어가는 것인지가 흐려진다 —
-    ntfy 와 웹 푸시는 나란히 선 두 길이고, 한 길이 막혀도 예약은 나간 것으로 친다.
-    """
-    ids = request.data.get("ids") or []
-    if not ids:
-        return Response({"delivered": 0, "devices": 0})
-
-    delivered = devices = 0
-    for group in due_alert_groups(due_alerts(ids=ids)):
-        sent = send_to_user(
-            group["owner"],
-            title=group["title"],
-            message=group["message"],
-            priority=group["priority"],
-            # 같은 묶음이 두 번 도착해도 알림은 하나로 덮인다. 크론이 한 번 걸러
-            # 따라잡을 때 앞서 나간 것과 겹칠 수 있다.
-            tag=f"due-{min(group['ids'])}",
-        )
-        devices += sent
-        delivered += 1 if sent else 0
-
-    # 기기가 없는 사람은 조용히 넘어간다 — 웹 푸시를 안 켠 것뿐이고 ntfy 로는 받았다.
-    return Response({"delivered": delivered, "devices": devices})
 
 
 @api_view(["PATCH"])
