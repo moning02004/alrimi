@@ -55,7 +55,7 @@ def publish(topic: str, *, title: str, message: str, priority: int) -> None:
             "actions": [
                 {
                     "action": "view",
-                    "label": "웹으로 이동",
+                    "label": "웹에서 확인",
                     "url": "https://alrimi.jeonghoon.dev"
                 }
             ]
