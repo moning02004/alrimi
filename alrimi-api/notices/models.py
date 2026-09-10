@@ -190,7 +190,7 @@ class Event(models.Model):
         stale = [
             alert.pk
             for code, alert in existing.items()
-            if code not in wanted and alert.sent_at is None
+            if code not in wanted
         ]
         if stale:
             EventAlert.objects.filter(pk__in=stale).delete()
