@@ -1,6 +1,6 @@
 "use client";
 
-import {useRef, useState} from "react";
+import {forwardRef, useRef, useState} from "react";
 import DatePicker from "react-datepicker";
 import {ko} from "date-fns/locale";
 import toast from "react-hot-toast";
@@ -30,6 +30,7 @@ import {useZoneMark, useZones} from "@/hooks/useZones";
 import {Picker} from "./Picker";
 import {ZoneMark} from "./ZoneMark";
 import type {EventDetail, Priority} from "@/types";
+import {LuCalendar} from "react-icons/lu";
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
@@ -95,6 +96,33 @@ interface DateFieldProps {
  * 화면을 덮는 판이 올라오고 PC 에서는 좁은 칸에 숫자를 밀어넣게 되던 것이,
  * 어디서나 같은 한 장짜리 달력이 된다.
  */
+const DateChipButton = forwardRef<HTMLButtonElement, { value?: string; onClick?: () => void }>(
+    ({value, onClick}, ref) => (
+        <button
+            type="button"
+            onClick={onClick}
+            ref={ref}
+            /*
+              색은 옆의 제목 칸과 같은 약속을 쓴다(`fieldCls`) — 흰 바탕에 늘 보이는
+              line 테두리. 한 줄에 나란히 선 칸 둘이 다른 색이면 하나는 고칠 수 있고
+              하나는 아닌 것처럼 읽힌다. 누르는 자리라는 것은 색이 아니라 달력
+              아이콘이 말한다.
+
+              아직 안 골랐을 때는 다른 칸의 placeholder 와 같은 흐리기로 적는다.
+              ink 로 적으면 "날짜 선택" 이 이미 고른 값처럼 보인다.
+            */
+            className={`flex items-center gap-1.5 ${value ? "text-ink" : "text-muted/50"}
+                  bg-card border border-line rounded-lg px-3 py-2 cursor-pointer
+                  sm:hover:bg-paper transition-colors w-full`}
+        >
+            {/* 아이콘은 곁다리라 muted 로 둔다 — 값보다 진하면 눈이 먼저 그리로 간다 */}
+            <LuCalendar size={13} className="shrink-0 text-muted"/>
+            {value || "날짜 선택"}
+        </button>
+    )
+)
+DateChipButton.displayName = "DateChipButton"
+
 function DateField({id, ariaLabel, value, min, max, placeholder, onPick, row}: DateFieldProps) {
     return (
         <DatePicker
@@ -116,7 +144,7 @@ function DateField({id, ariaLabel, value, min, max, placeholder, onPick, row}: D
                 if (!fromCalendar) e?.preventDefault();
             }}
             // 소프트 키보드는 띄우지 않는다 — 어차피 못 적는 칸인데 화면 절반을 가린다
-            customInput={<input inputMode="none"/>}
+            customInput={<DateChipButton />}
             dateFormat={DATE_FORMAT}
             // 머리글도 앱의 다른 달력과 같은 "2026년 9월" 로
             dateFormatCalendar="yyyy년 M월"
