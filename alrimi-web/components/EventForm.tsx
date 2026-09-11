@@ -110,9 +110,14 @@ const DateChipButton = forwardRef<HTMLButtonElement, { value?: string; onClick?:
 
               아직 안 골랐을 때는 다른 칸의 placeholder 와 같은 흐리기로 적는다.
               ink 로 적으면 "날짜 선택" 이 이미 고른 값처럼 보인다.
+
+              높이는 `rowFieldCls` 로 못박는다 — 옆에 시각 칸이 열리면 둘이 한 줄에
+              나란히 서는데, padding 으로만 잡으면 글씨 크기가 달라(16px / 14px)
+              몇 px 씩 어긋난다. 좌우 여백도 `fieldCls` 와 같은 px-2.5 다.
             */
-            className={`flex items-center gap-1.5 ${value ? "text-ink" : "text-muted/50"}
-                  bg-card border border-line rounded-lg px-3 py-2 cursor-pointer
+            className={`${rowFieldCls} flex items-center gap-1.5 text-base
+                  ${value ? "text-ink" : "text-muted/50"}
+                  bg-card border border-line rounded-lg px-2.5 cursor-pointer
                   sm:hover:bg-paper transition-colors w-full`}
         >
             {/* 아이콘은 곁다리라 muted 로 둔다 — 값보다 진하면 눈이 먼저 그리로 간다 */}
