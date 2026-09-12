@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { Drawer } from "vaul";
 
 interface Props {
@@ -35,7 +36,70 @@ function raisesKeyboard(el: Element | null): el is HTMLElement {
   return false;
 }
 
+/** 쓰고 있는 칸을 시트의 스크롤 칸 가운데로 옮긴다. 바깥 화면은 건드리지 않는다 */
+function centerFocused(scroller: HTMLElement | null) {
+  const focused = document.activeElement;
+  if (!scroller || !raisesKeyboard(focused) || !scroller.contains(focused)) return;
+
+  // 아래 끝에 맞추면 폼 바닥에 붙은 저장 버튼 밑에 깔린다. 가운데로 둔다.
+  const box = scroller.getBoundingClientRect();
+  const field = focused.getBoundingClientRect();
+  scroller.scrollTop += field.top + field.height / 2 - (box.top + box.height / 2);
+}
+
+/**
+ * 소프트 키보드가 떠 있는 동안 시트를 **지금 보이는 화면**(visual viewport) 바닥에 붙인다.
+ *
+ * vaul 의 `repositionInputs` 에 맡기지 않는 이유: 그쪽은 키보드 높이
+ * (`innerHeight - visualViewport.height`)만큼만 시트를 올린다. 그런데 가려질 자리에
+ * 있는 칸(폼 아래쪽의 "내용")을 눌러 키보드가 뜨면, 브라우저가 그 칸을 보여주려고
+ * 화면을 아래로 끌어내린다(`visualViewport.offsetTop > 0`). 시트는 그만큼 위에 떠
+ * 버리고, 저장 버튼 밑으로 끌려 내려온 만큼이 빈자리로 드러난다. 제목을 먼저 누르면
+ * 멀쩡했던 것은 제목 칸이 키보드 위쪽이라 화면이 끌려 내려오지 않아서다.
+ *
+ * 그래서 끌려 내려온 만큼(`offsetTop`)을 빼고, 화면이 움직일 때(scroll)도 따라간다.
+ */
+function fitToKeyboard(vv: VisualViewport, sheet: HTMLElement) {
+  const keyboard = window.innerHeight - vv.height;
+  if (keyboard < 1) {
+    sheet.style.bottom = sheet.style.maxHeight = sheet.style.paddingBottom = "";
+    return;
+  }
+
+  sheet.style.bottom = `${Math.max(0, keyboard - vv.offsetTop)}px`;
+  // 평소의 92dvh 를 보이는 만큼에 맞춘다. 안 줄이면 시트 위쪽이 화면 밖으로 나간다.
+  sheet.style.maxHeight = `${vv.height * 0.92}px`;
+  // 홈 인디케이터는 키보드 밑에 있다. 그 몫의 여백을 두면 저장 버튼 밑이 빈다.
+  sheet.style.paddingBottom = "0px";
+}
+
 export function BottomSheet({ open, onOpenChange, title, description, children }: Props) {
+  const sheet = useRef<HTMLDivElement>(null);
+  const scroller = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!open || !vv) return;
+
+    const fit = (recenter: boolean) => {
+      // 손가락으로 확대한 것도 보이는 화면을 줄인다. 그때는 따라가지 않는다.
+      if (!sheet.current || vv.scale > 1.01) return;
+      fitToKeyboard(vv, sheet.current);
+      // 시트가 줄면서 쓰던 칸이 스크롤 칸 밖으로 밀려날 수 있다
+      if (recenter) centerFocused(scroller.current);
+    };
+
+    const onResize = () => fit(true);
+    const onScroll = () => fit(false);
+    fit(false);
+    vv.addEventListener("resize", onResize);
+    vv.addEventListener("scroll", onScroll);
+    return () => {
+      vv.removeEventListener("resize", onResize);
+      vv.removeEventListener("scroll", onScroll);
+    };
+  }, [open]);
+
   /**
    * 키보드가 올라와 있을 때, 위 빈자리를 누르면 **키보드만** 내린다.
    *
@@ -58,14 +122,11 @@ export function BottomSheet({ open, onOpenChange, title, description, children }
 
   return (
     /*
-      `repositionInputs` 를 켜둔다(vaul 기본값이지만, 예전에 꺼져 있던 값이라 뜻을
-      남긴다). 켜두면 vaul 이 `visualViewport` 를 지켜보다가 소프트 키보드가 올라올 때
-      시트를 그만큼 올리거나 줄여서, 지금 쓰고 있는 칸과 아래 저장 버튼이 키보드에
-      가리지 않게 한다.
-
-      끄면 키보드가 시트 아래쪽을 덮어버려서, 저장하려면 매번 키보드를 먼저 내려야 한다.
+      `repositionInputs` 는 끈다. 키보드에 맞춰 시트를 올리고 줄이는 일은 위의
+      `fitToKeyboard` 가 맡는다 — vaul 에 같이 맡기면 둘이 시트의 bottom·height 를
+      번갈아 덮어쓴다. 끄는 이유는 그 함수 주석 참고.
     */
-    <Drawer.Root open={open} onOpenChange={onOpenChange} repositionInputs>
+    <Drawer.Root open={open} onOpenChange={onOpenChange} repositionInputs={false}>
       <Drawer.Portal>
         <Drawer.Overlay className="fixed inset-0 z-40 bg-ink/25" />
         {/*
@@ -77,6 +138,7 @@ export function BottomSheet({ open, onOpenChange, title, description, children }
           뒤에도 시트 높이의 두 배만큼 빈 자리가 더 굴러간다(601px 시트에서 1202px).
         */}
         <Drawer.Content
+          ref={sheet}
           onPointerDownOutside={keepOpenToDismissKeyboard}
           className="safe-bottom fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92dvh]
                      w-full max-w-md flex-col rounded-t-3xl border-t border-line sm:max-w-2xl
@@ -93,7 +155,9 @@ export function BottomSheet({ open, onOpenChange, title, description, children }
           <Drawer.Description className="sr-only">{description ?? title ?? ""}</Drawer.Description>
 
           {/* `min-h-0` 이 있어야 이 칸이 시트보다 작아져서 안에서 스크롤된다 */}
-          <div className="min-h-0 flex-1 overflow-y-auto px-4 pt-4">{children}</div>
+          <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto px-4 pt-4">
+            {children}
+          </div>
         </Drawer.Content>
       </Drawer.Portal>
     </Drawer.Root>
