@@ -165,8 +165,15 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
               aria-pressed={done}
               aria-label={done ? "완료 취소" : "완료로 표시"}
               title={done ? "완료 취소" : "완료로 표시"}
-              // 44px 과녁. 제목 첫 줄에 맞춰 세우려고 그만큼 위로 당긴다(-mt-2.5)
-              className="-mr-2.5 -mt-2.5 flex h-11 w-11 shrink-0 items-center justify-center
+              /*
+                44px 과녁. 넓힌 만큼은 음수 여백으로 도로 당긴다 — 안 그러면 이
+                높이가 제목 줄의 높이가 되어, 제목 아래 내용이 그만큼 밀린다.
+
+                `-my-2`(8px)는 제목 한 줄(text-xl = 28px)과 이 버튼(44px)의 차이
+                절반이다. 44 − 16 = 28px 이라 제목 줄 높이를 건드리지 않으면서,
+                동그라미가 제목 첫 줄 한가운데에 선다.
+              */
+              className="-my-2 -mr-2.5 flex h-11 w-11 shrink-0 items-center justify-center
                          rounded-full transition-colors hover:bg-pinelt disabled:opacity-40"
             >
               {done ? (

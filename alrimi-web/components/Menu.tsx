@@ -76,10 +76,17 @@ export function Menu({ items, ariaLabel = "더보기" }: { items: MenuItem[]; ar
         /*
           44px 과녁. 보이는 그림은 20px 이지만 손가락으로 겨냥하는 자리는 그보다
           커야 한다 — 바로 왼쪽이 "뒤로" 라 빗맞으면 화면이 통째로 바뀐다.
-          `-mr-2` 로 그 넓어진 만큼을 도로 당겨, 그림은 여백 끝에 그대로 선다.
+
+          **넓힌 만큼은 음수 여백으로 도로 당긴다.** 안 그러면 이 44px 이 그대로
+          줄 높이가 되어 머리글이 통째로 24px 높아진다(글자 버튼일 때는 20px 줄이었다).
+          머리글은 붙박이라 그 24px 이 스크롤하는 내내 본문을 덮는다.
+
+          `-my-3` 은 이 버튼이 놓이는 줄의 세로 여백(`py-3` = 12px)을 상쇄하는 값이다
+          — 44 − 24 = 20px 이 되어 글자 한 줄과 같은 자리를 차지한다. 다른 여백을 쓰는
+          줄에 옮겨 놓으면 이 값도 같이 고쳐야 한다.
         */
-        className={`-mr-2 flex h-11 w-11 items-center justify-center rounded-full transition-colors
-                    hover:bg-paper ${open ? "bg-paper text-ink" : "text-muted"}`}
+        className={`-my-3 -mr-2 flex h-11 w-11 items-center justify-center rounded-full
+                    transition-colors hover:bg-paper ${open ? "bg-paper text-ink" : "text-muted"}`}
         {...getReferenceProps()}
       >
         <HiEllipsisHorizontal className="h-5 w-5" aria-hidden="true" />
