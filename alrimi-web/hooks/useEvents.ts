@@ -76,10 +76,34 @@ export function useCalendar(from: string, to: string, zoneId: number | null) {
   });
 }
 
-export function useEvent(eventId: number) {
+/**
+ * `enabled` 를 끄면 요청이 나가지 않는다. 보류함 카드가 "다시 잡기" 를 누른
+ * 뒤에야 상세를 받아온다 — 목록에는 내용·알림 코드가 안 실려 오는데, 그것을
+ * 미리 다 받아두면 보류함을 여는 것만으로 카드 수만큼 요청이 나간다.
+ */
+export function useEvent(eventId: number, enabled = true) {
   return useQuery({
     queryKey: eventKeys.detail(eventId),
     queryFn: () => api.get<EventDetail>(apiUrl.event(eventId)),
+    enabled,
+  });
+}
+
+/**
+ * 상세 화면의 보류 토글. 완료와 같은 모양이라 알림 코드를 다시 보내지 않아도 된다.
+ *
+ * **푸는 쪽은 이것으로 하지 않는다.** 다시 잡으려면 새 날짜가 함께 가야 해서
+ * (서버가 지난 날짜로 푸는 것을 막는다) 그쪽은 폼이 통째로 맡는다 — `EventForm`
+ * 의 `resume`.
+ */
+export function useHold(eventId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (held: boolean) => api.patch<EventDetail>(apiUrl.event(eventId), { held }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: eventKeys.detail(eventId) });
+      invalidateAll(qc);
+    },
   });
 }
 

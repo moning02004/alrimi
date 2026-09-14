@@ -53,6 +53,10 @@ class EventListSerializer(serializers.ModelSerializer):
             "title",
             "priority",
             "completed_at",
+            # 보류함이 "9월 14일에 있던 일정" 을 적으려면 치운 때가 아니라 보류
+            # 여부를 알아야 한다. 목록 카드도 이 값으로 완료 동그라미를 감춘다 —
+            # 보류한 일정에는 완료할 것이 없다.
+            "held_at",
             "zone_id",
             "zone_color",
             "alerts",
@@ -82,6 +86,7 @@ class EventDetailSerializer(serializers.ModelSerializer):
             "content",
             "priority",
             "completed_at",
+            "held_at",
             "zone_id",
             "zone_name",
             "zone_color",
@@ -99,6 +104,8 @@ class EventWriteSerializer(serializers.ModelSerializer):
     alerts = AlertCodesField(required=False)
     # 모델에는 completed_at 이 있지만 클라이언트는 켜고 끄기만 하면 된다
     completed = serializers.BooleanField(required=False, write_only=True)
+    # 보류도 마찬가지. `held: false` 는 "다시 잡는다" 는 뜻이라 새 날짜와 함께 온다
+    held = serializers.BooleanField(required=False, write_only=True)
 
     class Meta:
         model = Event
@@ -113,6 +120,7 @@ class EventWriteSerializer(serializers.ModelSerializer):
             "priority",
             "alerts",
             "completed",
+            "held",
         ]
 
     def __init__(self, *args, **kwargs):
@@ -154,7 +162,11 @@ class EventWriteSerializer(serializers.ModelSerializer):
         수정이면 시작일을 옮긴 만큼 마지막 날도 같이 밀린다(`update` 참고).
         여기서 저장된 옛 마지막 날과 견주면, 3일짜리 여행을 다음 주로 옮기는
         평범한 수정이 "마지막 날보다 뒤"라는 이유로 막힌다.
+
+        보류를 푸는 요청은 **날 자리가 실제로 앞에 있는지**까지 본다. 아래 참고.
         """
+        self._check_resume(attrs)
+
         end = attrs.get("end_date")
         if end is None:
             return attrs
@@ -173,12 +185,38 @@ class EventWriteSerializer(serializers.ModelSerializer):
             )
         return attrs
 
+    def _check_resume(self, attrs) -> None:
+        """
+        보류를 푸는데 날짜가 지났으면 막는다.
+
+        `validate_event_date` 는 **바뀐** 날짜만 본다 — 지난 일정도 제목이나 내용은
+        고칠 수 있어야 해서다. 그 틈으로 "9월 14일에 보류해둔 것" 을 날짜 그대로
+        풀면 일정은 목록에 돌아오는데 알림은 한 통도 안 온다: 예약 시각이 전부
+        지나 있고, 발송 창은 지난 6시간뿐이라(`due_alerts`) 되살려도 잡히지 않는다.
+
+        다시 잡는다는 것은 곧 날을 새로 고른다는 뜻이므로, 여기서 그 날을 요구한다.
+        아직 안 지난 일정을 보류만 풀어 되돌리는 것은 그대로 된다.
+        """
+        if attrs.get("held") is not False or self.instance is None:
+            return
+        if self.instance.held_at is None:
+            return
+
+        start = attrs.get("event_date") or self.instance.event_date
+        if start < timezone.localdate():
+            raise serializers.ValidationError(
+                {"event_date": "다시 잡을 날짜를 골라주세요."}
+            )
+
     @transaction.atomic
     def create(self, validated_data):
         codes = validated_data.pop("alerts", None)
         if not codes:
             raise serializers.ValidationError({"alerts": "알림을 하나 이상 넣어주세요."})
         validated_data.pop("completed", None)
+        # 등록하는 일정은 늘 잡혀 있는 것이다. 보류로 시작할 길은 두지 않는다
+        # — 날짜와 알림을 다 고른 뒤 보류함에 넣는 것은 아무 뜻도 없다.
+        validated_data.pop("held", None)
 
         event = Event.objects.create(**validated_data)
         event.sync_alerts(codes)
@@ -188,6 +226,10 @@ class EventWriteSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         codes = validated_data.pop("alerts", None)
         completed = validated_data.pop("completed", None)
+        held = validated_data.pop("held", None)
+        # 보류를 푸는 중인가. 아래에서 예약을 되살릴지 가르는 값이라 instance 를
+        # 고치기 **전에** 잡아둔다.
+        resumed = held is False and instance.held_at is not None
 
         # 시작일만 옮기면 기간은 그대로 따라 움직인다. 3일짜리 여행을 다음 주로
         # 미뤘을 뿐인데 마지막 날이 제자리에 남아 순서가 뒤집히면 안 된다.
@@ -199,10 +241,19 @@ class EventWriteSerializer(serializers.ModelSerializer):
             setattr(instance, field, value)
         if completed is not None:
             instance.completed_at = timezone.now() if completed else None
+        if held is not None:
+            instance.held_at = timezone.now() if held else None
+            # 보류하는 일정에 완료는 남아 있을 자리가 없다. 둘 다 켜져 있으면
+            # 다시 잡았을 때 목록에 돌아오자마자 완료로 그어진 채 나타난다.
+            if held:
+                instance.completed_at = None
         instance.save()
 
         # 날짜가 바뀌면 코드가 그대로여도 발송 시각을 다시 잡아야 한다
         instance.sync_alerts(codes if codes is not None else [a.code for a in instance.alerts.all()])
+        # 다시 잡은 일정은 지난번에 나간 예약까지 되살린다 — `revive_alerts` 참고
+        if resumed:
+            instance.revive_alerts()
         return instance
 
     def to_representation(self, instance):

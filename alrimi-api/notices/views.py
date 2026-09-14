@@ -89,8 +89,11 @@ class EventListCreateView(generics.ListCreateAPIView):
     """
     GET  /events?from=&to=&zone={id}          — 임의 기간. 주간 스트립이 쓴다
     GET  /events?date=2026-08-19&zone={id}    — 하루치
-    GET  /events?filter=upcoming|later|past&zone={id}
+    GET  /events?filter=upcoming|later|past|held&zone={id}
     POST /events                              — 공간은 본문의 zone
+
+    `filter=held` 만 보류함이다. 나머지 창은 전부 보류를 빼고 본다 — 보류는
+    "아직 날짜가 없는 것" 이라 날짜를 축으로 삼는 목록 어디에도 자리가 없다.
 
     셋이 겹치면 date > from/to > filter 순으로 이긴다. 화면마다 창이 하나뿐이라
     섞이면 목록이 어느 창을 그린 건지 알 수 없어진다.
@@ -102,7 +105,7 @@ class EventListCreateView(generics.ListCreateAPIView):
     def get_serializer_class(self):
         return EventWriteSerializer if self.request.method == "POST" else EventListSerializer
 
-    def rows(self, condition, ordering, *, hide_completed: bool = True):
+    def rows(self, condition, ordering, *, hide_completed: bool = True, held: bool = False):
         """
         완료한 일정은 **앞으로의** 목록에서만 뺀다 — 아침에 훑는 것은
         "아직 남은 것"이라서다.
@@ -110,8 +113,14 @@ class EventListCreateView(generics.ListCreateAPIView):
         지난 일정은 기록이다. 끝낸 것을 지워버리면 그 날 무엇이 있었는지가
         틀리게 남으므로 그대로 두고 웹이 흐리게 그린다.
         하루 보기(`?date=`)도 같은 이유로 전부 돌려준다.
+
+        **보류한 일정은 완료와 다르게 어디에도 남기지 않는다.** 완료는 "그 날
+        있었던 일"이라 지난 목록에 기록으로 남지만, 보류는 "그 날 없던 일로 했고
+        아직 다시 안 잡은 것"이다. 날짜를 축으로 삼는 목록에 흐리게라도 남으면
+        그 날 무엇이 있었는지가 틀리게 읽힌다. 그래서 `held` 가 이 갈림을 통째로
+        가른다 — 보류함만 True 로 부르고, 나머지는 전부 보류를 빼고 본다.
         """
-        queryset = Event.objects.filter(zone__owner=self.request.user)
+        queryset = Event.objects.filter(zone__owner=self.request.user, held_at__isnull=not held)
         if hide_completed:
             # 끝난 날짜가 기준이다 — 오늘까지 이어지는 여행을 완료로 덮었다면
             # 마지막 날까지는 앞으로의 목록에서 빠져야 한다.
@@ -156,7 +165,15 @@ class EventListCreateView(generics.ListCreateAPIView):
         name = params.get("filter", "upcoming")
         if name not in FILTERS:
             name = "upcoming"
-        return self.rows(filter_q(name, timezone.localdate()), ordering_for(name))
+        held = name == "held"
+        # 보류함은 날짜가 아니라 보류 여부로 가른다. 여기 담기는 것은 전부
+        # "지금은 일정이 아닌 것" 이라 앞으로의 목록처럼 완료를 걸러낼 것도 없다.
+        return self.rows(
+            filter_q(name, timezone.localdate()),
+            ordering_for(name),
+            hide_completed=not held,
+            held=held,
+        )
 
 
 class CalendarView(APIView):
@@ -193,6 +210,9 @@ class CalendarView(APIView):
                 # 띠가 지나가야 한다.
                 event_date__lte=end,
                 end_date__gte=start,
+                # 보류한 일정은 그 날 있을 일이 아니다. 띠가 남아 있으면 눌러서
+                # 간 자리(하루 보기)에는 없어서, 달력과 목록이 서로 다른 말을 한다.
+                held_at__isnull=True,
             )
             # 목록에서 뺀 것은 달력에도 그리지 않는다. 표시는 있는데 눌러도 아래에
             # 없는 날을 만들지 않으려는 것이다. 지난 날은 목록에 남으므로 함께 남긴다.
@@ -321,7 +341,9 @@ def list_weekly(request):
         # 이번 주에 있는 일이다.
         .filter(event_date__lte=end_date,
                 end_date__gte=start_date,
-                completed_at__isnull=True)
+                completed_at__isnull=True,
+                # 보류한 것은 다음 주에 할 일이 아니다
+                held_at__isnull=True)
         .order_by("event_date", "event_hour", "zone_id", "id")
     )
 
@@ -466,7 +488,9 @@ def due_alerts(*, ids: list[int] | None = None):
     """
     queryset = EventAlert.objects.select_related(
         "event", "event__zone", "event__zone__owner"
-    ).filter(event__completed_at__isnull=True)
+        # 보류한 일정의 예약은 나가지 않는다. 다시 잡을 때 `revive_alerts` 가
+        # 새 날짜로 되살리므로, 여기서 빼도 알림이 영영 사라지지는 않는다.
+    ).filter(event__completed_at__isnull=True, event__held_at__isnull=True)
 
     if ids is None:
         end_date = timezone.now()

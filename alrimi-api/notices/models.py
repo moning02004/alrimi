@@ -110,6 +110,17 @@ class Event(models.Model):
         blank=True,
         help_text="완료 표시한 시각. 완료하면 목록·달력에서 빠지고 남은 알림도 나가지 않는다.",
     )
+    held_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "보류한 시각. 취소됐지만 다시 잡힐 수 있는 일정을 지우는 대신 여기로 치운다 "
+            "— 지우면 제목·내용·알림 시점을 다음에 처음부터 다시 적어야 한다. "
+            "보류하면 날짜를 축으로 삼는 모든 화면(목록·달력·주간 정리)과 발송에서 빠지고 "
+            "보류함(?filter=held)에만 남는다. event_date 는 마지막으로 잡혔던 날 그대로 두는데, "
+            "보류함이 '9월 14일에 있던 일정' 이라고 적어줘야 무엇을 미룬 것인지 알아볼 수 있어서다."
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -165,6 +176,26 @@ class Event(models.Model):
         """
         self.completed_at = timezone.now() if completed else None
         self.save(update_fields=["completed_at", "updated_at"])
+
+    def revive_alerts(self) -> None:
+        """
+        보류했다 다시 잡을 때. **이미 나간 예약까지 되살린다.**
+
+        `sync_alerts` 는 나간 예약의 발송 시각을 건드리지 않는다 — 그것은 기록이라
+        날짜를 고쳤다고 없던 일이 되면 안 되기 때문이다. 그런데 보류는 다르다:
+        지난번 날짜에 "1일 전" 이 이미 나갔다면, 새 날짜를 잡아도 그 예약은
+        발송됨으로 남아 다시는 나가지 않는다. 다시 잡은 일정이 아무 알림 없이
+        당일을 맞는 것이 이 기능이 막으려던 바로 그 일이다.
+
+        되살리는 것은 **날짜에 딸린 사실**(언제 나가나·나갔나)뿐이고 코드는 그대로다.
+        """
+        alerts = list(self.alerts.all())
+        for alert in alerts:
+            alert.due_at = due_at_for(self.event_date, alert.code)
+            alert.sent_at = None
+            alert.status = EventAlert.Status.PENDING
+        if alerts:
+            EventAlert.objects.bulk_update(alerts, ["due_at", "sent_at", "status"])
 
     def sync_alerts(self, codes: list[str]) -> None:
         """

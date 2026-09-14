@@ -9,7 +9,9 @@ import datetime as dt
 
 from django.db.models import F, Q
 
-FILTERS = ("upcoming", "later", "past")
+#  "held" 는 날짜 창이 아니라 보류 여부로 가른다. 경계가 날짜가 아니라서
+#  `filter_q` 에도 나오지 않는다 — 거르는 일은 뷰의 `rows(held=True)` 가 한다.
+FILTERS = ("upcoming", "later", "past", "held")
 
 # "다가올" 이 덮는 날 수 (오늘 포함). `later` 는 이 창 바로 뒤부터다.
 UPCOMING_DAYS = 7
@@ -34,6 +36,9 @@ def filter_q(name: str, today: dt.date) -> Q:
     `later` 만 시작일로 가른다. 이미 시작한 일정은 `upcoming` 이 데려가므로,
     여기서도 겹침으로 보면 같은 일정이 두 목록에 겹쳐 나온다.
     """
+    if name == "held":
+        # 보류함은 날짜 창과 상관없다. 거르는 일은 `rows(held=True)` 가 한다.
+        return Q()
     if name == "past":
         # 다 끝난 것만 지난 일정이다. 오늘까지 이어지는 여행은 아직 지나지 않았다.
         return Q(end_date__lt=today)
@@ -48,6 +53,11 @@ def ordering_for(name: str) -> list[str]:
     지난 일정만 최근 것부터 — 오래된 것부터 쌓으면 방금 지난 일정을 찾으려고
     끝까지 스크롤해야 한다.
     """
+    # 보류함에는 "다음"이 없어서 날짜로 줄 세울 것이 없다. 방금 치운 것이 맨 위다
+    # — 아파서 미룬 약속을 다시 잡는 일은 대개 치운 지 며칠 안에 벌어진다.
+    if name == "held":
+        return ["-held_at", "id"]
+
     date_order = "-event_date" if name == "past" else "event_date"
     # 같은 날 안에서는 시각 순. 시각을 안 정한 것이 앞이다.
     hour_order = F("event_hour").desc(nulls_last=True) if name == "past" else F("event_hour").asc(nulls_first=True)

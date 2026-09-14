@@ -36,6 +36,15 @@ export interface EventListItem {
   priority: Priority;
   /** 완료 표시한 시각. 목록에서는 빠지고 하루 보기에만 흐리게 남는다 */
   completed_at: string | null;
+  /**
+   * 보류함으로 치운 시각. 취소됐지만 다시 잡힐 수 있는 일정을 지우는 대신
+   * 여기로 보낸다 — 지우면 제목·내용·알림 시점을 다음에 처음부터 다시 적어야 한다.
+   *
+   * 완료와 달리 날짜를 축으로 삼는 목록 어디에도 남지 않는다(보류함만 예외).
+   * `event_date` 는 마지막으로 잡혔던 날 그대로라, 보류함이 "9월 14일에 있던
+   * 일정" 이라고 적어 무엇을 미룬 것인지 알아볼 수 있게 한다.
+   */
+  held_at: string | null;
   zone_id: number;
   zone_color: string;
   alerts: AlertSummary;
@@ -59,6 +68,11 @@ export interface EventPayload {
   alerts: string[];
   /** 상세 화면의 완료 토글만 쓴다. 등록/수정 폼은 보내지 않는다 */
   completed?: boolean;
+  /**
+   * 보류함에 넣고 빼기. `false` 는 "다시 잡는다" 는 뜻이라 새 `event_date` 와
+   * 함께 보내야 한다 — 서버가 지난 날짜로 푸는 것을 막는다(알림이 한 통도 안 나간다).
+   */
+  held?: boolean;
 }
 
 /**

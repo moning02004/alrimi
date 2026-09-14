@@ -85,10 +85,15 @@ export function WeekStrip({ start, events, onJumpTo, jumpFrom }: Props) {
       <div className="absolute inset-0 flex">
         {days.map((day) => {
           const iso = toISO(day);
+          const isToday = iso === todayISO;
           const titles = events.filter((event) => covers(event, iso)).map((e) => e.title);
           // 아래에 줄이 있는 날만 누를 수 있다. 눌러도 아무 일도 안 일어나는
           // 칸을 만들지 않으려는 것이다.
-          const jumpable = titles.length > 0 && (!jumpFrom || iso >= jumpFrom);
+          //
+          // 오늘만은 비어 있어도 누를 수 있다 — 아래 목록이 오늘 칸을 비어 있어도
+          // 그리기 때문이다(lib/date.ts `ensure`). 갈 줄이 있는데 막아두면,
+          // 하필 오늘 자리에서만 탭이 안 먹는다.
+          const jumpable = (titles.length > 0 || isToday) && (!jumpFrom || iso >= jumpFrom);
 
           return (
             <button

@@ -254,3 +254,52 @@ describe("groupByDate — 며칠짜리는 걸치는 날마다 들어간다", () 
     expect(groups).toEqual([]);
   });
 });
+
+/*
+  주간 목록에서 오늘 칸이다. 일정이 있는 날만 그리면 오늘이 비었을 때 맨 위가
+  내일 줄인데, 위에서부터 훑는 눈에는 그것이 오늘로 읽힌다.
+*/
+describe("groupByDate — ensure 는 비어 있어도 그 날 칸을 만든다", () => {
+  it("비어 있어도 칸이 생기고, 알맹이는 없다", () => {
+    const groups = groupByDate([event(1, "2026-09-26")], {
+      from: "2026-09-25",
+      to: "2026-09-27",
+      ensure: "2026-09-25",
+    });
+    expect(groups.map((g) => g.iso)).toEqual(["2026-09-25", "2026-09-26"]);
+    expect(groups[0].items).toEqual([]);
+  });
+
+  it("그 날에 일정이 있으면 평소와 똑같다 — 빈 칸이 따로 생기지 않는다", () => {
+    const groups = groupByDate([event(1, "2026-09-25"), event(2, "2026-09-25")], {
+      ensure: "2026-09-25",
+    });
+    expect(groups.map((g) => g.iso)).toEqual(["2026-09-25"]);
+    expect(groups[0].items.map((n) => n.id)).toEqual([1, 2]);
+  });
+
+  it("창을 걸치는 일정이 그 날을 덮어도 한 칸이다", () => {
+    const groups = groupByDate([event(1, "2026-09-24", "2026-09-26")], {
+      from: "2026-09-25",
+      to: "2026-09-27",
+      ensure: "2026-09-25",
+    });
+    expect(groups.map((g) => g.iso)).toEqual(["2026-09-25", "2026-09-26"]);
+    expect(groups[0].items.map((n) => n.id)).toEqual([1]);
+  });
+
+  it("창 밖이면 만들지 않는다 — 지난 주로 넘겨 보는 중이다", () => {
+    const groups = groupByDate([event(1, "2026-09-20")], {
+      from: "2026-09-19",
+      to: "2026-09-21",
+      ensure: "2026-09-27",
+    });
+    expect(groups.map((g) => g.iso)).toEqual(["2026-09-20"]);
+  });
+
+  it("한 주가 통째로 비면 그 날 칸 하나만 남는다 — 부르는 쪽이 알맹이로 센다", () => {
+    const groups = groupByDate([], { from: "2026-09-25", to: "2026-09-27", ensure: "2026-09-25" });
+    expect(groups.map((g) => g.iso)).toEqual(["2026-09-25"]);
+    expect(groups.every((g) => g.items.length === 0)).toBe(true);
+  });
+});

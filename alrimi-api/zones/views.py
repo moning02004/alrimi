@@ -16,14 +16,19 @@ def with_counts(queryset, today=None):
     웹이 '이후 일정 N개'를 이 값에서 목록 길이를 빼서 구한다.
     """
     today = today or timezone.localdate()
+    # 보류한 일정은 양쪽 다 세지 않는다. 목록 어디에도 안 나오는 것이 개수에만
+    # 잡히면, 칩의 숫자를 눌러 들어간 사람이 그만큼을 찾지 못한다.
+    scheduled = Q(events__held_at__isnull=True)
     return queryset.annotate(
         # 앞으로 남은 할 일. 완료한 것은 세지 않는다.
         upcoming_count=Count(
             "events",
-            filter=Q(events__event_date__gte=today, events__completed_at__isnull=True),
+            filter=scheduled & Q(events__event_date__gte=today, events__completed_at__isnull=True),
             distinct=True,
         ),
-        past_count=Count("events", filter=Q(events__event_date__lt=today), distinct=True),
+        past_count=Count(
+            "events", filter=scheduled & Q(events__event_date__lt=today), distinct=True
+        ),
     )
 
 

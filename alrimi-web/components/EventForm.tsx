@@ -184,10 +184,20 @@ interface Props {
     event?: EventDetail;
     /** 달력에서 빈 날을 눌러 열었을 때 미리 채워지는 날짜 */
     initialDate?: string | null;
+    /**
+     * 보류함에서 "다시 잡기" 로 열었다. 같은 폼이지만 세 가지가 달라진다:
+     * 날짜 칸이 비어서 열리고(다시 잡는다는 것은 곧 날을 새로 고른다는 뜻이다),
+     * 지난 날은 못 고르며(옛 날짜 그대로 풀면 알림이 한 통도 안 나간다 —
+     * 서버도 같은 이유로 막는다), 저장할 때 `held: false` 가 함께 간다.
+     *
+     * 나머지 — 제목·내용·공간·알림 시점 — 는 그대로 채워져 있다. 그것을 다시
+     * 적지 않아도 되는 것이 지우는 대신 치워두는 까닭이다.
+     */
+    resume?: boolean;
     onDone: () => void;
 }
 
-export function EventForm({event, initialDate, onDone}: Props) {
+export function EventForm({event, initialDate, resume = false, onDone}: Props) {
     const editing = Boolean(event);
     const {zones, defaultZone} = useZones();
     const markOf = useZoneMark();
@@ -196,7 +206,11 @@ export function EventForm({event, initialDate, onDone}: Props) {
     // 기본값을 매 렌더 다시 보게 해서, 목록이 늦게 와도 빈 채로 굳지 않게 한다.
     const [picked, setPicked] = useState<number | null>(event?.zone_id ?? null);
     const zoneId = picked ?? defaultZone?.id ?? null;
-    const [eventDate, setEventDate] = useState(event?.event_date ?? initialDate ?? "");
+    // 다시 잡을 때는 비워서 연다. 옛 날짜가 적혀 있으면 그대로 저장을 눌렀다가
+    // 서버에서 되돌려받는데, 그 칸이 왜 틀렸는지가 화면에 안 보인다.
+    const [eventDate, setEventDate] = useState(
+        resume ? "" : (event?.event_date ?? initialDate ?? ""),
+    );
     /*
       여러 날에 걸치는 일정(여행·행사). 대부분은 하루짜리라 기본은 꺼짐이고,
       켜야 마지막 날 칸이 나온다 — 늘 두 칸을 물으면 하루짜리에도 채울 칸이
@@ -209,8 +223,13 @@ export function EventForm({event, initialDate, onDone}: Props) {
         Boolean(event && event.end_date > event.event_date),
     );
     const [endDate, setEndDate] = useState(
-        event && event.end_date > event.event_date ? event.end_date : "",
+        event && !resume && event.end_date > event.event_date ? event.end_date : "",
     );
+    /*
+      며칠짜리였는지. 다시 잡을 때 양끝이 다 비어 있어 `spanDays` 로는 못 센다 —
+      3일짜리 여행을 다시 잡는데 마지막 날까지 또 고르게 하면, 치워둔 보람이 없다.
+    */
+    const heldSpan = event ? spanDays(event.event_date, event.end_date) : 1;
     const [title, setTitle] = useState(event?.title ?? "");
     const [content, setContent] = useState(event?.content ?? "");
     /*
@@ -244,7 +263,8 @@ export function EventForm({event, initialDate, onDone}: Props) {
      * 이미 있는 지난 일정을 고치는 중이면 그 날짜는 그대로 둔다.
      */
     const today = toISO(startOfDay(new Date()));
-    const minDate = event && event.event_date < today ? event.event_date : today;
+    // 다시 잡는 것은 앞으로의 일이다. 옛 날짜가 지났더라도 열어주지 않는다.
+    const minDate = !resume && event && event.event_date < today ? event.event_date : today;
 
     /*
       마지막 날은 시작일보다 앞설 수 없고, 서버가 60일에서 끊는다. 달력이 아예
@@ -268,8 +288,9 @@ export function EventForm({event, initialDate, onDone}: Props) {
      */
     const pickStart = (iso: string) => {
         setError(null);
-        if (ranged && endDate && eventDate) {
-            const keep = spanDays(eventDate, endDate);
+        // 다시 잡을 때는 양끝이 다 비어 있어 셀 것이 없다. 치워둘 때의 길이를 쓴다.
+        const keep = ranged && endDate && eventDate ? spanDays(eventDate, endDate) : resume ? heldSpan : 0;
+        if (ranged && keep) {
             setEndDate(iso ? toISO(addDays(toDate(iso), keep - 1)) : "");
         }
         setEventDate(iso);
@@ -295,7 +316,7 @@ export function EventForm({event, initialDate, onDone}: Props) {
             return;
         }
         if (eventDate < minDate) {
-            setError("지난 날짜로는 등록할 수 없어요");
+            setError(resume ? "지난 날짜로는 다시 잡을 수 없어요" : "지난 날짜로는 등록할 수 없어요");
             return;
         }
         if (ranged && !endDate) {
@@ -321,13 +342,20 @@ export function EventForm({event, initialDate, onDone}: Props) {
             content: content.trim(),
             priority,
             alerts,
+            // 다시 잡으면 보류가 풀린다. 서버가 이 값을 보고 지난번에 나간
+            // 예약까지 되살려 새 날짜로 다시 건다.
+            ...(resume ? {held: false} : {}),
         };
 
         mutation.mutate(payload, {
             onSuccess: () => {
                 // 먼 일정은 목록 화면 밖에 저장되므로 언제인지 알려준다
                 toast.success(
-                    editing
+                    resume
+                        ? span > 1
+                            ? `${fullLabel(eventDate)}부터 ${span}일간으로 다시 잡았어요`
+                            : `${fullLabel(eventDate)}로 다시 잡았어요`
+                        : editing
                         ? "수정했어요"
                         : span > 1
                             // 며칠짜리는 시작일만 말하면 얼마나 걸치는지가 안 보인다
@@ -744,7 +772,7 @@ export function EventForm({event, initialDate, onDone}: Props) {
                     disabled={mutation.isPending}
                     className="w-full rounded-xl bg-pine py-3.5 text-base font-medium text-white disabled:opacity-60"
                 >
-                    {mutation.isPending ? "저장하는 중" : "저장하기"}
+                    {mutation.isPending ? "저장하는 중" : resume ? "다시 잡기" : "저장하기"}
                 </button>
             </div>
         </>

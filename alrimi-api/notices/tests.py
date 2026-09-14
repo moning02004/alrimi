@@ -738,6 +738,207 @@ class CompletionTests(ApiTestCase):
         self.assertEqual(after, before - 1)
 
 
+class HoldTests(ApiTestCase):
+    """
+    보류한 일정은 날짜를 축으로 삼는 모든 화면과 발송에서 빠지고, 보류함에만 남는다.
+
+    완료와 비슷해 보이지만 반대쪽이다. 완료는 "그 날 있었던 일"이라 지난 목록에
+    기록으로 남는데, 보류는 "그 날 없던 일로 했고 아직 다시 안 잡은 것"이라
+    어느 날에도 매달리지 않는다.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.day = self.today + dt.timedelta(days=3)
+        self.event = Event.objects.create(
+            zone=self.zone, event_date=self.day, title="저녁 약속", content="종로"
+        )
+        self.event.sync_alerts(["D-1 20:00", "D 07:00"])
+
+    def hold(self, value: bool, **over):
+        return self.client.patch(
+            reverse("event-detail", args=[self.event.id]),
+            {"held": value, **over},
+            content_type="application/json",
+            headers=self.auth,
+        )
+
+    def titles(self, query: str) -> list[str]:
+        return [row["title"] for row in self.get(f"{reverse('event-list')}?{query}").json()]
+
+    def test_patch_held_sets_and_clears_the_timestamp(self):
+        res = self.hold(True)
+        self.assertEqual(res.status_code, 200)
+        self.assertIsNotNone(res.json()["held_at"])
+
+        later = self.today + dt.timedelta(days=10)
+        self.assertIsNone(self.hold(False, event_date=str(later)).json()["held_at"])
+
+    def test_holding_only_needs_the_flag(self):
+        """알림 코드를 통째로 다시 보내지 않아도 된다."""
+        self.hold(True)
+        self.assertEqual(self.event.alerts.count(), 2)
+
+    def test_it_drops_out_of_every_dated_list(self):
+        self.hold(True)
+        window = f"from={self.today}&to={self.today + dt.timedelta(days=7)}"
+        self.assertNotIn("저녁 약속", self.titles(window))
+        self.assertNotIn("저녁 약속", self.titles("filter=upcoming"))
+        self.assertNotIn("저녁 약속", self.titles(f"date={self.day}"))
+
+    def test_it_leaves_no_trace_in_the_past_list_either(self):
+        """완료와 갈리는 자리. 보류는 그 날 있었던 일이 아니다."""
+        self.hold(True)
+        Event.objects.filter(pk=self.event.pk).update(
+            event_date=self.today - dt.timedelta(days=3),
+            end_date=self.today - dt.timedelta(days=3),
+        )
+        self.assertNotIn("저녁 약속", self.titles("filter=past"))
+
+    def test_the_calendar_band_disappears(self):
+        span = f"?from={self.day}&to={self.day}"
+        self.assertNotEqual(self.get(f"{reverse('calendar')}{span}").json(), [])
+
+        self.hold(True)
+        self.assertEqual(self.get(f"{reverse('calendar')}{span}").json(), [])
+
+    def test_the_held_filter_is_the_only_place_it_shows_up(self):
+        self.assertNotIn("저녁 약속", self.titles("filter=held"))
+        self.hold(True)
+        self.assertEqual(self.titles("filter=held"), ["저녁 약속"])
+
+    def test_the_held_box_keeps_the_last_date_so_it_can_be_recognised(self):
+        """'9월 14일에 있던 일정' 이라고 적으려면 그 날이 남아 있어야 한다."""
+        self.hold(True)
+        row = self.get(f"{reverse('event-list')}?filter=held").json()[0]
+        self.assertEqual(row["event_date"], str(self.day))
+
+    def test_the_newest_hold_comes_first(self):
+        other = Event.objects.create(zone=self.zone, event_date=self.day, title="병원 진료")
+        other.sync_alerts(["D 07:00"])
+
+        self.hold(True)
+        self.client.patch(
+            reverse("event-detail", args=[other.id]),
+            {"held": True},
+            content_type="application/json",
+            headers=self.auth,
+        )
+        self.assertEqual(self.titles("filter=held"), ["병원 진료", "저녁 약속"])
+
+    def test_its_alerts_never_go_out(self):
+        from .views import due_alerts
+
+        alert = self.event.alerts.get(code="D-1 20:00")
+        EventAlert.objects.filter(pk=alert.pk).update(due_at=timezone.now() - dt.timedelta(hours=1))
+        self.assertIn(alert, due_alerts())
+
+        self.hold(True)
+        self.assertNotIn(alert, due_alerts())
+
+    def test_it_is_left_out_of_the_weekly_digest(self):
+        start, _ = next_week()
+        Event.objects.filter(pk=self.event.pk).update(event_date=start, end_date=start)
+
+        self.assertIn("저녁 약속", self.client.get(reverse("weekly-events")).json()[0]["message"])
+        self.hold(True)
+        self.assertEqual(self.client.get(reverse("weekly-events")).json(), [])
+
+    def test_it_stops_counting_towards_upcoming_count(self):
+        before = self.get(reverse("zone-list")).json()[0]["upcoming_count"]
+        self.hold(True)
+        after = self.get(reverse("zone-list")).json()[0]["upcoming_count"]
+        self.assertEqual(after, before - 1)
+
+    def test_resuming_moves_it_to_the_new_date_and_comes_back(self):
+        self.hold(True)
+        later = self.today + dt.timedelta(days=10)
+        res = self.hold(False, event_date=str(later))
+
+        self.assertEqual(res.status_code, 200)
+        self.assertIsNone(res.json()["held_at"])
+        self.assertEqual(res.json()["event_date"], str(later))
+        self.assertIn("저녁 약속", self.titles(f"date={later}"))
+
+    def test_resuming_keeps_the_title_content_and_alert_codes(self):
+        """지우는 대신 치워두는 까닭이 이것이다 — 다시 적지 않아도 된다."""
+        self.hold(True)
+        later = self.today + dt.timedelta(days=10)
+        body = self.hold(False, event_date=str(later)).json()
+
+        self.assertEqual(body["title"], "저녁 약속")
+        self.assertEqual(body["content"], "종로")
+        self.assertEqual(
+            sorted(alert["code"] for alert in body["alerts"]), ["D 07:00", "D-1 20:00"]
+        )
+
+    def test_resuming_revives_alerts_that_already_went_out(self):
+        """
+        지난번 날짜에 나간 예약이 발송됨으로 남아 있으면, 다시 잡아도 그 알림은
+        영영 안 나간다 — 이 기능이 막으려던 바로 그 일이다.
+        """
+        sent = self.event.alerts.get(code="D-1 20:00")
+        sent.mark_sent()
+
+        self.hold(True)
+        later = self.today + dt.timedelta(days=10)
+        self.hold(False, event_date=str(later))
+
+        sent.refresh_from_db()
+        self.assertEqual(sent.status, EventAlert.Status.PENDING)
+        self.assertIsNone(sent.sent_at)
+        self.assertEqual(sent.due_at, due_at_for(later, "D-1 20:00"))
+
+    def test_resuming_without_a_future_date_is_refused(self):
+        """
+        날짜가 지난 채로 풀면 일정만 돌아오고 알림은 한 통도 안 온다 —
+        예약 시각이 전부 지나 있어서다.
+        """
+        Event.objects.filter(pk=self.event.pk).update(
+            event_date=self.today - dt.timedelta(days=2),
+            end_date=self.today - dt.timedelta(days=2),
+        )
+        self.hold(True)
+
+        res = self.hold(False)
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("event_date", res.json())
+
+    def test_a_still_future_hold_can_simply_be_let_go(self):
+        """아직 안 지난 것은 날짜를 새로 고르지 않아도 그대로 돌아온다."""
+        self.hold(True)
+        res = self.hold(False)
+
+        self.assertEqual(res.status_code, 200)
+        self.assertIn("저녁 약속", self.titles(f"date={self.day}"))
+
+    def test_holding_clears_completion(self):
+        """둘 다 켜져 있으면 다시 잡은 일정이 나타나자마자 그어진 채로 나온다."""
+        self.event.set_completed(True)
+        self.assertIsNone(self.hold(True).json()["completed_at"])
+
+    def test_creating_cannot_start_out_held(self):
+        res = self.post(
+            reverse("event-list"),
+            {
+                "zone": self.zone.id,
+                "event_date": str(self.day),
+                "title": "새 일정",
+                "alerts": ["D 07:00"],
+                "held": True,
+            },
+        )
+        self.assertEqual(res.status_code, 201)
+        self.assertIsNone(res.json()["held_at"])
+
+    def test_it_is_still_reachable_by_id(self):
+        """보류함에서 눌러 들어갈 자리다."""
+        self.hold(True)
+        res = self.get(reverse("event-detail", args=[self.event.id]))
+        self.assertEqual(res.status_code, 200)
+        self.assertIsNotNone(res.json()["held_at"])
+
+
 class NtfyPublishTests(TestCase):
     """보내는 쪽 자체. 요청이 어떤 모양으로 나가는지를 여기서 못 박는다."""
 

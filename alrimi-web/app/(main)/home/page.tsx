@@ -115,7 +115,18 @@ function Home() {
 
     // 서버는 이 창에 **걸치는** 것을 준다. 창으로 잘라야 지난주에 떠난 여행 때문에
     // 위에 지난주 날짜가 붙지 않는다.
-    const groups = groupByDate(events, {from: listFrom, to});
+    //
+    // 오늘 칸은 비어 있어도 만든다. 일정이 있는 날만 그리면 오늘이 비었을 때 목록
+    // 맨 위가 내일 줄인데, 위에서부터 훑는 눈에는 그것이 오늘로 읽힌다 — 날짜 줄을
+    // 읽고 나서야 아니라는 것을 안다. 지난 주로 넘겨 보는 중이면 창 밖이라 안 생긴다.
+    const groups = groupByDate(events, {from: listFrom, to, ensure: todayISO});
+    /*
+      이 창에 **일정이** 하나도 없나. 칸 수가 아니라 알맹이로 센다 — 위의 오늘
+      칸 때문에 빈 주도 `groups.length === 1` 이 되어버려서, 칸 수로 세면 한 주가
+      통째로 비었을 때 "오늘은 없다" 한 줄만 뜨고 나머지 엿새에 대해서는 아무 말도
+      안 하게 된다. 그때는 오늘 칸 대신 아래 안내 한 줄이 낫다.
+    */
+    const nothingInWindow = groups.every((group) => group.items.length === 0);
     // 지난 날에는 등록을 열지 않는다. 알림 시각이 이미 지나 저장하자마자 다 나가버린다.
     const canAddOnSelected = selectedDate >= todayISO;
 
@@ -419,7 +430,7 @@ function Home() {
                         {list.isError && <ErrorBlock onRetry={() => list.refetch()}/>}
 
                         {!list.isLoading && !list.isError && (
-                            groups.length === 0 ? (
+                            nothingInWindow ? (
                                 <p className="py-6 text-center text-sm text-muted">
                                     {hidPast ? "이번 주에 남은 일정이 없어요" : "이 기간에는 일정이 없어요"}
                                 </p>

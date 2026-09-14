@@ -1,6 +1,6 @@
 export const API_HOST = process.env.NEXT_PUBLIC_API_HOST ?? "http://localhost:8000";
 
-export type EventFilter = "upcoming" | "later" | "past";
+export type EventFilter = "upcoming" | "later" | "past" | "held";
 
 const withZone = (path: string, zoneId: number | null) =>
   zoneId ? `${path}&zone=${zoneId}` : path;

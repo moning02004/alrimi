@@ -146,6 +146,15 @@ interface GroupOptions {
   to?: string;
   /** 지난 일정만 최근 것부터 */
   desc?: boolean;
+  /**
+   * 이 날은 비어 있어도 칸을 만든다 (창 안에 들어올 때만).
+   *
+   * 주간 목록이 오늘을 여기에 넣는다. 일정이 있는 날만 그리면 오늘이 비었을 때
+   * 목록 맨 위가 내일 줄인데, 위에서부터 훑는 눈에는 그것이 오늘로 읽힌다 —
+   * 날짜 줄을 읽고 나서야 아니라는 것을 안다. 빈 칸이라도 오늘 자리에 서 있으면
+   * "오늘은 없다"가 한눈에 보이고, 그 다음 줄이 내일인 것도 저절로 드러난다.
+   */
+  ensure?: string;
 }
 
 /**
@@ -161,9 +170,12 @@ interface GroupOptions {
  */
 export function groupByDate(
   events: EventListItem[],
-  { from, to, desc = false }: GroupOptions = {},
+  { from, to, desc = false, ensure }: GroupOptions = {},
 ): DateGroup[] {
   const buckets = new Map<string, EventListItem[]>();
+
+  // 먼저 깔아둔다. 아래 반복문이 같은 날을 만나면 그 배열에 그대로 담긴다.
+  if (ensure && (!from || ensure >= from) && (!to || ensure <= to)) buckets.set(ensure, []);
 
   for (const event of events) {
     const start = event.event_date;
