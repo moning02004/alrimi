@@ -3,11 +3,18 @@
 import { EventCard } from "./EventCard";
 import { ErrorBlock, LoadingBlock } from "./Loading";
 import { fullLabel, sectionLabel } from "@/lib/date";
+import type { DayMark } from "@/lib/marks";
 import type { EventListItem } from "@/types";
 
 interface Props {
   /** 보고 있는 하루 (YYYY-MM-DD) */
   date: string;
+  /**
+   * 이 날의 특일 표시. 달력에서는 칸이 좁아 하나만, 그것도 잘려서("대체공휴…")
+   * 나오는 것이 여기서는 **전부 온전히** 나온다 — 날짜를 눌러 펼치는 자리가 바로
+   * 여기다.
+   */
+  marks?: DayMark[];
   items: EventListItem[];
   isLoading: boolean;
   isError?: boolean;
@@ -29,6 +36,7 @@ interface Props {
  */
 export function DayPanel({
   date,
+  marks = [],
   items,
   isLoading,
   isError,
@@ -46,12 +54,25 @@ export function DayPanel({
         {big ? (
           <h2 className="text-lg font-semibold tracking-tight">
             {fullLabel(date)}
+            {marks.map((mark) => (
+              <span key={mark.kind} className="ml-2 text-sm font-normal" style={{ color: mark.color }}>
+                {mark.name}
+              </span>
+            ))}
             <span className="ml-2 text-sm font-normal text-muted">
               {items.length > 0 ? `${items.length}건` : "비어 있음"}
             </span>
           </h2>
         ) : (
-          <p className="text-xs font-medium text-muted">{sectionLabel(date)}</p>
+          <p className="text-xs font-medium text-muted">
+            {sectionLabel(date)}
+            {marks.map((mark) => (
+              <span key={mark.kind} style={{ color: mark.color }}>
+                {" · "}
+                {mark.name}
+              </span>
+            ))}
+          </p>
         )}
         {canAdd && items.length > 0 && (
           <button onClick={onAdd} className="shrink-0 text-xs text-pine hover:underline">

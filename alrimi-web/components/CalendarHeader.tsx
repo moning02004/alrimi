@@ -5,6 +5,7 @@ import { MonthGrid } from "./MonthGrid";
 import { PeriodNav } from "./PeriodNav";
 import { WeekStrip } from "./WeekStrip";
 import { WEEK_DAYS, addDays, monthLabel, shiftMonth } from "@/lib/date";
+import type { MarkMap } from "@/lib/marks";
 import type { CalendarEvent } from "@/types";
 
 interface Props {
@@ -13,6 +14,8 @@ interface Props {
   anchor: Date;
   selected: string;
   events: CalendarEvent[];
+  /** 날짜 → 그 날의 특일 표시. 달력 둘에 그대로 건네주기만 한다 */
+  marks?: MarkMap;
   onMove: (nextAnchor: Date) => void;
   onPickDay: (iso: string) => void;
   /** 아래 목록이 이 날부터 그린다. 그 앞의 칸은 눌러도 갈 곳이 없다 */
@@ -36,6 +39,7 @@ export function CalendarHeader({
   anchor,
   selected,
   events,
+  marks,
   onMove,
   onPickDay,
   jumpFrom,
@@ -142,12 +146,19 @@ export function CalendarHeader({
           anchor={anchor}
           selected={selected}
           events={events}
+          marks={marks}
           onPickDay={onPickDay}
         />
       </Fold>
 
       <Fold open={!expanded}>
-        <WeekStrip start={anchor} events={events} onJumpTo={onPickDay} jumpFrom={jumpFrom} />
+        <WeekStrip
+          start={anchor}
+          events={events}
+          marks={marks}
+          onJumpTo={onPickDay}
+          jumpFrom={jumpFrom}
+        />
       </Fold>
     </div>
   );

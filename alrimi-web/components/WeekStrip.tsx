@@ -3,6 +3,7 @@
 import { CalendarBands } from "./CalendarBands";
 import { covers, layoutRow, type Limits } from "@/lib/calendar";
 import { dayName, startOfDay, toISO, windowDays } from "@/lib/date";
+import { allNames, leadMark, type MarkMap } from "@/lib/marks";
 import type { CalendarEvent } from "@/types";
 
 /** 머리글 안이라 자리가 더 좁다 */
@@ -12,6 +13,8 @@ interface Props {
   /** 이 날이 속한 주를 그린다. 첫 날일 필요는 없다 — 주 시작일은 안에서 잡는다 */
   start: Date;
   events: CalendarEvent[];
+  /** 날짜 → 그 날의 특일 표시. 색은 보는 사람이 정한 것이 이미 얹혀 있다 */
+  marks?: MarkMap;
   onJumpTo: (iso: string) => void;
   /**
    * 아래 목록이 이 날부터 그린다.
@@ -36,7 +39,7 @@ interface Props {
  * 월간과 같은 띠를 쓴다. 주가 바뀌는 자리에서 여행이 끊겨 보이지 않도록, 창
  * 밖으로 이어지는 쪽은 끝을 각지게 둔다.
  */
-export function WeekStrip({ start, events, onJumpTo, jumpFrom }: Props) {
+export function WeekStrip({ start, events, marks = {}, onJumpTo, jumpFrom }: Props) {
   const days = windowDays(start);
   const todayISO = toISO(startOfDay(new Date()));
   const layout = layoutRow(days, events, LIMITS);
@@ -51,6 +54,8 @@ export function WeekStrip({ start, events, onJumpTo, jumpFrom }: Props) {
           // 주 중반에는 이미 지난 날이 창 안에 들어온다. 띠만 흐리고 날짜가
           // 또렷하면 어디까지 지났는지가 두 곳에서 엇갈린다.
           const gone = iso < todayISO;
+          // 겹친 날(현충일 = 공휴일 + 기념일)은 맨 앞 하나가 칸을 대표한다
+          const mark = leadMark(marks[iso]);
 
           return (
             <div key={iso} className="min-w-0 flex-1">
@@ -59,19 +64,56 @@ export function WeekStrip({ start, events, onJumpTo, jumpFrom }: Props) {
               </span>
               <span className="mt-0.5 flex justify-center">
                 <span
+                  /*
+                    특일은 **굵다**. 색만으로는 안 된다 — 이만한 크기의 숫자에서
+                    색은 잘 갈리지 않고, 애초에 무슨 색일지는 보는 사람이 정해서
+                    먹색일 수도 있다. 굵기는 색과 상관없는 둘째 신호다.
+
+                    오늘이 칠해지는 것은 그보다 먼저다 — 초록 동그라미 위에 다른
+                    글씨색을 얹으면 어느 쪽도 안 읽힌다. 그때는 아래 이름이 말해준다.
+
+                    지난 날은 특일이어도 같이 흐려진다. 여기서 흐림이 말하는 것은
+                    "이미 지났다" 이고, 그 말은 무슨 날이든 그대로 맞다.
+                  */
                   className={`flex h-6 w-6 items-center justify-center rounded-full text-sm ${
                     isToday
                       ? "bg-pine font-semibold text-white"
-                      : gone
-                        ? "text-muted/60"
-                        : hasItems
-                          ? ""
-                          : "text-muted/50"
+                      : mark
+                        ? "font-semibold"
+                        : gone
+                          ? "text-muted/60"
+                          : hasItems
+                            ? ""
+                            : "text-muted/50"
                   }`}
+                  // 색은 인라인이다 — 보는 사람이 팔레트에서 고른 값이라 클래스로 못 박는다
+                  style={mark && !isToday ? { color: mark.color, opacity: gone ? 0.5 : 1 } : undefined}
                 >
                   {day.getDate()}
                 </span>
               </span>
+
+              {/*
+                특일 이름. **날짜 칸 안이다** — 월간 그리드도 칸 하나에 숫자와
+                이름을 함께 담는다(`MonthGrid`). 두 달력이 같은 자리에 같은 것을
+                두어야, 한쪽의 표시를 고칠 때 다른 쪽이 따라오지 않는 일이 없다.
+
+                띠를 그리는 칸에 두지 않는 까닭도 같다. 그 칸은 일정이 차지하는
+                자리이고, 특일은 그 날에 잡힌 일이 아니라 그 날의 성격이다.
+
+                이름은 있는 칸에만 그린다. 빈 줄로 자리를 잡아두지 않는다 —
+                일곱 칸이 한 줄에 나란히 서 있어 키가 저절로 함께 맞춰지고,
+                띠는 그 아래 따로 선 칸이라 어긋날 일이 없다.
+              */}
+              {mark && (
+                <span
+                  title={allNames(marks[iso])}
+                  className="mt-0.5 block truncate px-0.5 text-[9px] font-medium leading-tight"
+                  style={{ color: mark.color, opacity: gone ? 0.5 : 1 }}
+                >
+                  {mark.name}
+                </span>
+              )}
             </div>
           );
         })}
@@ -102,6 +144,8 @@ export function WeekStrip({ start, events, onJumpTo, jumpFrom }: Props) {
               disabled={!jumpable}
               aria-label={
                 `${day.getMonth() + 1}월 ${day.getDate()}일` +
+                // 색은 낭독기에 읽히지 않는다. 이름을 넣어야 무슨 날인지 안다.
+                (allNames(marks[iso]) ? ` · ${allNames(marks[iso])}` : "") +
                 (titles.length ? ` · ${titles.join(", ")}` : " · 일정 없음")
               }
               className="min-w-0 flex-1 rounded-xl transition-colors enabled:hover:bg-ink/5"

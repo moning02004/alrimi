@@ -40,6 +40,14 @@ export const apiUrl = {
 
   calendar: (from: string, to: string, zoneId: number | null) =>
     withZone(`/calendar?from=${from}&to=${to}`, zoneId),
+
+  // 특일(공휴일·절기·기념일)은 공간과 상관없다 — 모두가 같은 날을 본다. ?zone= 도 없다.
+  specialDays: (from: string, to: string) => `/special-days?from=${from}&to=${to}`,
+  // 종류별 색·표시 여부. 사람마다 다르다
+  markStyles: "/special-days/styles",
+  markStyle: (kind: string) => `/special-days/styles/${kind}`,
+  // 고를 수 있는 색. 공간 팔레트와 따로다 — 그쪽은 칩 배경, 이쪽은 흰 바탕의 글자
+  markPalette: "/special-days/palette",
 } as const;
 
 export const pageUrl = {

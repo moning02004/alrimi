@@ -32,6 +32,7 @@ INSTALLED_APPS = [
     "accounts",
     "zones",
     "notices",
+    "special_days",
 ]
 
 MIDDLEWARE = [

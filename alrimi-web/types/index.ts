@@ -109,3 +109,40 @@ export interface Me {
   ntfy_subscribe_qr: string | null;
   version: string;
 }
+
+/**
+ * 달력에 찍히는 표시의 갈래. 공공데이터포털 특일 정보 API 의 엔드포인트와 같은
+ * 갈래다 — 서버의 `special_days.models.Kind` 와 값이 같아야 한다.
+ */
+export type MarkKind = "holiday" | "term";
+
+/**
+ * 특일 하루. **운영이 넣는 자료라 사용자는 고치지 못한다** — 고치는 API 자체가
+ * 없고(`GET /special-days` 는 읽기 전용), 넣고 빼는 것은 n8n 이 부르는 동기화뿐이다.
+ *
+ * 연휴도 날마다 한 줄이다. 설 연휴 사흘은 세 줄로 온다 — 달력도 날 단위로
+ * 칠하므로 기간으로 묶을 이유가 없다.
+ *
+ * **색이 없다.** 무슨 색으로 보일지는 보는 사람이 정한다(`MarkStyle`).
+ */
+export interface SpecialDay {
+  /** YYYY-MM-DD */
+  date: string;
+  kind: MarkKind;
+  /** 달력에 적히는 이름. "설날" · "추분" */
+  name: string;
+}
+
+/** 종류 하나를 이 사람이 무슨 색으로 볼지. 서버가 저장된 줄이 없어도 기본값으로 채워 준다 */
+export interface MarkStyle {
+  kind: MarkKind;
+  /** 화면에 적히는 이름. "공휴일" · "절기" */
+  label: string;
+  color: string;
+}
+
+/** 고를 수 있는 색 하나. 이름이 함께 오는 까닭은 견본만으로는 낭독기가 못 읽어서다 */
+export interface MarkColor {
+  color: string;
+  name: string;
+}

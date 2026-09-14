@@ -1,7 +1,15 @@
 import { EventCard } from "./EventCard";
+import { type MarkMap } from "@/lib/marks";
 import type { DateGroup } from "@/lib/date";
 
-export function EventGroups({ groups }: { groups: DateGroup[] }) {
+export function EventGroups({
+  groups,
+  marks = {},
+}: {
+  groups: DateGroup[];
+  /** 날짜 → 그 날의 특일 표시. 달력은 칸이 좁아 하나만 적지만 여기는 한 줄을 다 쓴다 */
+  marks?: MarkMap;
+}) {
   return (
     <>
       {groups.map((group) => (
@@ -12,7 +20,21 @@ export function EventGroups({ groups }: { groups: DateGroup[] }) {
           id={`date-${group.iso}`}
           className="scroll-mt-[var(--sticky-h)]"
         >
-          <p className="px-1 pb-1.5 pt-4 text-xs font-medium text-muted">{group.label}</p>
+          {/*
+            날짜 줄. 특일이면 이름이 뒤에 그 색으로 붙는다 — 달력은 칸이 좁아 하나만
+            적고 말지만, 여기는 한 줄을 통째로 쓰므로 **겹친 것까지 다** 적는다
+            (현충일이면 "공휴일 · 기념일" 둘 다). 가운뎃점으로 가르는 것은
+            "오늘 · 9월 14일 월" 과 같은 약속이다.
+          */}
+          <p className="px-1 pb-1.5 pt-4 text-xs font-medium text-muted">
+            {group.label}
+            {(marks[group.iso] ?? []).map((mark) => (
+              <span key={mark.kind} style={{ color: mark.color }}>
+                {" · "}
+                {mark.name}
+              </span>
+            ))}
+          </p>
 
           {group.items.length === 0 ? (
             /*

@@ -3,6 +3,7 @@
 import { CalendarBands } from "./CalendarBands";
 import { covers, layoutRow, type Limits } from "@/lib/calendar";
 import { monthGridDays, startOfDay, toISO, WEEK_DAYS } from "@/lib/date";
+import { allNames, leadMark, type MarkMap } from "@/lib/marks";
 import type { CalendarEvent } from "@/types";
 
 // 주간 창과 같이 일요일부터. 일요일이 맨 앞이라 붉은 칸도 첫 칸이다
@@ -15,6 +16,11 @@ interface Props {
   anchor: Date;
   selected: string;
   events: CalendarEvent[];
+  /**
+   * 날짜 → 그 날의 특일 표시(공휴일·절기·기념일). 운영이 넣는 자료라 사용자
+   * 일정과 섞이지 않고, 색은 보는 사람이 정한 것이 이미 얹혀 있다.
+   */
+  marks?: MarkMap;
   onPickDay: (iso: string) => void;
   /** PC 2단에서는 칸을 크게 쓴다 */
   size?: "sm" | "lg";
@@ -33,7 +39,14 @@ interface Props {
  * **고른 날은 칸 전체가 아니라 날짜에 동그라미로 표시한다.** 칸을 통째로 칠하면
  * 그 위에 놓인 띠가 배경색에 묻혀 어느 공간 일인지 못 읽는다.
  */
-export function MonthGrid({ anchor, selected, events, onPickDay, size = "sm" }: Props) {
+export function MonthGrid({
+  anchor,
+  selected,
+  events,
+  marks = {},
+  onPickDay,
+  size = "sm",
+}: Props) {
   const days = monthGridDays(anchor);
   const weeks = Array.from({ length: days.length / WEEK_DAYS }, (_, i) =>
     days.slice(i * WEEK_DAYS, (i + 1) * WEEK_DAYS),
@@ -69,24 +82,68 @@ export function MonthGrid({ anchor, selected, events, onPickDay, size = "sm" }: 
               const outside = day.getMonth() !== month;
               const isToday = iso === todayISO;
               const isSelected = iso === selected;
+              // 겹친 날(현충일 = 공휴일 + 기념일)은 맨 앞 하나가 칸을 대표한다
+              const mark = leadMark(marks[iso]);
 
               return (
-                <span key={iso} className="flex justify-center">
+                <span key={iso} className="flex min-w-0 flex-col items-center">
                   <span
                     className={`flex items-center justify-center rounded-full ${
                       big ? "h-7 w-7 text-[15px]" : "h-6 w-6 text-sm"
                     } ${
+                      /*
+                        특일은 **굵다**. 색만으로는 안 된다 — 이만한 크기의 숫자에서
+                        색은 잘 갈리지 않고, 애초에 무슨 색일지는 보는 사람이 정해서
+                        먹색일 수도 있다. 굵기는 색과 상관없는 둘째 신호라, 색이 안
+                        읽히는 눈에도 "여느 날이 아니다" 가 남는다.
+
+                        고른 날·오늘은 칸이 칠해지므로 그 위의 글자색이 이긴다 —
+                        빨간 글씨를 초록 동그라미 위에 얹으면 어느 쪽도 안 읽힌다.
+                        그때는 아래 이름 줄이 무슨 날인지 말해준다.
+                      */
                       isSelected
                         ? "bg-pine font-semibold text-white"
                         : isToday
                           ? "bg-pinelt font-semibold text-pine"
-                          : outside
-                            ? "text-muted/40"
-                            : ""
+                          : mark
+                            ? "font-semibold"
+                            : outside
+                              ? "text-muted/40"
+                              : ""
                     }`}
+                    /*
+                      색은 인라인이다 — 보는 사람이 팔레트에서 고른 값이라 클래스로
+                      미리 적어둘 수 없다. 이 달 밖의 날은 흐리게: 여기서 흐림이
+                      말하는 것은 "이 달이 아니다" 라 특일에도 그대로 맞다.
+                    */
+                    style={mark ? { color: mark.color, opacity: outside ? 0.45 : 1 } : undefined}
                   >
                     {day.getDate()}
                   </span>
+
+                  {/*
+                    이름은 **있는 칸에만** 그린다. 빈 줄로 자리를 잡아두지 않는다 —
+                    한 주의 일곱 칸은 같은 grid 행이라 키가 저절로 함께 맞춰지고,
+                    띠는 그 아래 따로 선 칸이라 어느 칸에 이름이 있든 어긋나지
+                    않는다. 자리를 잡아두면 특일 없는 주마다 빈 줄이 하나씩 남아,
+                    달의 대부분이 까닭 없이 벌어져 보인다.
+
+                    칸이 좁아(폰에서 48px 남짓) "대체공휴일" 은 잘린다. 자르는 편이
+                    줄바꿈보다 낫다 — 두 줄이 되면 그 주만 키가 커진다. 겹친 날의
+                    나머지 이름과 잘린 이름은 마우스 설명과, 날짜를 눌러 펼친 하루
+                    보기가 받는다.
+                  */}
+                  {mark && (
+                    <span
+                      title={allNames(marks[iso])}
+                      className={`w-full truncate px-0.5 font-medium leading-tight ${
+                        big ? "text-[10px]" : "text-[9px]"
+                      }`}
+                      style={{ color: mark.color, opacity: outside ? 0.45 : 1 }}
+                    >
+                      {mark.name}
+                    </span>
+                  )}
                 </span>
               );
             })}
@@ -105,6 +162,8 @@ export function MonthGrid({ anchor, selected, events, onPickDay, size = "sm" }: 
             {week.map((day) => {
               const iso = toISO(day);
               const titles = events.filter((event) => covers(event, iso)).map((e) => e.title);
+              // 색은 낭독기에 읽히지 않는다. 이름을 넣어야 무슨 날인지 안다.
+              const names = allNames(marks[iso]);
 
               return (
                 <button
@@ -113,6 +172,7 @@ export function MonthGrid({ anchor, selected, events, onPickDay, size = "sm" }: 
                   aria-pressed={iso === selected}
                   aria-label={
                     `${day.getMonth() + 1}월 ${day.getDate()}일` +
+                    (names ? ` · ${names}` : "") +
                     (titles.length ? ` · ${titles.join(", ")}` : "")
                   }
                   className="rounded-lg transition-colors hover:bg-ink/5"

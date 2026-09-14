@@ -2,6 +2,7 @@
 
 import {Suspense, useCallback, useEffect, useRef, useState} from "react";
 import {useCalendar, useEventsByDate, useEventsInRange} from "@/hooks/useEvents";
+import {useMarks} from "@/hooks/useSpecialDays";
 import {useZones} from "@/hooks/useZones";
 import {useIsDesktop} from "@/hooks/useMediaQuery";
 import {
@@ -92,6 +93,13 @@ function Home() {
     const from = toISO(grid[0]);
     const to = toISO(grid[grid.length - 1]);
     const calendar = useCalendar(from, to, selectedZoneId);
+    /*
+      특일(공휴일·절기·기념일). 일정과 따로 받는다 — 한 해에 한 번 바뀔까 말까인
+      자료라 오래 들고 있을 수 있는데(`useSpecialDays`), 일정 응답에 얹으면 일정
+      하나 고칠 때마다 같이 다시 받게 된다. 공간과도 상관없어서 존 칩을 눌러도
+      그대로다. 색과 표시 여부는 보는 사람의 설정이 이미 얹혀서 온다.
+    */
+    const marks = useMarks(from, to);
 
     // 스트립과 목록이 같은 기간만 본다. 그 밖은 ‹ › 로 넘겨서 본다.
     const list = useEventsInRange(from, to, selectedZoneId, !monthMode);
@@ -306,6 +314,7 @@ function Home() {
                             anchor={anchor}
                             selected={selectedDate}
                             events={calendar.data ?? []}
+                            marks={marks}
                             onPickDay={pickDay}
                             size="lg"
                         />
@@ -334,6 +343,7 @@ function Home() {
                         ) : (
                             <DayPanel
                                 date={selectedDate}
+                                marks={marks[selectedDate]}
                                 items={dayItems}
                                 isLoading={day.isLoading}
                                 isError={day.isError}
@@ -363,6 +373,7 @@ function Home() {
                     anchor={anchor}
                     selected={selectedDate}
                     events={calendar.data ?? []}
+                    marks={marks}
                     onMove={moveTo}
                     onPickDay={pickDay}
                     jumpFrom={listFrom}
@@ -377,6 +388,7 @@ function Home() {
                 {expanded ? (
                     <DayPanel
                         date={selectedDate}
+                        marks={marks[selectedDate]}
                         items={dayItems}
                         isLoading={day.isLoading}
                         isError={day.isError}
@@ -435,7 +447,7 @@ function Home() {
                                     {hidPast ? "이번 주에 남은 일정이 없어요" : "이 기간에는 일정이 없어요"}
                                 </p>
                             ) : (
-                                <EventGroups groups={groups}/>
+                                <EventGroups groups={groups} marks={marks}/>
                             )
                         )}
                     </>

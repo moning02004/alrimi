@@ -12,9 +12,11 @@ import { ZoneCreateSheet } from "@/components/ZoneCreateSheet";
 import { ZoneEditSheet } from "@/components/ZoneEditSheet";
 import { NameSheet, PasswordSheet } from "@/components/AccountSheets";
 import { SubscribeSheet } from "@/components/SubscribeSheet";
+import { MarkStyleSheet } from "@/components/MarkStyleSheet";
 import { useMe } from "@/hooks/useMe";
 import { usePush } from "@/hooks/usePush";
-import type { Zone } from "@/types";
+import { useMarkStyles } from "@/hooks/useSpecialDays";
+import type { MarkStyle, Zone } from "@/types";
 
 // hover 는 `@media (hover:hover)` 안에서만 켜지므로 터치에서는 붙지 않는다
 const rowCls = "flex items-center justify-between px-4 py-3 transition-colors hover:bg-paper";
@@ -27,6 +29,8 @@ export default function SettingsPage() {
   const { zones } = useZones();
   const markOf = useZoneMark();
   const [editingZone, setEditingZone] = useState<Zone | null>(null);
+  /** 색을 고르는 중인 종류. 켜고 끄기는 줄에 붙은 스위치가 맡는다 */
+  const [editingMark, setEditingMark] = useState<MarkStyle | null>(null);
   const [sheet, setSheet] = useState<"zone" | "name" | "password" | "subscribe" | null>(null);
 
   const { data: me } = useMe();
@@ -129,6 +133,15 @@ export default function SettingsPage() {
           </div>
         </div>
 
+        {/*
+          공휴일·절기를 무슨 색으로 볼지. 사람마다 다르다 — 빨강이 잘 안 갈리는
+          눈이 있다. 자료 자체(무슨 날인가)는 운영이 넣고 고칠 수 없다.
+        */}
+        <p className={headCls}>달력 표시</p>
+        <div className={groupCls}>
+          <MarkRows onPickColor={setEditingMark} />
+        </div>
+
         <p className={headCls}>알림</p>
         <div className={groupCls}>
           {/*
@@ -195,6 +208,7 @@ export default function SettingsPage() {
         onCreated={setEditingZone}
       />
       <ZoneEditSheet zone={editingZone} onClose={() => setEditingZone(null)} />
+      <MarkStyleSheet style={editingMark} onClose={() => setEditingMark(null)} />
       <NameSheet me={me} open={sheet === "name"} onClose={() => setSheet(null)} />
       <PasswordSheet
         open={sheet === "password"}
@@ -318,5 +332,54 @@ function PushRow() {
       )}
       {notice && <p className="mt-2 text-xs text-muted">{notice}</p>}
     </div>
+  );
+}
+
+/**
+ * 종류마다 한 줄 — 이름과 지금 색. 누르면 색을 고르는 시트가 열린다.
+ *
+ * 저장된 줄이 없어도 서버가 기본값으로 채워 주므로 늘 종류 수만큼 나온다.
+ */
+function MarkRows({ onPickColor }: { onPickColor: (style: MarkStyle) => void }) {
+  const { data: styles, isLoading } = useMarkStyles();
+
+  if (isLoading || !styles) {
+    // 줄 수만큼 자리를 잡아둔다. 없다가 생기면 아래 묶음들이 통째로 밀린다.
+    return <div className="h-[6.5rem]" aria-hidden="true" />;
+  }
+
+  return (
+    <>
+      {styles.map((style) => (
+        <button
+          key={style.kind}
+          type="button"
+          onClick={() => onPickColor(style)}
+          className={`${rowCls} w-full gap-3 text-left`}
+        >
+          <span className="flex min-w-0 items-center gap-3">
+            {/*
+              견본을 동그라미가 아니라 **숫자 글자**로 둔다. 이 색이 실제로 쓰이는
+              자리가 달력의 작은 숫자라, 칠해진 동그라미로는 그 크기에서 얼마나
+              읽히는지가 안 드러난다.
+            */}
+            <span
+              aria-hidden="true"
+              className="w-6 shrink-0 text-center text-[13px] font-semibold"
+              style={{ color: style.color }}
+            >
+              15
+            </span>
+            <span className="truncate text-sm">{style.label}</span>
+          </span>
+          <span className="shrink-0 text-xs text-muted">색 변경 ›</span>
+        </button>
+      ))}
+
+      <p className="px-4 py-3 text-xs text-muted">
+        공휴일·절기는 운영이 넣는 자료라 직접 고칠 수 없어요. 여기서는 무슨 색으로
+        볼지만 정합니다.
+      </p>
+    </>
   );
 }
