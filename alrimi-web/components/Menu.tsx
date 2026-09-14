@@ -1,78 +1,52 @@
 "use client";
 
-import { useRef, useState } from "react";
-import {
-  FloatingFocusManager,
-  autoUpdate,
-  flip,
-  offset,
-  shift,
-  useClick,
-  useDismiss,
-  useFloating,
-  useInteractions,
-  useListNavigation,
-  useRole,
-} from "@floating-ui/react";
-import { HiEllipsisHorizontal } from "react-icons/hi2";
+import { useState } from "react";
+import { HiEllipsisVertical } from "react-icons/hi2";
+import { BottomSheet } from "./BottomSheet";
 
 export interface MenuItem {
   label: string;
   onSelect: () => void;
   /**
-   * 되돌릴 수 없는 것. 빨갛게 적고 위에 선을 그어 떼어 놓는다 — 손가락이 미끄러져
-   * 한 칸 옆을 눌렀을 때 수정하려다 지우는 일이 없어야 한다.
+   * 되돌릴 수 없는 것. 빨갛게 적고 따로 떼어 놓는다 — 손가락이 미끄러져 한 칸 옆을
+   * 눌렀을 때 수정하려다 지우는 일이 없어야 한다.
    */
   danger?: boolean;
   disabled?: boolean;
 }
 
 /**
- * 점 세 개를 눌러 여는 메뉴. 머리글에 조작을 여럿 세워두는 대신 쓴다.
+ * 점 세 개를 눌러 여는 조작 목록. 머리글에 조작을 여럿 세워두는 대신 쓴다.
  *
  * 글자 버튼을 나란히 놓으면 화면 맨 위 좁은 줄에 눌러야 할 것이 셋씩 늘어서서,
  * 정작 이 화면의 주인공(일정)보다 먼저 눈에 든다. 게다가 그중 하나가 삭제라
- * 되돌릴 수 없는 조작이 늘 손끝 한 번 거리에 서 있게 된다. 한 겹 접어두면
- * 머리글은 "뒤로" 와 점 하나로 조용해지고, 삭제는 두 번 눌러야 닿는다.
+ * 되돌릴 수 없는 조작이 늘 손끝 한 번 거리에 서 있게 된다.
  *
- * 목록은 `fixed` 로 띄운다 — 머리글이 붙박이(sticky)라, 흐름대로 두면 아래 본문에
- * 가려지거나 잘린다(`Picker` 가 같은 이유로 같은 방식을 쓴다).
+ * **떠오르는 작은 목록이 아니라 아래에서 올라오는 시트다.** 이 앱은 폰으로 한 손에
+ * 들고 쓰는 것이라, 화면 맨 위에서 열리는 목록은 엄지가 닿지 않는 자리에 뜬다.
+ * 시트로 올리면 고르는 자리가 손이 있는 아래쪽이고, 과녁도 줄 하나만큼 커진다.
+ * 이 앱의 다른 고르기(등록·수정·다시 잡기)가 전부 같은 시트라 여닫는 법도 같다.
  */
 export function Menu({ items, ariaLabel = "더보기" }: { items: MenuItem[]; ariaLabel?: string }) {
   const [open, setOpen] = useState(false);
-  const [active, setActive] = useState<number | null>(null);
-  const listRef = useRef<Array<HTMLElement | null>>([]);
 
-  const { refs, floatingStyles, context } = useFloating({
-    open,
-    onOpenChange: setOpen,
-    // 오른쪽 끝에 선 버튼이라 목록도 오른쪽에 맞춘다. 왼쪽에 맞추면 화면 밖으로 나간다.
-    placement: "bottom-end",
-    strategy: "fixed",
-    whileElementsMounted: autoUpdate,
-    middleware: [offset(6), flip({ padding: 8 }), shift({ padding: 8 })],
-  });
+  // 삭제 같은 것은 아래 따로 선다. 한 묶음에 같이 두면 바로 윗칸을 노리다 빗맞는다.
+  const safe = items.filter((item) => !item.danger);
+  const danger = items.filter((item) => item.danger);
 
-  const { getReferenceProps, getFloatingProps, getItemProps } = useInteractions([
-    useClick(context),
-    useDismiss(context),
-    useRole(context, { role: "menu" }),
-    useListNavigation(context, {
-      listRef,
-      activeIndex: active,
-      onNavigate: setActive,
-      focusItemOnOpen: "auto",
-      virtual: false,
-      loop: true,
-    }),
-  ]);
+  const pick = (item: MenuItem) => {
+    setOpen(false);
+    item.onSelect();
+  };
 
   return (
     <>
       <button
-        ref={refs.setReference}
         type="button"
         aria-label={ariaLabel}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen(true)}
         /*
           44px 과녁. 보이는 그림은 20px 이지만 손가락으로 겨냥하는 자리는 그보다
           커야 한다 — 바로 왼쪽이 "뒤로" 라 빗맞으면 화면이 통째로 바뀐다.
@@ -87,53 +61,45 @@ export function Menu({ items, ariaLabel = "더보기" }: { items: MenuItem[]; ar
         */
         className={`-my-3 -mr-2 flex h-11 w-11 items-center justify-center rounded-full
                     transition-colors hover:bg-paper ${open ? "bg-paper text-ink" : "text-muted"}`}
-        {...getReferenceProps()}
       >
-        <HiEllipsisHorizontal className="h-5 w-5" aria-hidden="true" />
+        <HiEllipsisVertical className="h-5 w-5" aria-hidden="true" />
       </button>
 
-      {open && (
-        // 메뉴 안에 초점을 가둔다. 열어둔 채 탭으로 뒤쪽까지 넘어가면 무엇이
-        // 열려 있는지 모른 채 엉뚱한 것을 누르게 된다.
-        <FloatingFocusManager context={context} modal={false}>
-          <div
-            /* floating-ui 는 붙일 자리를 렌더 중에 이 함수로 알려주게 돼 있다.
-               값을 읽는 것이 아니라 넘겨주는 것이라 규칙이 말하는 위험은 없다. */
-            // eslint-disable-next-line react-hooks/refs
-            ref={refs.setFloating}
-            style={floatingStyles}
-            className="z-50 min-w-36 overflow-hidden rounded-xl border border-line bg-card py-1
-                       shadow-lg shadow-ink/10 outline-none"
-            {...getFloatingProps()}
-          >
-            {items.map((item, index) => (
-              <button
-                key={item.label}
-                ref={(node) => {
-                  listRef.current[index] = node;
-                }}
-                type="button"
-                role="menuitem"
-                disabled={item.disabled}
-                className={`flex w-full px-4 py-2.5 text-left text-sm transition-colors
-                            disabled:opacity-50 ${
-                              item.danger
-                                ? "mt-1 border-t border-line pt-3 text-red-600"
-                                : "text-ink"
-                            } ${index === active ? "bg-paper" : "hover:bg-paper"}`}
-                {...getItemProps({
-                  onClick() {
-                    setOpen(false);
-                    item.onSelect();
-                  },
-                })}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-        </FloatingFocusManager>
-      )}
+      {/* 제목은 두지 않는다 — 줄 셋이 스스로를 설명하는데 그 위에 "메뉴" 라고 한 줄
+          더 얹으면, 고를 것보다 이름표가 먼저 읽힌다. 낭독기에는 아래 설명이 간다. */}
+      <BottomSheet open={open} onOpenChange={setOpen} description={ariaLabel}>
+        <div className="pb-2">
+          <MenuGroup items={safe} onPick={pick} />
+          {danger.length > 0 && (
+            <div className="mt-2.5">
+              <MenuGroup items={danger} onPick={pick} />
+            </div>
+          )}
+        </div>
+      </BottomSheet>
     </>
+  );
+}
+
+/** 한 묶음. 이 앱의 다른 목록(알림 목록)과 같은 카드 모양이다 */
+function MenuGroup({ items, onPick }: { items: MenuItem[]; onPick: (item: MenuItem) => void }) {
+  return (
+    <div className="divide-y divide-line overflow-hidden rounded-2xl border border-line bg-card">
+      {items.map((item) => (
+        <button
+          key={item.label}
+          type="button"
+          role="menuitem"
+          disabled={item.disabled}
+          onClick={() => onPick(item)}
+          className={`w-full px-4 py-3.5 text-left text-base transition-colors
+                      active:bg-paper disabled:opacity-50 sm:hover:bg-paper ${
+                        item.danger ? "text-red-600" : "text-ink"
+                      }`}
+        >
+          {item.label}
+        </button>
+      ))}
+    </div>
   );
 }

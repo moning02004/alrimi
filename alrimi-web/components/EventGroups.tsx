@@ -20,11 +20,16 @@ export function EventGroups({ groups }: { groups: DateGroup[] }) {
               주간 목록에서 오늘이 그렇다 — 일정이 있는 날만 그리면 맨 위가
               내일 줄인데, 위에서부터 훑는 눈에는 그것이 오늘로 읽힌다.
 
-              카드가 아니라 점선 자리다. 실선 카드로 두면 목록을 훑는 중에 한
-              건으로 세어지고, 글자만 두면 어디에도 매달리지 않은 채 떠 있어
-              바로 아래 날짜의 머리글처럼 읽힌다.
+              **바탕은 카드와 같은 흰색이다.** 처음에는 테두리만 있는 빈 자리로
+              뒀는데, 목록 바탕(paper)과 같은 색이라 종이 위에 옅은 선 하나만
+              떠 있는 꼴이어서 훑는 눈에 걸리지 않고 지나갔다. 흰 바탕을 깔면
+              아래 카드들과 같은 무게로 서서 "오늘" 자리에서 한 번 멈추게 된다.
+
+              테두리만 점선으로 남긴다 — 실선까지 되면 일정 한 건으로 세어진다.
+              점선이 "자리는 있고 알맹이는 없다" 를 말한다.
             */
-            <p className="rounded-xl border border-dashed border-line px-3 py-3.5 text-sm text-muted">
+            <p className="rounded-xl border border-dashed border-line bg-card px-3 py-3.5
+                          text-sm text-muted">
               등록된 일정이 없어요
             </p>
           ) : (
