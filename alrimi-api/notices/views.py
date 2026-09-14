@@ -326,6 +326,7 @@ def list_weekly(request):
     )
 
     # (토픽, 공간) → 날짜 → 그 날 줄들
+    weekday_marks = ['월', '화', '수', '목', '금', '토', '일']
     weekly: dict[tuple[str, str], dict[str, list]] = defaultdict(lambda: defaultdict(list))
     for event in rows:
         event_hour = f"{str(event.event_hour).zfill(2)}시 " if event.event_hour else ""
@@ -338,7 +339,9 @@ def list_weekly(request):
             mark = f" ({nth}/{span}일차)" if span > 1 else ""
             key = (event.zone.owner.ntfy_topic, event.zone.name)
             # 제목이 공간을 말하므로 줄마다 [공간] 을 다시 적지 않는다
-            weekly[key][day.strftime("%Y-%m-%d")].append(f"{event_hour}{event.title}{mark}")
+            weekday = day.weekday()
+            weekday_mark = f" ({weekday_marks[weekday]})"
+            weekly[key][f'{day.strftime("%Y-%m-%d")}{weekday_mark}'].append(f"{event_hour}{event.title}{mark}")
 
     start_label = start_date.strftime("%Y-%m-%d")
     end_label = end_date.strftime("%Y-%m-%d")
@@ -412,13 +415,17 @@ def due_alert_groups(alerts) -> list[dict]:
     groups = []
     # 나가는 순서를 못 박는다. 만난 순서대로 두면 같은 시각에 돌려도 알림이
     # 도착하는 차례가 달라진다. 사람 객체는 정렬 기준이 못 되므로 id 로 줄 세운다.
+    weekday_marks = ['월', '화', '수', '목', '금', '토', '일']
     for key in sorted(grouped, key=lambda k: (k[0], k[2])):
         owner, zone_name = key[1], key[2]
         by_date = grouped[key]
         blocks = []
         events = []
         for event_date in sorted(by_date):
-            lines = [event_date.strftime("%Y-%m-%d")]
+            weekday = event_date.weekday()
+            weekday_mark = f" ({weekday_marks[weekday]})"
+
+            lines = [f'{event_date.strftime("%Y-%m-%d")}{weekday_mark}']
             for event in by_date[event_date].values():
                 events.append(event)
                 lines.append(f" - {head(event)}")
