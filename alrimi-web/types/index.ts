@@ -110,6 +110,18 @@ export interface Me {
   version: string;
 }
 
+/** 구글 캘린더 연결 상태. `enabled` 가 false 면 서버에 구글 앱 설정이 없다 */
+export interface GoogleCalendarStatus {
+  enabled: boolean;
+  connected: boolean;
+  /** 구글이 열쇠를 거절했다(권한을 거뒀다). 다시 연결해야 한다 */
+  broken: boolean;
+  email: string | null;
+  /** 마지막으로 구글과 맞춘 때. 연결 직후 옮겨 담는 동안은 비어 있다 */
+  last_synced_at: string | null;
+  last_error: string;
+}
+
 /**
  * 달력에 찍히는 표시의 갈래. 공공데이터포털 특일 정보 API 의 엔드포인트와 같은
  * 갈래다 — 서버의 `special_days.models.Kind` 와 값이 같아야 한다.

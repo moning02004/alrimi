@@ -14,4 +14,5 @@ urlpatterns = [
     path("", include("zones.urls")),
     path("", include("notices.urls")),
     path("", include("special_days.urls")),
+    path("", include("google_calendar.urls")),
 ]

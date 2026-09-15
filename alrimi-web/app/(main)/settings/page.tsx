@@ -2,7 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import toast from "react-hot-toast";
 import { api, firstError } from "@/lib/api";
+import { useGoogleCalendar } from "@/hooks/useGoogleCalendar";
 import Link from "next/link";
 import { apiUrl, pageUrl } from "@/constants/routeUrl";
 import { useAuthStore } from "@/store/auth";
@@ -95,6 +97,24 @@ export default function SettingsPage() {
     };
   }, []);
 
+  /**
+   * 구글 동의 화면에서 돌아왔다. 서버가 결과를 `?google=` 에 실어 보낸다.
+   *
+   * useSearchParams 대신 location 을 직접 읽는다 — 한 번 읽고 지울 값이라 구독할
+   * 까닭이 없다. 읽은 뒤 주소에서 지운다: 남겨두면 새로고침할 때마다 같은 말이 뜬다.
+   */
+  useEffect(() => {
+    const result = new URLSearchParams(window.location.search).get("google");
+    if (!result) return;
+
+    if (result === "connected") toast.success("구글 캘린더에 연결했어요");
+    else if (result === "denied") toast("구글 캘린더 연결을 취소했어요");
+    else if (result === "scope") toast.error("캘린더 권한을 허용해야 연결돼요");
+    else toast.error("구글 캘린더에 연결하지 못했어요");
+
+    router.replace(pageUrl.settings);
+  }, [router]);
+
   const logout = async () => {
     await api.delete(apiUrl.revokeToken).catch(() => undefined);
     clear();
@@ -167,6 +187,8 @@ export default function SettingsPage() {
             <span className="text-xs text-muted">›</span>
           </button>
         </div>
+
+        <GoogleCalendarGroup />
 
         {/*
           PC 는 옆 기둥에 "지난 일정" 이 있지만 모바일에는 그 자리가 없다.
@@ -332,6 +354,103 @@ function PushRow() {
       )}
       {notice && <p className="mt-2 text-xs text-muted">{notice}</p>}
     </div>
+  );
+}
+
+/**
+ * 구글 캘린더로 옮겨 담기. 서버에 구글 앱 설정이 없으면 묶음째 그리지 않는다.
+ *
+ * 끊기는 한 번 더 묻는다. 구글에 만든 캘린더까지 지워서, 잘못 누르면 다시 연결하고
+ * 전부 옮겨 담을 때까지 구글 달력이 비어 보인다. 대화상자 대신 버튼 글자를 바꿔
+ * 묻는다 — 이 화면의 다른 확인들도 시트나 제자리에서 끝난다.
+ */
+function GoogleCalendarGroup() {
+  const { status, connect, disconnect, resync } = useGoogleCalendar();
+  const [confirming, setConfirming] = useState(false);
+  const data = status.data;
+
+  if (!data?.enabled) return null;
+
+  const busy = connect.isPending || disconnect.isPending;
+  const syncing = data.connected && !data.last_synced_at && !data.last_error;
+
+  const caption = data.broken
+    ? "연결이 끊겼어요. 다시 연결해 주세요"
+    : !data.connected
+      ? "일정을 추가·수정·삭제하면 구글 캘린더에도 반영돼요"
+      : syncing
+        ? `${data.email} · 옮겨 담는 중이에요`
+        : data.last_error
+          ? `${data.email} · ${data.last_error}`
+          : `${data.email} 에 반영하는 중이에요`;
+
+  const onPrimary = () => {
+    if (!data.connected) {
+      connect.mutate(undefined, {
+        onError: (error) => toast.error(firstError(error, "구글 캘린더에 연결하지 못했어요")),
+      });
+      return;
+    }
+    if (!confirming) {
+      setConfirming(true);
+      return;
+    }
+    disconnect.mutate(undefined, {
+      onSuccess: () => setConfirming(false),
+      onError: (error) => toast.error(firstError(error, "연결을 끊지 못했어요")),
+    });
+  };
+
+  return (
+    <>
+      <p className={headCls}>연동</p>
+      <div className={groupCls}>
+        <div className="px-4 py-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm">구글 캘린더</p>
+              <p className="mt-0.5 truncate text-xs text-muted">{caption}</p>
+            </div>
+            <button
+              onClick={onPrimary}
+              disabled={busy}
+              className={`shrink-0 rounded-lg border px-3 py-1.5 text-xs transition-colors disabled:opacity-60 ${
+                data.connected
+                  ? confirming
+                    ? "border-red-600 text-red-600 hover:bg-paper"
+                    : "border-line text-muted hover:bg-paper"
+                  : "border-pine bg-pine text-white hover:bg-pine/90"
+              }`}
+            >
+              {busy ? "…" : data.connected ? (confirming ? "정말 끊기" : "끊기") : "연결"}
+            </button>
+          </div>
+
+          {confirming && (
+            <p className="mt-2 text-xs text-muted">
+              구글에 만든 &lsquo;일정 알리미&rsquo; 캘린더도 함께 지워져요.{" "}
+              <button onClick={() => setConfirming(false)} className="text-pine">
+                취소
+              </button>
+            </p>
+          )}
+
+          {data.connected && !confirming && (
+            <button
+              onClick={() =>
+                resync.mutate(undefined, {
+                  onError: (error) => toast.error(firstError(error, "다시 맞추지 못했어요")),
+                })
+              }
+              disabled={syncing || resync.isPending}
+              className="mt-2 text-xs text-pine disabled:opacity-60"
+            >
+              다시 맞추기
+            </button>
+          )}
+        </div>
+      </div>
+    </>
   );
 }
 

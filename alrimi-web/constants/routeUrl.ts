@@ -19,6 +19,11 @@ export const apiUrl = {
   pushSubscriptions: "/push/subscriptions",
   pushTest: "/push/test",
 
+  // 구글 캘린더. 알리미 → 구글 한쪽으로만 옮겨 담는다
+  googleCalendar: "/google/calendar",
+  googleCalendarConnect: "/google/calendar/connect",
+  googleCalendarSync: "/google/calendar/sync",
+
   zones: "/zones",
   palette: "/zones/palette",
   zone: (zoneId: number) => `/zones/${zoneId}`,

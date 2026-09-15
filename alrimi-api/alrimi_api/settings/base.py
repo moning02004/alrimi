@@ -6,7 +6,7 @@ from datetime import timedelta
 from pathlib import Path
 
 
-from .env import env, env_int, env_list
+from .env import env, env_bool, env_int, env_list
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
@@ -33,6 +33,7 @@ INSTALLED_APPS = [
     "zones",
     "notices",
     "special_days",
+    "google_calendar",
 ]
 
 MIDDLEWARE = [
@@ -173,6 +174,23 @@ WEBPUSH_TIMEOUT_SECONDS = env_int("WEBPUSH_TIMEOUT_SECONDS", 10)
 # 기기가 꺼져 있으면 푸시 서비스가 이 시간만큼 들고 있다가 버린다. 하루를 넘겨
 # 배달된 "내일 일정" 은 이미 틀린 말이라, 크론이 따라잡는 창(6시간)에 맞춘다.
 WEBPUSH_TTL_SECONDS = env_int("WEBPUSH_TTL_SECONDS", 6 * 60 * 60)
+
+# ── 구글 캘린더 ───────────────────────────────────────────────────────
+#
+# 일정을 사람의 구글 캘린더로 **옮겨 담는다**(한쪽 방향). `google_calendar/sync.py` 참고.
+# 둘 중 하나라도 비어 있으면 기능이 통째로 꺼지고, 웹은 연결 줄을 그리지 않는다.
+GOOGLE_CLIENT_ID = env("GOOGLE_CLIENT_ID")
+GOOGLE_CLIENT_SECRET = env("GOOGLE_CLIENT_SECRET")
+
+# 구글이 동의 뒤 브라우저를 돌려보낼 주소. 콘솔에 적은 값과 같아야 한다.
+# 비워두면 요청 주소로 만든다(`google_calendar.views.redirect_uri`).
+GOOGLE_REDIRECT_URI = env("GOOGLE_REDIRECT_URI")
+
+# 일꾼 스레드가 구글 한 번 부를 때 기다리는 시간. 사람이 기다리는 자리가 아니라 넉넉하다.
+GOOGLE_TIMEOUT_SECONDS = env_int("GOOGLE_TIMEOUT_SECONDS", 10)
+
+# 스레드 없이 그 자리에서 보낸다. 테스트용이다 — 켜면 일정 저장이 구글을 기다린다.
+GOOGLE_CALENDAR_SYNC_INLINE = env_bool("GOOGLE_CALENDAR_SYNC_INLINE", False)
 
 
 # ── CORS ──────────────────────────────────────────────────────────────
