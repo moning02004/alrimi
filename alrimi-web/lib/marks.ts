@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import { addDays, toDate, toISO } from "./date";
 import type { MarkKind, MarkStyle, SpecialDay } from "@/types";
 
 /**
@@ -61,6 +62,73 @@ export const leadMark = (marks: DayMark[] | undefined) => marks?.[0];
 /** 겹친 것까지 전부. 마우스 설명과 낭독기에 쓴다 — 색은 그쪽에 안 읽힌다 */
 export const allNames = (marks: DayMark[] | undefined) =>
   marks?.map((mark) => mark.name).join(" · ") ?? "";
+
+/* ────────────────────────────────────────────────────────────────────
+   이어지는 연휴를 한 덩이로
+
+   설·추석은 사흘이고, 특일 정보 API 는 그 사흘을 **각각 "추석"** 으로 준다.
+   칸마다 곧이곧대로 적으면 "추석 추석 추석" 이 되는데, 종이 달력은 그렇게 적지
+   않는다 — 이어진 며칠은 한 번만 적고 가운데 놓는다. 이 앱의 여러 날짜리 일정을
+   띠 하나로 긋는 것과도 같은 생각이다(`lib/calendar.ts`).
+   ──────────────────────────────────────────────────────────────────── */
+
+/** 한 줄(일~토) 안에서 이어지는 같은 표시의 덩이 */
+export interface MarkRun {
+  /** 덩이를 대표하는 표시. 이어지는 동안 이름도 색도 같다 */
+    mark: DayMark;
+  /** 이 줄에서 시작하는 칸 (0 = 맨 왼쪽) */
+  col: number;
+  /** 덮는 칸 수 (1 이상) */
+  span: number;
+  /** 이 줄에서 덮는 날들(ISO). 흐리게 그릴지는 부르는 쪽이 판단한다 */
+  days: string[];
+  /** 앞 줄에서 이어져 왔는가 — 끝을 각지게 잘라 이어짐을 보인다 */
+  clippedStart: boolean;
+  /** 뒤 줄로 이어지는가 */
+  clippedEnd: boolean;
+}
+
+const same = (a: DayMark | undefined, b: DayMark) =>
+  a !== undefined && a.kind === b.kind && a.name === b.name;
+
+const shift = (iso: string, by: number) => toISO(addDays(toDate(iso), by));
+
+/**
+ * 한 줄에 놓인 표시들을 이어지는 덩이로 묶는다.
+ *
+ * **이름과 종류가 같고 날이 맞붙어야 한 덩이다.** 추석 사흘은 하나가 되지만,
+ * 개천절과 한글날은 같은 공휴일이어도 이름이 달라 따로 선다.
+ *
+ * 줄 밖으로 이어지는지도 함께 본다(`clippedStart`·`clippedEnd`). 연휴가 주를
+ * 넘어가면 이름은 **주마다 한 번씩** 적힌다 — 뒷주에 이름이 없으면 빨간 숫자만
+ * 덩그러니 남아 무슨 날인지 알 수 없다.
+ */
+export function markRuns(week: string[], marks: MarkMap): MarkRun[] {
+  const runs: MarkRun[] = [];
+
+  for (let i = 0; i < week.length; ) {
+    const mark = leadMark(marks[week[i]]);
+    if (!mark) {
+      i += 1;
+      continue;
+    }
+
+    let end = i;
+    while (end + 1 < week.length && same(leadMark(marks[week[end + 1]]), mark)) end += 1;
+
+    runs.push({
+      mark,
+      col: i,
+      span: end - i + 1,
+      days: week.slice(i, end + 1),
+      clippedStart: same(leadMark(marks[shift(week[i], -1)]), mark),
+      clippedEnd: same(leadMark(marks[shift(week[end], 1)]), mark),
+    });
+    i = end + 1;
+  }
+
+  return runs;
+}
 
 /* ────────────────────────────────────────────────────────────────────
    날짜 동그라미의 칠

@@ -2,12 +2,13 @@
 
 import { CalendarBands } from "./CalendarBands";
 import { covers, layoutRow, type Limits } from "@/lib/calendar";
-import { monthGridDays, startOfDay, toISO, WEEK_DAYS } from "@/lib/date";
+import { monthGridDays, startOfDay, toDate, toISO, WEEK_DAYS } from "@/lib/date";
 import {
   DIM,
   allNames,
   filledCircle,
   leadMark,
+  markRuns,
   markText,
   tintedCircle,
   type MarkMap,
@@ -81,8 +82,16 @@ export function MonthGrid({
         ))}
       </div>
 
-      {weeks.map((week, i) => (
-        <div key={toISO(week[0])} className="relative">
+      {weeks.map((week, i) => {
+        const isos = week.map(toISO);
+        /*
+          이어지는 연휴는 한 덩이다. 추석 사흘에 "추석 추석 추석" 을 적지 않고
+          가운데 한 번만 적는다 — 종이 달력이 그렇게 적는다(`lib/marks.ts`).
+        */
+        const runs = markRuns(isos, marks);
+
+        return (
+        <div key={isos[0]} className="relative">
           {/* 보이는 것 — 날짜와 그 아래 표시 */}
           <div className={`grid grid-cols-7 text-center ${big ? "pt-1.5" : "pt-1"}`}>
             {week.map((day) => {
@@ -128,33 +137,43 @@ export function MonthGrid({
                     {day.getDate()}
                   </span>
 
-                  {/*
-                    이름은 **있는 칸에만** 그린다. 빈 줄로 자리를 잡아두지 않는다 —
-                    한 주의 일곱 칸은 같은 grid 행이라 키가 저절로 함께 맞춰지고,
-                    띠는 그 아래 따로 선 칸이라 어느 칸에 이름이 있든 어긋나지
-                    않는다. 자리를 잡아두면 특일 없는 주마다 빈 줄이 하나씩 남아,
-                    달의 대부분이 까닭 없이 벌어져 보인다.
-
-                    칸이 좁아(폰에서 48px 남짓) "대체공휴일" 은 잘린다. 자르는 편이
-                    줄바꿈보다 낫다 — 두 줄이 되면 그 주만 키가 커진다. 겹친 날의
-                    나머지 이름과 잘린 이름은 마우스 설명과, 날짜를 눌러 펼친 하루
-                    보기가 받는다.
-                  */}
-                  {mark && (
-                    <span
-                      title={allNames(marks[iso])}
-                      className={`w-full truncate px-0.5 font-medium leading-tight ${
-                        big ? "text-[10px]" : "text-[9px]"
-                      }`}
-                      style={{ color: mark.color, opacity: outside ? DIM : 1 }}
-                    >
-                      {mark.name}
-                    </span>
-                  )}
                 </span>
               );
             })}
           </div>
+
+          {/*
+            특일 이름. **칸이 아니라 덩이마다 하나씩**, 그 덩이 한가운데에 놓는다.
+            추석 사흘이면 세 칸을 가로질러 가운데에 "추석" 하나다.
+
+            있는 주에만 그린다 — 빈 줄로 자리를 잡아두면 특일 없는 주마다 빈 줄이
+            하나씩 남아 달의 대부분이 까닭 없이 벌어져 보인다.
+
+            칸이 좁아(폰에서 48px 남짓) 한 칸짜리 "대체공휴일" 은 잘린다. 자르는
+            편이 줄바꿈보다 낫다 — 두 줄이 되면 그 주만 키가 커진다. 잘린 이름과
+            겹친 날의 나머지 이름은 마우스 설명과, 날짜를 눌러 펼친 하루 보기가 받는다.
+          */}
+          {runs.length > 0 && (
+            <div className="grid grid-cols-7 text-center">
+              {runs.map((run) => (
+                <span
+                  key={run.days[0]}
+                  title={allNames(marks[run.days[0]])}
+                  style={{
+                    gridColumn: `${run.col + 1} / span ${run.span}`,
+                    color: run.mark.color,
+                    // 덩이가 온통 이 달 밖일 때만 흐리게. 걸쳐 있으면 또렷이 둔다.
+                    opacity: run.days.every((day) => toDate(day).getMonth() !== month) ? DIM : 1,
+                  }}
+                  className={`min-w-0 truncate px-0.5 font-medium leading-tight ${
+                    big ? "text-[10px]" : "text-[9px]"
+                  }`}
+                >
+                  {run.mark.name}
+                </span>
+              ))}
+            </div>
+          )}
 
           <div className={big ? "pb-1.5 pt-1" : "pb-1 pt-0.5"}>
             <CalendarBands days={week} layout={layouts[i]} lanes={lanes} />
@@ -188,7 +207,8 @@ export function MonthGrid({
             })}
           </div>
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

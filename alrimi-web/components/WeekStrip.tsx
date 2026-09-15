@@ -3,7 +3,15 @@
 import { CalendarBands } from "./CalendarBands";
 import { covers, layoutRow, type Limits } from "@/lib/calendar";
 import { dayName, startOfDay, toISO, windowDays } from "@/lib/date";
-import { DIM, allNames, filledCircle, leadMark, markText, type MarkMap } from "@/lib/marks";
+import {
+  DIM,
+  allNames,
+  filledCircle,
+  leadMark,
+  markRuns,
+  markText,
+  type MarkMap,
+} from "@/lib/marks";
 import type { CalendarEvent } from "@/types";
 
 /** 머리글 안이라 자리가 더 좁다 */
@@ -41,8 +49,15 @@ interface Props {
  */
 export function WeekStrip({ start, events, marks = {}, onJumpTo, jumpFrom }: Props) {
   const days = windowDays(start);
+  const isos = days.map(toISO);
   const todayISO = toISO(startOfDay(new Date()));
   const layout = layoutRow(days, events, LIMITS);
+
+  /*
+    이어지는 연휴는 한 덩이다. 추석 사흘에 "추석 추석 추석" 을 적지 않고 가운데
+    한 번만 적는다 — 월간 그리드도 같은 계산을 쓴다(`lib/marks.ts` markRuns).
+  */
+  const runs = markRuns(isos, marks);
 
   return (
     <div className="relative">
@@ -91,31 +106,42 @@ export function WeekStrip({ start, events, marks = {}, onJumpTo, jumpFrom }: Pro
                 </span>
               </span>
 
-              {/*
-                특일 이름. **날짜 칸 안이다** — 월간 그리드도 칸 하나에 숫자와
-                이름을 함께 담는다(`MonthGrid`). 두 달력이 같은 자리에 같은 것을
-                두어야, 한쪽의 표시를 고칠 때 다른 쪽이 따라오지 않는 일이 없다.
-
-                띠를 그리는 칸에 두지 않는 까닭도 같다. 그 칸은 일정이 차지하는
-                자리이고, 특일은 그 날에 잡힌 일이 아니라 그 날의 성격이다.
-
-                이름은 있는 칸에만 그린다. 빈 줄로 자리를 잡아두지 않는다 —
-                일곱 칸이 한 줄에 나란히 서 있어 키가 저절로 함께 맞춰지고,
-                띠는 그 아래 따로 선 칸이라 어긋날 일이 없다.
-              */}
-              {mark && (
-                <span
-                  title={allNames(marks[iso])}
-                  className="mt-0.5 block truncate px-0.5 text-[9px] font-medium leading-tight"
-                  style={{ color: mark.color, opacity: gone ? DIM : 1 }}
-                >
-                  {mark.name}
-                </span>
-              )}
             </div>
           );
         })}
       </div>
+
+      {/*
+        특일 이름. **칸이 아니라 덩이마다 하나씩**, 그 덩이 한가운데에. 추석
+        사흘이면 세 칸을 가로질러 가운데에 "추석" 하나다.
+
+        날짜 줄 바로 아래이고 띠보다 위다 — 월간 그리드도 같은 자리에 같은 것을
+        둔다. 두 달력이 어긋나면 한쪽을 고칠 때 다른 쪽이 따라오지 않는다.
+        띠를 그리는 칸에 두지 않는 까닭도 같다: 그 칸은 일정이 차지하는 자리이고,
+        특일은 그 날에 잡힌 일이 아니라 그 날의 성격이다.
+
+        `grid grid-cols-7` 은 아래 `CalendarBands` 와 같은 자다. 위의 날짜 줄은
+        flex 지만 둘 다 일곱 등분이라 세로줄이 맞는다.
+      */}
+      {runs.length > 0 && (
+        <div className="grid grid-cols-7 pt-0.5 text-center">
+          {runs.map((run) => (
+            <span
+              key={run.days[0]}
+              title={allNames(marks[run.days[0]])}
+              style={{
+                gridColumn: `${run.col + 1} / span ${run.span}`,
+                color: run.mark.color,
+                // 덩이가 온통 지난 날일 때만 흐리게. 오늘에 걸쳐 있으면 또렷이 둔다.
+                opacity: run.days.every((day) => day < todayISO) ? DIM : 1,
+              }}
+              className="min-w-0 truncate px-0.5 text-[9px] font-medium leading-tight"
+            >
+              {run.mark.name}
+            </span>
+          ))}
+        </div>
+      )}
 
       <div className="pb-0.5 pt-1.5">
         <CalendarBands days={days} layout={layout} lanes={layout.bandLanes} />
