@@ -1,10 +1,10 @@
 "use client";
 
 import { CalendarBands } from "./CalendarBands";
+import { MarkRunLabel } from "./MarkRunLabel";
 import { covers, layoutRow, type Limits } from "@/lib/calendar";
 import { dayName, startOfDay, toISO, windowDays } from "@/lib/date";
 import {
-  DIM,
   allNames,
   filledCircle,
   leadMark,
@@ -126,19 +126,14 @@ export function WeekStrip({ start, events, marks = {}, onJumpTo, jumpFrom }: Pro
       {runs.length > 0 && (
         <div className="grid grid-cols-7 pt-0.5 text-center">
           {runs.map((run) => (
-            <span
+            <MarkRunLabel
               key={run.days[0]}
+              run={run}
               title={allNames(marks[run.days[0]])}
-              style={{
-                gridColumn: `${run.col + 1} / span ${run.span}`,
-                color: run.mark.color,
-                // 덩이가 온통 지난 날일 때만 흐리게. 오늘에 걸쳐 있으면 또렷이 둔다.
-                opacity: run.days.every((day) => day < todayISO) ? DIM : 1,
-              }}
-              className="min-w-0 truncate px-0.5 text-[9px] font-medium leading-tight"
-            >
-              {run.mark.name}
-            </span>
+              // 덩이가 온통 지난 날일 때만 흐리게. 오늘에 걸쳐 있으면 또렷이 둔다.
+              dim={run.days.every((day) => day < todayISO)}
+              textCls="text-[9px]"
+            />
           ))}
         </div>
       )}

@@ -1,10 +1,10 @@
 "use client";
 
 import { CalendarBands } from "./CalendarBands";
+import { MarkRunLabel } from "./MarkRunLabel";
 import { covers, layoutRow, type Limits } from "@/lib/calendar";
 import { monthGridDays, startOfDay, toDate, toISO, WEEK_DAYS } from "@/lib/date";
 import {
-  DIM,
   allNames,
   filledCircle,
   leadMark,
@@ -144,7 +144,8 @@ export function MonthGrid({
 
           {/*
             특일 이름. **칸이 아니라 덩이마다 하나씩**, 그 덩이 한가운데에 놓는다.
-            추석 사흘이면 세 칸을 가로질러 가운데에 "추석" 하나다.
+            추석 사흘이면 세 칸을 가로질러 가운데에 "추석" 하나고, 양옆 가는 선이
+            어디서 어디까지인지를 보여준다(`MarkRunLabel`).
 
             있는 주에만 그린다 — 빈 줄로 자리를 잡아두면 특일 없는 주마다 빈 줄이
             하나씩 남아 달의 대부분이 까닭 없이 벌어져 보인다.
@@ -156,21 +157,14 @@ export function MonthGrid({
           {runs.length > 0 && (
             <div className="grid grid-cols-7 text-center">
               {runs.map((run) => (
-                <span
+                <MarkRunLabel
                   key={run.days[0]}
+                  run={run}
                   title={allNames(marks[run.days[0]])}
-                  style={{
-                    gridColumn: `${run.col + 1} / span ${run.span}`,
-                    color: run.mark.color,
-                    // 덩이가 온통 이 달 밖일 때만 흐리게. 걸쳐 있으면 또렷이 둔다.
-                    opacity: run.days.every((day) => toDate(day).getMonth() !== month) ? DIM : 1,
-                  }}
-                  className={`min-w-0 truncate px-0.5 font-medium leading-tight ${
-                    big ? "text-[10px]" : "text-[9px]"
-                  }`}
-                >
-                  {run.mark.name}
-                </span>
+                  // 덩이가 온통 이 달 밖일 때만 흐리게. 걸쳐 있으면 또렷이 둔다.
+                  dim={run.days.every((day) => toDate(day).getMonth() !== month)}
+                  textCls={big ? "text-[10px]" : "text-[9px]"}
+                />
               ))}
             </div>
           )}
