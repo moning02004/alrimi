@@ -13,6 +13,9 @@ export const apiUrl = {
 
   me: "/users/me",
   changePassword: "/users/me/password",
+  // 사용자 관리. 추가는 관리자부터, 권한 변경·삭제는 최고 관리자만
+  users: "/users",
+  user: (userId: number) => `/users/${userId}`,
 
   // 웹 푸시. 구독은 계정이 아니라 기기마다 하나라 users/ 아래가 아니다
   pushKey: "/push/key",

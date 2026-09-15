@@ -13,6 +13,7 @@ import { ZoneMark } from "@/components/ZoneMark";
 import { ZoneCreateSheet } from "@/components/ZoneCreateSheet";
 import { ZoneEditSheet } from "@/components/ZoneEditSheet";
 import { NameSheet, PasswordSheet } from "@/components/AccountSheets";
+import { UserAdminGroup } from "@/components/UserSheets";
 import { SubscribeSheet } from "@/components/SubscribeSheet";
 import { MarkStyleSheet } from "@/components/MarkStyleSheet";
 import { useMe } from "@/hooks/useMe";
@@ -205,6 +206,9 @@ export default function SettingsPage() {
           </Link>
         </div>
 
+        {/* 관리자·최고 관리자에게만 나온다. 아니면 아무것도 그리지 않는다 */}
+        <UserAdminGroup me={me} />
+
         <p className={headCls}>계정</p>
         <div className={groupCls}>
           <button onClick={() => setSheet("name")} className={`${rowCls} w-full text-left`}>
@@ -236,15 +240,8 @@ export default function SettingsPage() {
       <ZoneEditSheet zone={editingZone} onClose={() => setEditingZone(null)} />
       <MarkStyleSheet style={editingMark} onClose={() => setEditingMark(null)} />
       <NameSheet me={me} open={sheet === "name"} onClose={() => setSheet(null)} />
-      <PasswordSheet
-        open={sheet === "password"}
-        onClose={() => setSheet(null)}
-        onChanged={() => {
-          setSheet(null);
-          clear();
-          router.replace(pageUrl.login);
-        }}
-      />
+      {/* 바꿔도 로그인은 이어진다(서버가 새 토큰을 준다). 시트만 닫힌다 */}
+      <PasswordSheet open={sheet === "password"} onClose={() => setSheet(null)} />
       <SubscribeSheet
         me={me}
         open={sheet === "subscribe"}

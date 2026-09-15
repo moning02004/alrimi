@@ -21,7 +21,16 @@ class UserAdmin(DjangoUserAdmin):
         ("알림", {"fields": ("ntfy_topic", "ntfy_subscribe")}),
         (
             "권한",
-            {"fields": ("is_active", "is_staff", "is_superuser", "groups", "user_permissions")},
+            {
+                "fields": (
+                    "is_active",
+                    "is_staff",
+                    "is_superuser",
+                    "must_change_password",
+                    "groups",
+                    "user_permissions",
+                )
+            },
         ),
         ("기록", {"fields": ("last_login", "date_joined")}),
     )

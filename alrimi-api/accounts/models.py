@@ -3,6 +3,12 @@ import secrets
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 
+#  관리자가 사용자를 추가할 때 넣는 처음 비밀번호. **추가할 때만** 쓸 수 있다 —
+#  비밀번호를 바꿀 때는 이 값을 받지 않는다(`ChangePasswordSerializer`). 누구나 아는
+#  값이라, 이 비밀번호로 들어온 사람은 다른 일을 하기 전에 반드시 바꾸게 한다
+#  (`User.must_change_password`).
+INITIAL_PASSWORD = "0000"
+
 
 # Create your models here.
 class User(AbstractUser):
@@ -10,6 +16,15 @@ class User(AbstractUser):
 
     name = models.CharField(max_length=255, null=True, blank=True)
     ntfy_topic = models.CharField(max_length=255, null=True, blank=True)
+    must_change_password = models.BooleanField(
+        default=False,
+        help_text=(
+            "처음 받은 비밀번호(0000)를 아직 안 바꿨다. 켜져 있으면 내 정보 조회와 비밀번호 "
+            "변경 말고는 API 가 전부 403 으로 막힌다(`accounts.authentication`). 화면의 "
+            "'사용자 추가' 로 만든 계정만 켜진다 — createsuperuser 나 관리자 사이트로 만든 "
+            "계정은 비밀번호를 직접 정했으므로 끈 채로 둔다."
+        ),
+    )
 
     def save(self, *args, **kwargs):
         if not self.ntfy_topic:

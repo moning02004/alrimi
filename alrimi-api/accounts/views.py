@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -12,12 +13,16 @@ from notices.models import Priority
 
 from .cookies import clear_refresh, read_refresh, set_refresh
 from .models import PushSubscription
+from .permissions import CanAddUsers, IsSuperuser
 from .serializers import (
     ChangePasswordSerializer,
     MeSerializer,
     ObtainTokenSerializer,
     PushSubscriptionSerializer,
     UpdateMeSerializer,
+    UserCreateSerializer,
+    UserRoleSerializer,
+    UserSerializer,
 )
 
 User = get_user_model()
@@ -31,7 +36,7 @@ def issue(user):
 
 
 class ObtainTokenView(APIView):
-    """POST /auth/obtain-token — 로그인. 회원가입은 없다(계정은 관리자가 발급)."""
+    """POST /auth/obtain-token — 로그인. 회원가입은 없다(계정은 관리자가 추가한다)."""
 
     permission_classes = [AllowAny]
     authentication_classes: list = []
@@ -104,7 +109,19 @@ class MeView(APIView):
 
 
 class ChangePasswordView(APIView):
-    """POST /users/me/password"""
+    """
+    POST /users/me/password → {"access_token"} + 새 refresh 쿠키
+
+    처음 받은 비밀번호(0000)로 들어온 사람도 여기는 부를 수 있다
+    (`accounts.authentication.ALLOWED_URL_NAMES`). 바꾸면 강제 변경이 풀린다.
+
+    **로그인은 끊지 않고 새 토큰을 준다.** 예전에는 쿠키를 지워 다시 로그인하게 했는데,
+    첫 로그인이면 "0000 으로 로그인 → 바꾸기 → 새 비밀번호로 또 로그인" 이 되어 들어오는
+    데만 세 번을 거친다. 방금 현재 비밀번호를 맞힌 사람이라 다시 물을 까닭이 없다.
+
+    이 브라우저의 refresh 쿠키는 새것으로 덮인다. 옛 토큰을 폐기(blacklist)하지는 못한다 —
+    쿠키가 `/auth` 경로에만 실려 이 요청에는 오지 않는다. 쿠키를 지우던 예전에도 같았다.
+    """
 
     permission_classes = [IsAuthenticated]
 
@@ -113,10 +130,72 @@ class ChangePasswordView(APIView):
         serializer.is_valid(raise_exception=True)
 
         request.user.set_password(serializer.validated_data["new_password"])
-        request.user.save(update_fields=["password"])
+        request.user.must_change_password = False
+        request.user.save(update_fields=["password", "must_change_password"])
 
-        # 비밀번호를 바꿨으면 기존 세션은 끊는다
-        return clear_refresh(Response(status=status.HTTP_204_NO_CONTENT))
+        return issue(request.user)
+
+
+class UserListCreateView(APIView):
+    """
+    GET  /users → 사용자 목록
+    POST /users {"username", "name"} → 추가. 비밀번호는 늘 0000 이다
+
+    관리자와 최고 관리자가 부른다. 관리자가 할 수 있는 것은 **여기까지**다 —
+    권한을 바꾸고 지우는 것은 `UserDetailView` 이고 최고 관리자만 들어간다.
+    """
+
+    permission_classes = [IsAuthenticated, CanAddUsers]
+
+    def get(self, request):
+        # 권한이 높은 사람이 위로. 같은 등급 안에서는 아이디 순이다
+        users = User.objects.order_by("-is_superuser", "-is_staff", "username")
+        return Response(UserSerializer(users, many=True).data)
+
+    def post(self, request):
+        serializer = UserCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+        return Response(UserSerializer(user).data, status=status.HTTP_201_CREATED)
+
+
+class UserDetailView(APIView):
+    """
+    PATCH  /users/{id} {"is_staff"?, "is_superuser"?} → 권한 바꾸기
+    DELETE /users/{id} → 삭제
+
+    최고 관리자만. **자기 자신은 건드리지 못한다** — 자기 최고 관리자를 끄거나 자기를
+    지우면, 그 사람이 마지막 최고 관리자였을 때 권한을 되돌려줄 사람이 남지 않는다.
+    """
+
+    permission_classes = [IsAuthenticated, IsSuperuser]
+
+    def patch(self, request, user_id):
+        user = get_object_or_404(User, pk=user_id)
+        if user.pk == request.user.pk:
+            return Response({"detail": "자기 권한은 바꿀 수 없어요."}, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = UserRoleSerializer(user, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(UserSerializer(user).data)
+
+    def delete(self, request, user_id):
+        user = get_object_or_404(User, pk=user_id)
+        if user.pk == request.user.pk:
+            return Response({"detail": "자기 계정은 지울 수 없어요."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 구글 캘린더에 붙어 있으면 먼저 끊는다. 계정만 지우면 구글 쪽 권한과 우리가 만든
+        # 캘린더가 주인 없이 남는다 — 되는 데까지만 하고, 막혀도 삭제는 계속한다.
+        from google_calendar.models import GoogleCalendarLink
+        from google_calendar.sync import disconnect
+
+        for link in GoogleCalendarLink.objects.filter(user=user):
+            disconnect(link)
+
+        # 공간·일정·알림 구독은 모델에서 함께 지워진다(on_delete=CASCADE)
+        user.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class PushKeyView(APIView):

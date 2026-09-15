@@ -3,15 +3,23 @@
 import {useEffect} from "react";
 import {usePathname} from "next/navigation";
 import {useAuthBootstrap} from "@/hooks/useAuthBootstrap";
+import {useMe} from "@/hooks/useMe";
 import {LoadingScreen} from "@/components/Loading";
 import {TabBar} from "@/components/TabBar";
 import {SideNav} from "@/components/SideNav";
 import {BottomSheet} from "@/components/BottomSheet";
 import {EventForm} from "@/components/EventForm";
+import {PasswordChangeRequired} from "@/components/PasswordChangeRequired";
 import {useAddSheet} from "@/store/ui";
 
 export default function MainLayout({children}: { children: React.ReactNode }) {
     const {ready, authenticated} = useAuthBootstrap();
+    /*
+      내 정보를 먼저 받는다. 처음 받은 비밀번호(0000)를 아직 안 바꿨으면 앱 대신
+      비밀번호 변경 화면만 보여줘야 해서, 그 전에 화면을 그리면 앱이 잠깐 비쳤다가
+      바뀐다 — 그 사이 떠난 요청들은 서버가 막아 오류만 쌓인다.
+    */
+    const {data: me, isPending: mePending} = useMe(ready && authenticated);
     const {open, initialDate, openAdd, closeAdd} = useAddSheet();
     const pathname = usePathname();
 
@@ -46,6 +54,9 @@ export default function MainLayout({children}: { children: React.ReactNode }) {
     // 확인이 끝났는데 토큰이 없으면 로그인으로 넘어가는 중이라 아무것도 그리지 않는다.
     if (!ready) return <LoadingScreen/>;
     if (!authenticated) return null;
+    if (mePending) return <LoadingScreen/>;
+    // 내 정보를 못 받았으면(네트워크 등) 막지 않고 앱을 그린다. 막을 일이면 서버가 막는다.
+    if (me?.must_change_password) return <PasswordChangeRequired/>;
 
     return (
         <div className="app-shell flex w-full overflow-hidden">

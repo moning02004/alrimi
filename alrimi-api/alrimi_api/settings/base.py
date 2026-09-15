@@ -87,7 +87,8 @@ N8N_API_KEY = env("N8N_API_KEY")
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
+        # JWT 확인 + 처음 비밀번호(0000)를 안 바꾼 사람은 막는다
+        "accounts.authentication.PasswordGateJWTAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",

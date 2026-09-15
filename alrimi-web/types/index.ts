@@ -103,7 +103,29 @@ export interface Me {
   ntfy_subscribe_url: string | null;
   /** 같은 링크의 QR (data URI). 앱이 안 열리는 자리에서 폰으로 넘길 때 쓴다 */
   ntfy_subscribe_qr: string | null;
+  /** 관리자. 사용자를 추가할 수 있다 */
+  is_staff: boolean;
+  /** 최고 관리자. 권한을 주고 사용자를 지울 수 있다 */
+  is_superuser: boolean;
+  /**
+   * 처음 받은 비밀번호(0000)를 아직 안 바꿨다. 켜져 있으면 다른 화면으로 못 간다 —
+   * 서버도 내 정보·비밀번호 변경 말고는 403 으로 막는다.
+   */
+  must_change_password: boolean;
   version: string;
+}
+
+/** 사용자 관리 목록의 한 사람 */
+export interface ManagedUser {
+  id: number;
+  username: string;
+  name: string | null;
+  is_staff: boolean;
+  is_superuser: boolean;
+  /** 추가만 해두고 아직 처음 비밀번호를 안 바꿨다 */
+  must_change_password: boolean;
+  date_joined: string;
+  last_login: string | null;
 }
 
 /** 구글 캘린더 연결 상태. `enabled` 가 false 면 서버에 구글 앱 설정이 없다 */

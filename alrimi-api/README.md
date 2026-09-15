@@ -101,9 +101,34 @@ Secure · `Path=/auth`로 노출 면을 줄이는 쪽을 택했다.
 
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
-| GET | `/users/me` | `{username, first_name, version}` |
-| PATCH | `/users/me` | `{first_name}` |
-| POST | `/users/me/password` | `{current_password, new_password}` → 204 |
+| GET | `/users/me` | `{username, name, is_staff, is_superuser, must_change_password, version, …}` |
+| PATCH | `/users/me` | `{name}` |
+| POST | `/users/me/password` | `{current_password, new_password}` → `{access_token}` + 새 refresh 쿠키. 다시 로그인하지 않는다 |
+| GET | `/users` | 사용자 목록. 관리자·최고 관리자 |
+| POST | `/users` | `{username, name}` → 201. 비밀번호는 늘 `0000`. 관리자·최고 관리자 |
+| PATCH | `/users/{id}` | `{is_staff?, is_superuser?}`. 최고 관리자만, 자기 자신은 안 된다 |
+| DELETE | `/users/{id}` | 204. 최고 관리자만, 자기 자신은 안 된다 |
+
+**사용자는 관리자가 추가한다.** 회원가입은 없다. 추가할 때 받는 것은 이름과 아이디뿐이고
+비밀번호는 늘 `0000` 으로 만든다 — 추가하는 사람이 정하게 하면 남의 비밀번호를 아는 채로
+남는다. 권한도 받지 않는다. 추가한 사람은 일반 사용자로 시작하고 권한은 최고 관리자가
+따로 준다.
+
+| | 추가 | 권한 변경 | 삭제 |
+| --- | --- | --- | --- |
+| 관리자 (`is_staff`) | O | | |
+| 최고 관리자 (`is_superuser`) | O | O | O |
+
+최고 관리자는 늘 관리자이기도 하다. 최고 관리자를 켜면 관리자도 켜지고, 관리자를 끄면
+최고 관리자도 꺼진다. 자기 권한을 바꾸거나 자기를 지우는 것은 막는다 — 마지막 최고
+관리자가 스스로 내려오면 되돌려줄 사람이 없다.
+
+**`0000` 으로 들어온 사람은 비밀번호부터 바꿔야 한다.** `must_change_password` 가 켜진
+동안에는 `/users/me` 와 `/users/me/password` 말고는 전부 403(`password_change_required`)
+이다. 화면이 아니라 인증(`accounts.authentication`)에서 막는다 — 화면만 막으면 주소를
+직접 부르는 길이 남는다. 401 이 아니라 403 인 까닭은, 웹이 401 을 받으면 로그아웃시켜서
+바꾸러 갈 수도 없게 되기 때문이다. `0000` 은 새 비밀번호로 받지 않는다(추가할 때만 쓴다).
+createsuperuser·관리자 사이트로 만든 계정은 비밀번호를 직접 정했으므로 이 표시가 없다.
 
 회원가입은 없다. 계정은 `createsuperuser`나 admin에서 발급한다.
 

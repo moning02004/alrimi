@@ -9,6 +9,8 @@ from .views import (
     PushTestView,
     RefreshTokenView,
     RevokeTokenView,
+    UserDetailView,
+    UserListCreateView,
 )
 
 # APPEND_SLASH = False — 경로 끝에 슬래시를 붙이지 않는다.
@@ -18,9 +20,14 @@ auth_patterns = [
     path("auth/token", RevokeTokenView.as_view(), name="revoke-token"),
 ]
 
+#  "me"·"change-password" 이름은 비밀번호를 안 바꾼 사람에게도 열리는 자리라
+#  `accounts.authentication.ALLOWED_URL_NAMES` 가 이름으로 짚는다. 바꾸면 거기도 고친다.
 user_patterns = [
     path("users/me", MeView.as_view(), name="me"),
     path("users/me/password", ChangePasswordView.as_view(), name="change-password"),
+    # 사용자 관리. 추가는 관리자부터, 권한 변경·삭제는 최고 관리자만
+    path("users", UserListCreateView.as_view(), name="users"),
+    path("users/<int:user_id>", UserDetailView.as_view(), name="user-detail"),
 ]
 
 #  웹 푸시. ntfy 는 토픽 하나로 끝나지만 이쪽은 기기마다 등록·해지가 필요해서

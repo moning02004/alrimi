@@ -61,24 +61,28 @@ function NameForm({ me, onClose }: { me?: Me; onClose: () => void }) {
   );
 }
 
-export function PasswordSheet({
-  open,
-  onClose,
-  onChanged,
-}: {
-  open: boolean;
-  onClose: () => void;
-  /** 비밀번호를 바꾸면 서버가 세션을 끊는다. 다시 로그인시켜야 한다 */
-  onChanged: () => void;
-}) {
+/** 바꿔도 로그인은 이어진다. 시트만 닫으면 된다 */
+export function PasswordSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   return (
     <BottomSheet open={open} onOpenChange={(next) => !next && onClose()} title="비밀번호 변경">
-      {open && <PasswordForm onChanged={onChanged} />}
+      {open && <PasswordForm onChanged={onClose} />}
     </BottomSheet>
   );
 }
 
-function PasswordForm({ onChanged }: { onChanged: () => void }) {
+/**
+ * 비밀번호 바꾸기. 설정의 시트와 첫 로그인의 강제 변경 화면이 같은 폼을 쓴다 —
+ * 둘이 받는 규칙(서버의 검사)이 같아서, 폼이 갈라지면 한쪽 안내만 낡는다.
+ */
+export function PasswordForm({
+  onChanged,
+  currentPlaceholder = "현재 비밀번호",
+}: {
+  /** 바꾼 뒤 부른다. 강제 변경 화면은 알아서 앱으로 바뀌므로 넘기지 않아도 된다 */
+  onChanged?: () => void;
+  /** 첫 로그인에서는 "현재" 가 무엇인지부터 알려준다 */
+  currentPlaceholder?: string;
+}) {
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -100,8 +104,8 @@ function PasswordForm({ onChanged }: { onChanged: () => void }) {
       { current_password: current, new_password: next },
       {
         onSuccess: () => {
-          toast.success("비밀번호를 바꿨어요. 다시 로그인해주세요");
-          onChanged();
+          toast.success("비밀번호를 바꿨어요");
+          onChanged?.();
         },
         onError: (err) => setError(firstError(err, "바꾸지 못했어요")),
       },
@@ -119,7 +123,7 @@ function PasswordForm({ onChanged }: { onChanged: () => void }) {
             setCurrent(e.target.value);
             setError(null);
           }}
-          placeholder="현재 비밀번호"
+          placeholder={currentPlaceholder}
           className={inputCls}
         />
         <input
@@ -149,7 +153,10 @@ function PasswordForm({ onChanged }: { onChanged: () => void }) {
 
       {error && <p className="mt-2 px-1 text-sm text-red-600">{error}</p>}
 
-      <p className="px-1 pt-2 text-xs text-muted">바꾸면 로그인 화면으로 돌아가요.</p>
+      {/* 서버의 비밀번호 검사(Django 기본)가 거르는 것을 미리 적어둔다 */}
+      <p className="px-1 pt-2 text-xs text-muted">
+        8자 이상, 숫자로만 된 비밀번호와 0000 은 쓸 수 없어요.
+      </p>
       <button onClick={submit} disabled={change.isPending} className={submitCls}>
         {change.isPending ? "바꾸는 중" : "바꾸기"}
       </button>
