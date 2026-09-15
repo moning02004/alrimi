@@ -13,6 +13,15 @@ MAX_SYNC_DAYS = 800
 #  "20260101". 특일 정보 API 의 `locdate` 가 이 꼴로 온다.
 COMPACT_DATE = re.compile(r"^\d{8}$")
 
+#  날 목록이 담겨 올 수 있는 이름들. 앞에서부터 찾아 처음 걸리는 것을 쓴다.
+#
+#  **부르는 쪽이 받은 것을 그대로 넘길 수 있게 하려는 것이다.** 자료를 주는 곳마다
+#  배열을 다른 이름에 담는다 — 절기 쪽은 `terms`, 공공데이터포털은 `items`,
+#  이 API 의 제 이름은 `days` 다(`holidays` 는 공휴일만 있던 시절의 이름).
+#  이름을 하나로 못박으면 n8n 워크플로마다 옮겨 담는 노드가 하나씩 붙고,
+#  그 노드가 곧 조용히 고장날 자리가 된다.
+DAY_LIST_KEYS = ("days", "holidays", "terms", "items")
+
 
 class SpecialDaySerializer(serializers.ModelSerializer):
     """웹이 달력을 칠하는 데 필요한 것만. 언제 들어온 줄인지는 화면과 상관없다."""
@@ -38,6 +47,50 @@ class MarkStyleWriteSerializer(serializers.ModelSerializer):
         if color not in COLORS:
             raise serializers.ValidationError("고를 수 있는 색이 아니에요.")
         return color
+
+
+def find_days(payload) -> list:
+    """
+    받은 본문 어디에 날 목록이 있는지 찾아낸다.
+
+    셋 다 받는다:
+
+        [{"date": …}, …]                       벌거벗은 배열
+        {"terms": [{"date": …}, …]}            이름표가 달린 것
+        [{"source": "api", "terms": [ … ]}]    n8n 이 한 겹 싸서 내보낸 것
+
+    마지막 모양이 실제로 흔하다 — n8n 의 노드 출력은 늘 배열이고, 그 안의 객체가
+    본체를 품고 있다. 싼 것이 여럿이면 이어 붙인다(달마다 부른 것을 모을 때).
+    """
+    if isinstance(payload, dict):
+        return _from_dict(payload)
+
+    if not isinstance(payload, list):
+        # 값을 배열로 감싸는 것은 다른 오류와 모양을 맞추려는 것이다. DRF 는 직렬화기
+        # 안에서 난 오류를 배열로 감싸는데, 여기는 그 바깥이라 손으로 맞춰야 한다.
+        raise serializers.ValidationError(
+            {"days": ["본문은 날 목록이거나, 그것을 담은 객체여야 합니다."]}
+        )
+
+    # 겉이 배열인데 알맹이가 또 싸여 있는가. 한 칸이라도 아니면 이 배열 자체가 목록이다.
+    if payload and all(isinstance(row, dict) and _list_key(row) for row in payload):
+        return [day for row in payload for day in _from_dict(row)]
+
+    return payload
+
+
+def _list_key(row: dict) -> str | None:
+    """이 객체가 날 목록을 품고 있다면 그 이름. 아니면 None."""
+    return next((key for key in DAY_LIST_KEYS if isinstance(row.get(key), list)), None)
+
+
+def _from_dict(row: dict) -> list:
+    key = _list_key(row)
+    if key is None:
+        raise serializers.ValidationError(
+            {"days": [f"날 목록을 찾지 못했습니다. {' · '.join(DAY_LIST_KEYS)} 중 하나에 담아주세요."]}
+        )
+    return row[key]
 
 
 class SpecialDayItemField(serializers.Field):
@@ -83,6 +136,29 @@ class SpecialDayItemField(serializers.Field):
         return {"date": date, "name": name}
 
 
+#  "이 날은 안 쉰다" 로 읽는 값들. 자료를 주는 곳마다 다르게 적는다 —
+#  공공데이터포털은 문자열 "N", 절기 쪽은 불리언 false 다.
+NOT_A_HOLIDAY = {"N", "NO", "FALSE", "F", "0"}
+
+
+def says_not_a_holiday(flag) -> bool:
+    """
+    `isHoliday` 가 **"이 날은 안 쉰다" 고 말하고 있는가.**
+
+    불리언과 문자열을 함께 받는다. 예전에는 `str(flag) != "N"` 하나로 봤는데,
+    그러면 `false` 가 `"FALSE"` 가 되어 "N" 과 다르다는 이유로 **통과했다** —
+    안 쉬는 날이 빨간 날로 들어갔다.
+
+    말한 적이 없으면(`None`) 거를 근거가 없다. 공휴일 전용 응답(`getRestDeInfo`)
+    에는 이 깃발이 아예 없다.
+    """
+    if flag is None:
+        return False
+    if isinstance(flag, bool):
+        return not flag
+    return str(flag).strip().upper() in NOT_A_HOLIDAY
+
+
 def keeps(kind: str, is_holiday) -> bool:
     """
     이 줄을 이 `kind` 로 받을 것인가. `isHoliday` 깃발으로 가른다.
@@ -91,14 +167,10 @@ def keeps(kind: str, is_holiday) -> bool:
     (식목일)을 한 배열에 섞어 주는데, 이 앱은 쉬는 날만 담는다. 그 응답을 그대로
     넘겨도 기념일은 여기서 걸러지므로, n8n 이 거르는 로직을 적지 않아도 된다.
 
-    절기(`get24DivisionsInfo`)는 전부 `isHoliday: "N"` 으로 오지만 그것이 "안 쉬는
-    기념일" 이라는 뜻은 아니다. 그래서 절기에는 이 깃발을 아예 보지 않는다.
+    절기는 전부 "안 쉼" 으로 오지만 그것이 "안 쉬는 기념일" 이라는 뜻은 아니다.
+    그래서 절기에는 이 깃발을 아예 보지 않는다.
     """
-    if kind != Kind.HOLIDAY:
-        return True
-
-    # 깃발이 없으면 공휴일 전용 엔드포인트(getRestDeInfo)라 보고 받는다
-    return str(is_holiday).strip().upper() != "N" if is_holiday is not None else True
+    return True if kind != Kind.HOLIDAY else not says_not_a_holiday(is_holiday)
 
 
 def flatten(detail) -> str:
@@ -144,22 +216,15 @@ class SyncSerializer(serializers.Serializer):
     둘 중 하나만 동기화하는 순간 나머지가 지워진다.
     """
 
-    holidays = serializers.ListField(child=serializers.DictField(), required=False)
-    days = serializers.ListField(child=serializers.DictField(), required=False)
+    #  어느 이름에 담겨 왔든 뷰가 `find_days` 로 찾아 넘겨준다.
+    days = serializers.ListField(child=serializers.DictField())
 
     def validate(self, attrs):
         params = self.context.get("params", {})
         kind = self._kind(params)
         start, end = self._range(params)
 
-        # `days` 가 제 이름이지만 `holidays` 도 받는다 — 공휴일만 있던 시절의 이름이라
-        # 이미 그렇게 짜둔 워크플로가 있으면 그대로 돌아야 한다.
-        raw = attrs.get("days")
-        if raw is None:
-            raw = attrs.get("holidays")
-        if raw is None:
-            raise serializers.ValidationError({"days": "days 가 필요합니다."})
-
+        raw = attrs["days"]
         field = SpecialDayItemField(kind=kind)
         items = []
         for index, row in enumerate(raw, start=1):

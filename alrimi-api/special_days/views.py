@@ -17,6 +17,7 @@ from .serializers import (
     MarkStyleWriteSerializer,
     SpecialDaySerializer,
     SyncSerializer,
+    find_days,
     parse_day,
 )
 
@@ -125,6 +126,11 @@ def sync_special_days(request):
         {"days": [{"locdate": 20260101, "dateName": "1월 1일", "isHoliday": "Y"}, ...]}
       → {"kind": ..., "from": ..., "to": ..., "added": 1, "updated": 0, "removed": 1, "kept": 14}
 
+    **받은 것을 그대로 넘기면 된다.** 벌거벗은 배열도, `days`·`holidays`·`terms`·
+    `items` 중 아무 이름에 담긴 것도, n8n 이 한 겹 싸서 내보낸 `[{"terms": [...]}]`
+    도 다 알아본다(`serializers.find_days`). 옮겨 담는 노드를 워크플로에 두지
+    않으려는 것이다 — 그 노드가 곧 조용히 고장날 자리가 된다.
+
     **"이 기간의 이 종류는 이게 전부다"** 라는 선언이다. 부분 수정이 아니다:
 
       · 없던 날은 생기고          (새로 지정된 대체공휴일)
@@ -139,16 +145,20 @@ def sync_special_days(request):
         holiday   getRestDeInfo        공휴일
         term      get24DivisionsInfo   절기
 
-    본문은 특일 정보 API 의 `items` 를 **그대로** 실어도 된다 — `locdate`·`dateName`
-    를 알아보고, 공휴일로 받을 때는 `isHoliday: "N"` 인 줄(쉬지 않는 기념일)을 걸러
-    낸다(`serializers.keeps`). 그래서 `getHoliDeInfo` 의 섞인 응답을 그대로 넘겨도
-    쉬는 날만 들어간다.
+    줄마다 `date`·`locdate` 와 `name`·`dateName` 을 알아본다. 공휴일로 받을 때는
+    "안 쉰다" 고 적힌 줄을 걸러내므로(`serializers.keeps`), `getHoliDeInfo` 의 섞인
+    응답을 그대로 넘겨도 쉬는 날만 들어간다. 그 깃발은 문자열 `"N"` 이든 불리언
+    `false` 든 같은 뜻으로 읽는다 — 주는 곳마다 다르게 적는다.
 
     **빈 목록은 기본적으로 막는다.** 특일 API 가 잠깐 죽어 빈 응답을 주면, 그대로
     흘려보낼 경우 그 해 달력이 통째로 지워진다 — 그것도 아무도 모르게. 정말 비우려면
     `?allow_empty=true` 를 붙여야 한다.
     """
-    serializer = SyncSerializer(data=request.data, context={"params": request.query_params})
+    serializer = SyncSerializer(
+        # 목록이 어느 이름에 담겨 왔는지는 여기서 가려낸다. 그 뒤로는 모양이 하나다.
+        data={"days": find_days(request.data)},
+        context={"params": request.query_params},
+    )
     serializer.is_valid(raise_exception=True)
     data = serializer.validated_data
 

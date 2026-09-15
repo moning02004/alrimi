@@ -24,17 +24,43 @@ curl -X POST "$API/special-days/sync?kind=holiday&from=2026-01-01&to=2026-12-31"
 #    "added":2,"updated":0,"removed":0,"kept":0}
 ```
 
-절기는 `kind` 만 바꾸면 된다.
+절기는 `kind` 만 바꾸면 된다. 받은 응답을 **손대지 않고 통째로** 넘긴다:
 
 ```bash
-curl -X POST "$API/special-days/sync?kind=term&from=2026-01-01&to=2026-12-31" \
+curl -X POST "$API/special-days/sync?kind=term&from=2026-01-01&to=2027-12-31" \
   -H "X-API-KEY: $N8N_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"days": [
-    {"locdate": 20260204, "dateName": "입춘", "isHoliday": "N"},
-    {"locdate": 20260320, "dateName": "춘분", "isHoliday": "N"}
-  ]}'
+  -d '[{"source":"api","updatedAt":"2026-09-14T16:52:16.267Z",
+        "current":{"name":"백로","date":"2026-09-07","isHoliday":false},
+        "next":{"name":"추분","date":"2026-09-23","isHoliday":false},
+        "terms":[{"name":"소한","sunLongitude":null,"date":"2026-01-05",
+                  "time":"17:23","at":"2026-01-05T17:23:00+09:00",
+                  "ts":1767601380000,"isHoliday":false}, … ]}]'
+
+# → {"kind":"term","from":"2026-01-01","to":"2027-12-31",
+#    "added":48,"updated":0,"removed":0,"kept":0}
 ```
+
+`source`·`updatedAt`·`current`·`next` 는 무시하고 `terms` 만 집어낸다. 줄에 붙은
+`sunLongitude`·`time`·`at`·`ts` 도 달력이 쓰지 않으므로 그냥 흘린다.
+
+같은 요청을 한 번 더 보내면 이렇게 온다. **이것이 평소에 보게 될 모습이다:**
+
+```
+{"kind":"term","from":"2026-01-01","to":"2027-12-31",
+ "added":0,"updated":0,"removed":0,"kept":48}
+```
+
+> **`from`·`to` 를 자료에 맞춰라.** 위 절기 응답은 24절기 **두 해치(48건)** 라
+> 2026-01-05 … 2027-12-22 를 덮는다. 기간을 한 해로 잡으면 나머지 해가 "기간 밖"
+> 이라 통째로 막힌다:
+>
+> ```
+> {"days":["기간(2026-01-01 ~ 2026-12-31) 밖의 날짜가 있습니다: 2027-01-05"]}
+> ```
+>
+> 한 번에 최대 800일이라 **두 해(730일)까지가 한계다.** 세 해치를 받았다면 해마다
+> 나눠 부른다.
 
 ---
 
@@ -94,11 +120,28 @@ Content-Type: application/json
 
 ### 본문
 
-```json
-{ "days": [ { "locdate": 20260101, "dateName": "1월 1일", "isHoliday": "Y" } ] }
+**받은 것을 손대지 말고 그대로 넘기면 된다.** 아래 셋을 다 알아본다:
+
+```jsonc
+// 1. 벌거벗은 배열
+[ {"date": "2026-03-20", "name": "춘분"} ]
+
+// 2. 이름표가 달린 것 — days · holidays · terms · items 중 아무거나
+{ "terms": [ {"date": "2026-03-20", "name": "춘분"} ] }
+
+// 3. n8n 이 한 겹 싸서 내보낸 것 (실제로 가장 흔하다)
+[ { "source": "api", "updatedAt": "…", "current": {…}, "next": {…},
+    "terms": [ {"date": "2026-03-20", "name": "춘분"}, … ] } ]
 ```
 
-**공공데이터포털 응답의 `items` 를 그대로 실어도 된다.** 줄마다 아래를 알아본다:
+3번에서 `source`·`updatedAt`·`current`·`next` 같은 곁다리는 무시하고 **목록만**
+집어낸다. `current`·`next` 는 `terms` 안의 항목을 가리키는 것이라 두 번 세지 않는다.
+싼 것이 여럿이면(달마다 부른 것을 모을 때) 이어 붙인다.
+
+옮겨 담는 노드를 워크플로에 두지 않으려는 것이다 — 그 노드가 곧 조용히 고장날
+자리가 된다.
+
+#### 줄 하나가 갖춰야 할 것
 
 | 보낼 값 | 별칭 | 형식 |
 |---|---|---|
@@ -106,19 +149,25 @@ Content-Type: application/json
 | `name` | `dateName` | 40자 이내 |
 | `isHoliday` | — | `kind=holiday` 일 때만 본다. 아래 참고 |
 
-n8n 이 `{date, name}` 으로 옮겨 적게 하면 워크플로에 매핑 노드가 하나 더 붙고, 그
-노드가 곧 고장날 자리가 된다. 두 이름을 다 받는 것은 그 노드를 없애려는 것이다.
-
-`days` 대신 `holidays` 라는 이름으로 보내도 받는다 — 공휴일만 있던 시절의 이름이라,
-이미 그렇게 짜둔 워크플로가 있으면 그대로 돈다.
+**그 밖의 값은 무시한다.** 절기 자료의 `sunLongitude`·`time`·`at`·`ts` 처럼 달력이
+쓰지 않는 것이 붙어 와도 걸리적거리지 않는다.
 
 #### `isHoliday` 처리
 
-- `kind=holiday` — `"N"` 인 줄은 **버린다.** `getHoliDeInfo` 는 공휴일(삼일절)과 쉬지
-  않는 기념일(식목일)을 한 배열에 섞어 주는데, 그 응답을 그대로 넘겨도 쉬는 날만
-  들어간다. 값이 아예 없으면 공휴일 전용 응답(`getRestDeInfo`)으로 보고 받는다.
-- `kind=term` — **보지 않는다.** 절기는 전부 `"N"` 으로 오지만 그것이 "안 쉬는 기념일"
-  이라는 뜻은 아니다.
+`kind=holiday` 일 때만 본다. "안 쉰다" 고 적힌 줄은 **버린다** — `getHoliDeInfo` 는
+공휴일(삼일절)과 쉬지 않는 기념일(식목일)을 한 배열에 섞어 주는데, 그 응답을 그대로
+넘겨도 쉬는 날만 들어간다.
+
+**주는 곳마다 다르게 적어서, 다음을 모두 같은 뜻으로 읽는다:**
+
+| 값 | 뜻 |
+|---|---|
+| `"N"` · `"NO"` · `"FALSE"` · `"F"` · `"0"` · `false` · `0` | 안 쉬는 날 → 버린다 |
+| `"Y"` · `true` · 그 밖의 값 | 쉬는 날 → 받는다 |
+| 키가 아예 없음 | 거를 근거가 없다 → 받는다 (`getRestDeInfo` 가 그렇다) |
+
+`kind=term` 일 때는 **보지 않는다.** 절기는 전부 `false`(또는 `"N"`)로 오지만 그것이
+"안 쉬는 기념일" 이라는 뜻은 아니다.
 
 ---
 
@@ -219,10 +268,17 @@ GET http://apis.data.go.kr/B090041/openapi/service/SpcdeInfoService/getRestDeInf
 ```
 POST {API}/special-days/sync?kind=holiday&from=2026-01-01&to=2026-12-31
   헤더 X-API-KEY = {N8N_API_KEY}
-  본문 { "days": {{ 1번 노드의 items }} }
+  본문 {{ 1번 노드의 출력 그대로 }}
 ```
 
-옮겨 적을 것이 없다 — `locdate`·`dateName`·`isHoliday` 를 그대로 알아본다.
+**옮겨 적을 것이 없다.** 앞 노드가 뱉은 것을 그대로 본문에 꽂으면 된다 — 배열이든,
+`terms`·`items` 에 담겨 있든, n8n 이 한 겹 싼 모양이든 알아본다. 줄 안의 이름도
+`date`/`locdate`, `name`/`dateName` 을 함께 받고, `isHoliday` 는 문자열이든
+불리언이든 같은 뜻으로 읽는다.
+
+기간(`from`·`to`)만은 **받아온 자료가 덮는 범위와 맞춰야** 한다. 이것만 손으로
+정하는 까닭은, 그 범위가 곧 "여기를 이걸로 갈아끼운다" 는 선언이기 때문이다 —
+자료에서 알아서 뽑아 쓰면 **목록의 마지막 날을 영영 지울 수 없게 된다.**
 
 ### 언제 돌릴까
 
@@ -298,3 +354,473 @@ Django 관리자(`/admin`)에도 있다. 손으로 급히 한 건 고칠 때를 
 
 이 문서의 예시와 응답·오류 메시지는 전부 실제 서버에 돌려보고 적었다. 규칙이 바뀌면
 `alrimi-api/special_days/tests.py` 가 먼저 막는다 — 고칠 때 그쪽도 같이 본다.
+
+---
+
+## 붙임: 절기 자료 원본
+
+실제로 받아 쓰는 절기 응답 전문(2026~2027, 48건). **이 문서의 절기 예시와 규칙들은
+이 자료를 손대지 않고 그대로 서버에 보내보고 적었다** — `added: 48` 이 나오는 것까지
+확인했다. 이 모양이 바뀌면 `alrimi-api/special_days/tests.py` 의
+`test_the_shape_n8n_actually_sends` 가 먼저 막는다.
+
+```json
+[
+  {
+    "source": "api",
+    "updatedAt": "2026-09-14T16:52:16.267Z",
+    "current": {
+      "name": "백로",
+      "sunLongitude": null,
+      "date": "2026-09-07",
+      "time": "23:41",
+      "at": "2026-09-07T23:41:00+09:00",
+      "ts": 1788792060000,
+      "isHoliday": false
+    },
+    "next": {
+      "name": "추분",
+      "sunLongitude": null,
+      "date": "2026-09-23",
+      "time": "09:05",
+      "at": "2026-09-23T09:05:00+09:00",
+      "ts": 1790121900000,
+      "isHoliday": false
+    },
+    "terms": [
+      {
+        "name": "소한",
+        "sunLongitude": null,
+        "date": "2026-01-05",
+        "time": "17:23",
+        "at": "2026-01-05T17:23:00+09:00",
+        "ts": 1767601380000,
+        "isHoliday": false
+      },
+      {
+        "name": "대한",
+        "sunLongitude": null,
+        "date": "2026-01-20",
+        "time": "10:45",
+        "at": "2026-01-20T10:45:00+09:00",
+        "ts": 1768873500000,
+        "isHoliday": false
+      },
+      {
+        "name": "입춘",
+        "sunLongitude": null,
+        "date": "2026-02-04",
+        "time": "05:02",
+        "at": "2026-02-04T05:02:00+09:00",
+        "ts": 1770148920000,
+        "isHoliday": false
+      },
+      {
+        "name": "우수",
+        "sunLongitude": null,
+        "date": "2026-02-19",
+        "time": "00:52",
+        "at": "2026-02-19T00:52:00+09:00",
+        "ts": 1771429920000,
+        "isHoliday": false
+      },
+      {
+        "name": "경칩",
+        "sunLongitude": null,
+        "date": "2026-03-05",
+        "time": "22:59",
+        "at": "2026-03-05T22:59:00+09:00",
+        "ts": 1772719140000,
+        "isHoliday": false
+      },
+      {
+        "name": "춘분",
+        "sunLongitude": null,
+        "date": "2026-03-20",
+        "time": "23:46",
+        "at": "2026-03-20T23:46:00+09:00",
+        "ts": 1774017960000,
+        "isHoliday": false
+      },
+      {
+        "name": "청명",
+        "sunLongitude": null,
+        "date": "2026-04-05",
+        "time": "03:40",
+        "at": "2026-04-05T03:40:00+09:00",
+        "ts": 1775328000000,
+        "isHoliday": false
+      },
+      {
+        "name": "곡우",
+        "sunLongitude": null,
+        "date": "2026-04-20",
+        "time": "10:39",
+        "at": "2026-04-20T10:39:00+09:00",
+        "ts": 1776649140000,
+        "isHoliday": false
+      },
+      {
+        "name": "입하",
+        "sunLongitude": null,
+        "date": "2026-05-05",
+        "time": "20:49",
+        "at": "2026-05-05T20:49:00+09:00",
+        "ts": 1777981740000,
+        "isHoliday": false
+      },
+      {
+        "name": "소만",
+        "sunLongitude": null,
+        "date": "2026-05-21",
+        "time": "09:37",
+        "at": "2026-05-21T09:37:00+09:00",
+        "ts": 1779323820000,
+        "isHoliday": false
+      },
+      {
+        "name": "망종",
+        "sunLongitude": null,
+        "date": "2026-06-06",
+        "time": "00:48",
+        "at": "2026-06-06T00:48:00+09:00",
+        "ts": 1780674480000,
+        "isHoliday": false
+      },
+      {
+        "name": "하지",
+        "sunLongitude": null,
+        "date": "2026-06-21",
+        "time": "17:25",
+        "at": "2026-06-21T17:25:00+09:00",
+        "ts": 1782030300000,
+        "isHoliday": false
+      },
+      {
+        "name": "소서",
+        "sunLongitude": null,
+        "date": "2026-07-07",
+        "time": "10:57",
+        "at": "2026-07-07T10:57:00+09:00",
+        "ts": 1783389420000,
+        "isHoliday": false
+      },
+      {
+        "name": "대서",
+        "sunLongitude": null,
+        "date": "2026-07-23",
+        "time": "04:13",
+        "at": "2026-07-23T04:13:00+09:00",
+        "ts": 1784747580000,
+        "isHoliday": false
+      },
+      {
+        "name": "입추",
+        "sunLongitude": null,
+        "date": "2026-08-07",
+        "time": "20:43",
+        "at": "2026-08-07T20:43:00+09:00",
+        "ts": 1786102980000,
+        "isHoliday": false
+      },
+      {
+        "name": "처서",
+        "sunLongitude": null,
+        "date": "2026-08-23",
+        "time": "11:19",
+        "at": "2026-08-23T11:19:00+09:00",
+        "ts": 1787451540000,
+        "isHoliday": false
+      },
+      {
+        "name": "백로",
+        "sunLongitude": null,
+        "date": "2026-09-07",
+        "time": "23:41",
+        "at": "2026-09-07T23:41:00+09:00",
+        "ts": 1788792060000,
+        "isHoliday": false
+      },
+      {
+        "name": "추분",
+        "sunLongitude": null,
+        "date": "2026-09-23",
+        "time": "09:05",
+        "at": "2026-09-23T09:05:00+09:00",
+        "ts": 1790121900000,
+        "isHoliday": false
+      },
+      {
+        "name": "한로",
+        "sunLongitude": null,
+        "date": "2026-10-08",
+        "time": "15:29",
+        "at": "2026-10-08T15:29:00+09:00",
+        "ts": 1791440940000,
+        "isHoliday": false
+      },
+      {
+        "name": "상강",
+        "sunLongitude": null,
+        "date": "2026-10-23",
+        "time": "18:38",
+        "at": "2026-10-23T18:38:00+09:00",
+        "ts": 1792748280000,
+        "isHoliday": false
+      },
+      {
+        "name": "입동",
+        "sunLongitude": null,
+        "date": "2026-11-07",
+        "time": "18:52",
+        "at": "2026-11-07T18:52:00+09:00",
+        "ts": 1794045120000,
+        "isHoliday": false
+      },
+      {
+        "name": "소설",
+        "sunLongitude": null,
+        "date": "2026-11-22",
+        "time": "16:23",
+        "at": "2026-11-22T16:23:00+09:00",
+        "ts": 1795332180000,
+        "isHoliday": false
+      },
+      {
+        "name": "대설",
+        "sunLongitude": null,
+        "date": "2026-12-07",
+        "time": "11:53",
+        "at": "2026-12-07T11:53:00+09:00",
+        "ts": 1796611980000,
+        "isHoliday": false
+      },
+      {
+        "name": "동지",
+        "sunLongitude": null,
+        "date": "2026-12-22",
+        "time": "05:50",
+        "at": "2026-12-22T05:50:00+09:00",
+        "ts": 1797886200000,
+        "isHoliday": false
+      },
+      {
+        "name": "소한",
+        "sunLongitude": null,
+        "date": "2027-01-05",
+        "time": "23:10",
+        "at": "2027-01-05T23:10:00+09:00",
+        "ts": 1799158200000,
+        "isHoliday": false
+      },
+      {
+        "name": "대한",
+        "sunLongitude": null,
+        "date": "2027-01-20",
+        "time": "16:30",
+        "at": "2027-01-20T16:30:00+09:00",
+        "ts": 1800430200000,
+        "isHoliday": false
+      },
+      {
+        "name": "입춘",
+        "sunLongitude": null,
+        "date": "2027-02-04",
+        "time": "10:46",
+        "at": "2027-02-04T10:46:00+09:00",
+        "ts": 1801705560000,
+        "isHoliday": false
+      },
+      {
+        "name": "우수",
+        "sunLongitude": null,
+        "date": "2027-02-19",
+        "time": "06:33",
+        "at": "2027-02-19T06:33:00+09:00",
+        "ts": 1802986380000,
+        "isHoliday": false
+      },
+      {
+        "name": "경칩",
+        "sunLongitude": null,
+        "date": "2027-03-06",
+        "time": "04:40",
+        "at": "2027-03-06T04:40:00+09:00",
+        "ts": 1804275600000,
+        "isHoliday": false
+      },
+      {
+        "name": "춘분",
+        "sunLongitude": null,
+        "date": "2027-03-21",
+        "time": "05:25",
+        "at": "2027-03-21T05:25:00+09:00",
+        "ts": 1805574300000,
+        "isHoliday": false
+      },
+      {
+        "name": "청명",
+        "sunLongitude": null,
+        "date": "2027-04-05",
+        "time": "09:17",
+        "at": "2027-04-05T09:17:00+09:00",
+        "ts": 1806884220000,
+        "isHoliday": false
+      },
+      {
+        "name": "곡우",
+        "sunLongitude": null,
+        "date": "2027-04-20",
+        "time": "16:18",
+        "at": "2027-04-20T16:18:00+09:00",
+        "ts": 1808205480000,
+        "isHoliday": false
+      },
+      {
+        "name": "입하",
+        "sunLongitude": null,
+        "date": "2027-05-06",
+        "time": "02:25",
+        "at": "2027-05-06T02:25:00+09:00",
+        "ts": 1809537900000,
+        "isHoliday": false
+      },
+      {
+        "name": "소만",
+        "sunLongitude": null,
+        "date": "2027-05-21",
+        "time": "15:18",
+        "at": "2027-05-21T15:18:00+09:00",
+        "ts": 1810880280000,
+        "isHoliday": false
+      },
+      {
+        "name": "망종",
+        "sunLongitude": null,
+        "date": "2027-06-06",
+        "time": "06:26",
+        "at": "2027-06-06T06:26:00+09:00",
+        "ts": 1812230760000,
+        "isHoliday": false
+      },
+      {
+        "name": "하지",
+        "sunLongitude": null,
+        "date": "2027-06-21",
+        "time": "23:11",
+        "at": "2027-06-21T23:11:00+09:00",
+        "ts": 1813587060000,
+        "isHoliday": false
+      },
+      {
+        "name": "소서",
+        "sunLongitude": null,
+        "date": "2027-07-07",
+        "time": "16:37",
+        "at": "2027-07-07T16:37:00+09:00",
+        "ts": 1814945820000,
+        "isHoliday": false
+      },
+      {
+        "name": "대서",
+        "sunLongitude": null,
+        "date": "2027-07-23",
+        "time": "10:05",
+        "at": "2027-07-23T10:05:00+09:00",
+        "ts": 1816304700000,
+        "isHoliday": false
+      },
+      {
+        "name": "입추",
+        "sunLongitude": null,
+        "date": "2027-08-08",
+        "time": "02:27",
+        "at": "2027-08-08T02:27:00+09:00",
+        "ts": 1817659620000,
+        "isHoliday": false
+      },
+      {
+        "name": "처서",
+        "sunLongitude": null,
+        "date": "2027-08-23",
+        "time": "17:14",
+        "at": "2027-08-23T17:14:00+09:00",
+        "ts": 1819008840000,
+        "isHoliday": false
+      },
+      {
+        "name": "백로",
+        "sunLongitude": null,
+        "date": "2027-09-08",
+        "time": "05:28",
+        "at": "2027-09-08T05:28:00+09:00",
+        "ts": 1820348880000,
+        "isHoliday": false
+      },
+      {
+        "name": "추분",
+        "sunLongitude": null,
+        "date": "2027-09-23",
+        "time": "15:02",
+        "at": "2027-09-23T15:02:00+09:00",
+        "ts": 1821679320000,
+        "isHoliday": false
+      },
+      {
+        "name": "한로",
+        "sunLongitude": null,
+        "date": "2027-10-08",
+        "time": "21:17",
+        "at": "2027-10-08T21:17:00+09:00",
+        "ts": 1822997820000,
+        "isHoliday": false
+      },
+      {
+        "name": "상강",
+        "sunLongitude": null,
+        "date": "2027-10-24",
+        "time": "00:33",
+        "at": "2027-10-24T00:33:00+09:00",
+        "ts": 1824305580000,
+        "isHoliday": false
+      },
+      {
+        "name": "입동",
+        "sunLongitude": null,
+        "date": "2027-11-08",
+        "time": "00:39",
+        "at": "2027-11-08T00:39:00+09:00",
+        "ts": 1825601940000,
+        "isHoliday": false
+      },
+      {
+        "name": "소설",
+        "sunLongitude": null,
+        "date": "2027-11-22",
+        "time": "22:16",
+        "at": "2027-11-22T22:16:00+09:00",
+        "ts": 1826889360000,
+        "isHoliday": false
+      },
+      {
+        "name": "대설",
+        "sunLongitude": null,
+        "date": "2027-12-07",
+        "time": "17:38",
+        "at": "2027-12-07T17:38:00+09:00",
+        "ts": 1828168680000,
+        "isHoliday": false
+      },
+      {
+        "name": "동지",
+        "sunLongitude": null,
+        "date": "2027-12-22",
+        "time": "11:42",
+        "at": "2027-12-22T11:42:00+09:00",
+        "ts": 1829443320000,
+        "isHoliday": false
+      }
+    ]
+  }
+]
+```

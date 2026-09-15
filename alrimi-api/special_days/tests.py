@@ -174,6 +174,130 @@ class SyncTests(TestCase):
         )
         self.assertEqual(res.json()["added"], 1)
 
+    # ── 받은 것을 그대로 넘길 수 있다 ────────────────────────────────
+
+    def test_a_bare_array_works(self):
+        """이름표 없이 배열만 보내도 된다."""
+        res = self.client.post(
+            f"{self.url}?kind=term&from=2026-01-01&to=2026-12-31",
+            [{"date": "2026-03-20", "name": "춘분"}],
+            content_type="application/json",
+            headers={"x-api-key": KEY},
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(self.rows(), [("2026-03-20", "term", "춘분")])
+
+    def test_a_list_under_terms_works(self):
+        """절기를 주는 쪽은 배열을 `terms` 에 담는다."""
+        res = self.client.post(
+            f"{self.url}?kind=term&from=2026-01-01&to=2026-12-31",
+            {"terms": [{"date": "2026-03-20", "name": "춘분"}]},
+            content_type="application/json",
+            headers={"x-api-key": KEY},
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()["added"], 1)
+
+    def test_the_shape_n8n_actually_sends(self):
+        """
+        n8n 의 노드 출력은 늘 배열이고, 그 안의 객체가 본체를 품고 있다. 곁다리
+        (`source`·`updatedAt`·`current`·`next`)가 붙어 와도 목록만 집어내야 한다.
+        """
+        res = self.client.post(
+            f"{self.url}?kind=term&from=2026-01-01&to=2026-12-31",
+            [
+                {
+                    "source": "api",
+                    "updatedAt": "2026-09-14T16:52:16.267Z",
+                    "current": {"name": "백로", "date": "2026-09-07", "isHoliday": False},
+                    "next": {"name": "추분", "date": "2026-09-23", "isHoliday": False},
+                    "terms": [
+                        {"name": "백로", "date": "2026-09-07", "isHoliday": False},
+                        {"name": "추분", "date": "2026-09-23", "isHoliday": False},
+                    ],
+                }
+            ],
+            content_type="application/json",
+            headers={"x-api-key": KEY},
+        )
+
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()["added"], 2, "곁다리까지 세었거나 목록을 못 찾았다")
+        self.assertEqual(
+            self.rows(), [("2026-09-07", "term", "백로"), ("2026-09-23", "term", "추분")]
+        )
+
+    def test_extra_fields_on_a_row_are_ignored(self):
+        """`sunLongitude`·`time`·`at`·`ts` 는 달력이 쓰지 않는다. 걸리적거리면 안 된다."""
+        res = self.client.post(
+            f"{self.url}?kind=term&from=2026-01-01&to=2026-12-31",
+            {
+                "terms": [
+                    {
+                        "name": "상강",
+                        "sunLongitude": None,
+                        "date": "2026-10-23",
+                        "time": "18:38",
+                        "at": "2026-10-23T18:38:00+09:00",
+                        "ts": 1792748280000,
+                        "isHoliday": False,
+                    }
+                ]
+            },
+            content_type="application/json",
+            headers={"x-api-key": KEY},
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(self.rows(), [("2026-10-23", "term", "상강")])
+
+    def test_several_wrapped_batches_are_joined(self):
+        """달마다 부른 것을 모아 한 번에 넘길 때."""
+        res = self.client.post(
+            f"{self.url}?kind=term&from=2026-01-01&to=2026-12-31",
+            [
+                {"terms": [{"date": "2026-03-20", "name": "춘분"}]},
+                {"terms": [{"date": "2026-09-23", "name": "추분"}]},
+            ],
+            content_type="application/json",
+            headers={"x-api-key": KEY},
+        )
+        self.assertEqual(res.json()["added"], 2)
+
+    def test_a_body_with_no_list_anywhere_is_400(self):
+        res = self.client.post(
+            f"{self.url}?from=2026-01-01&to=2026-12-31",
+            {"source": "api"},
+            content_type="application/json",
+            headers={"x-api-key": KEY},
+        )
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("날 목록을 찾지 못했습니다", res.json()["days"][0])
+
+    # ── isHoliday 는 불리언으로도 온다 ───────────────────────────────
+
+    def test_a_boolean_false_means_it_is_not_a_holiday(self):
+        """
+        절기를 주는 쪽은 불리언으로 적는다. 예전에는 `str(False)` 가 "FALSE" 라
+        "N" 과 다르다는 이유로 통과해서, **안 쉬는 날이 빨간 날로 들어갔다.**
+        """
+        res = self.sync(
+            [
+                {"date": "2026-03-01", "name": "삼일절", "isHoliday": True},
+                {"date": "2026-04-05", "name": "식목일", "isHoliday": False},
+            ],
+            kind="holiday",
+        )
+
+        self.assertEqual(self.rows(), [("2026-03-01", "holiday", "삼일절")])
+        self.assertEqual(res.json()["added"], 1)
+
+    def test_terms_come_in_even_though_they_say_not_a_holiday(self):
+        """절기는 전부 `false` 로 오지만 그 깃발은 공휴일에만 본다."""
+        res = self.sync([{"date": "2026-03-20", "name": "춘분", "isHoliday": False}], kind="term")
+
+        self.assertEqual(res.json()["added"], 1)
+        self.assertEqual(self.rows(), [("2026-03-20", "term", "춘분")])
+
     def test_a_malformed_date_is_400(self):
         self.assertEqual(self.sync([{"date": "2026/01/01", "name": "x"}]).status_code, 400)
 
