@@ -6,9 +6,17 @@ from rest_framework import serializers
 from .models import Kind, MarkStyle, SpecialDay
 from .palette import COLORS
 
-#  한 번에 맞출 수 있는 폭. 한 해치(365)를 넉넉히 넘기면서, 오타 한 번에 몇 년치를
-#  훑어 지우는 것은 막는 선이다.
-MAX_SYNC_DAYS = 800
+#  한 번에 맞출 수 있는 해의 수. 창을 자료에서 뽑으므로 오타로 부풀 일은 없고
+#  (예전에는 `from`·`to` 를 손으로 적어서 그 사고를 막을 선이 필요했다), 이것은
+#  조회 한 번이 감당할 크기를 정하는 선이다.
+MAX_SYNC_YEARS = 10
+
+#  빈 목록을 막는 말. 처음부터 비어 온 경우와 `isHoliday` 로 걸러져 빈 경우가
+#  같은 자리에서 같은 말로 막히도록 여기 한 번만 적는다.
+EMPTY = (
+    "목록이 비어 있습니다. 특일 API 가 응답하지 못했거나 쉬는 날이 하나도 없는 "
+    "응답일 수 있습니다. 한 해를 정말 비우려면 관리자 화면에서 지워주세요."
+)
 
 #  "20260101". 특일 정보 API 의 `locdate` 가 이 꼴로 온다.
 COMPACT_DATE = re.compile(r"^\d{8}$")
@@ -201,6 +209,24 @@ def parse_day(raw) -> dt.date:
         ) from None
 
 
+def window_for(items: dict) -> tuple[dt.date, dt.date]:
+    """
+    보낸 자료가 덮는 기간. **날짜의 최소~최대가 아니라 그 해 전체다.**
+
+    최소~최대로 잡으면 구멍이 생긴다: 한 해의 **마지막** 공휴일이 취소되면 그 날짜가
+    목록에서 사라지고, 그러면 창의 끝도 그만큼 당겨져 정작 지워야 할 그 줄이 창 밖에
+    남는다. 달력에 유령이 되어 영영 붙어 있게 된다. 첫 공휴일이 취소돼도 같다.
+
+    해 전체로 넓히면 그럴 수가 없다. 공휴일도 절기도 원래 해 단위로 받아오는
+    자료라(특일 정보 API 가 `solYear` 로 묻는다), 넓힌 창이 곧 받아온 범위다.
+
+    **그래서 한 해치를 통째로 보내야 한다.** 한 달치만 보내면 그 해 나머지 열한
+    달이 창 안에 들어와 지워질 판이 되는데, 그쪽은 `guard_mass_delete` 가 막는다.
+    """
+    years = {date.year for date in items}
+    return dt.date(min(years), 1, 1), dt.date(max(years), 12, 31)
+
+
 class SyncSerializer(serializers.Serializer):
     """
     한 종류의 한 기간을 통째로 맞추는 요청.
@@ -214,6 +240,10 @@ class SyncSerializer(serializers.Serializer):
 
     **종류마다 따로 돈다.** 공휴일을 맞춰도 같은 기간의 절기는 그대로다 — 안 그러면
     둘 중 하나만 동기화하는 순간 나머지가 지워진다.
+
+    **어느 기간인지는 보낸 자료에서 뽑는다.** 부르는 쪽이 `from`·`to` 를 따로 적지
+    않는다 — 받아온 것과 어긋나게 적으면 안 받아온 기간이 지워지는데, 그 어긋남은
+    아무도 모르게 일어난다. 자료가 스스로 기간을 말하게 두면 그럴 수가 없다.
     """
 
     #  어느 이름에 담겨 왔든 뷰가 `find_days` 로 찾아 넘겨준다.
@@ -222,7 +252,6 @@ class SyncSerializer(serializers.Serializer):
     def validate(self, attrs):
         params = self.context.get("params", {})
         kind = self._kind(params)
-        start, end = self._range(params)
 
         raw = attrs["days"]
         field = SpecialDayItemField(kind=kind)
@@ -240,12 +269,6 @@ class SyncSerializer(serializers.Serializer):
             if parsed is not None:
                 items.append(parsed)
 
-        outside = sorted({date for date, _ in items if not (start <= date <= end)})
-        if outside:
-            raise serializers.ValidationError(
-                {"days": f"기간({start} ~ {end}) 밖의 날짜가 있습니다: {outside[0]}"}
-            )
-
         # 같은 날이 두 번 오면 어느 이름이 맞는지 알 수 없다. 조용히 덮지 않고 되돌린다.
         seen: dict[dt.date, str] = {}
         for date, name in items:
@@ -255,6 +278,15 @@ class SyncSerializer(serializers.Serializer):
                 )
             seen[date] = name
 
+        # 걸러내고 나니 빈 경우가 여기서 잡힌다. 창을 잡을 근거조차 없다.
+        if not seen:
+            raise serializers.ValidationError({"days": [EMPTY]})
+
+        start, end = window_for(seen)
+        if len({date.year for date in seen}) > MAX_SYNC_YEARS:
+            raise serializers.ValidationError(
+                {"days": [f"한 번에 맞출 수 있는 것은 최대 {MAX_SYNC_YEARS}개 해입니다."]}
+            )
         return {"kind": kind, "from": start, "to": end, "items": seen}
 
     def _kind(self, params) -> str:
@@ -265,16 +297,4 @@ class SyncSerializer(serializers.Serializer):
             )
         return kind
 
-    def _range(self, params) -> tuple[dt.date, dt.date]:
-        if not params.get("from") or not params.get("to"):
-            raise serializers.ValidationError({"detail": "from 과 to 가 필요합니다."})
 
-        start = parse_day(params["from"])
-        end = parse_day(params["to"])
-        if end < start:
-            raise serializers.ValidationError({"detail": "to 는 from 보다 앞설 수 없습니다."})
-        if (end - start).days + 1 > MAX_SYNC_DAYS:
-            raise serializers.ValidationError(
-                {"detail": f"한 번에 맞출 수 있는 기간은 최대 {MAX_SYNC_DAYS}일입니다."}
-            )
-        return start, end

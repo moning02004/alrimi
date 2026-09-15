@@ -122,9 +122,15 @@ class MarkStyleDetailView(APIView):
 @permission_classes([HasAPIKey])
 def sync_special_days(request):
     """
-    POST /special-days/sync?kind=holiday&from=2026-01-01&to=2026-12-31
+    POST /special-days/sync?kind=holiday
         {"days": [{"locdate": 20260101, "dateName": "1월 1일", "isHoliday": "Y"}, ...]}
       → {"kind": ..., "from": ..., "to": ..., "added": 1, "updated": 0, "removed": 1, "kept": 14}
+
+    **기간은 보낸 자료에서 뽑는다.** `from`·`to` 를 따로 적지 않는다 — 받아온 것과
+    어긋나게 적으면 안 받아온 기간이 지워지는데, 그 어긋남은 아무도 모르게 일어난다.
+    창은 자료에 들어 있는 **해 전체**다(`serializers.window_for`). 그래서 **한 해치를
+    통째로 보내야 한다** — 한 달치만 보내면 그 해 나머지가 지워질 판이 되고,
+    그때는 아래 가드가 막는다.
 
     **받은 것을 그대로 넘기면 된다.** 벌거벗은 배열도, `days`·`holidays`·`terms`·
     `items` 중 아무 이름에 담긴 것도, n8n 이 한 겹 싸서 내보낸 `[{"terms": [...]}]`
@@ -150,9 +156,13 @@ def sync_special_days(request):
     응답을 그대로 넘겨도 쉬는 날만 들어간다. 그 깃발은 문자열 `"N"` 이든 불리언
     `false` 든 같은 뜻으로 읽는다 — 주는 곳마다 다르게 적는다.
 
-    **빈 목록은 기본적으로 막는다.** 특일 API 가 잠깐 죽어 빈 응답을 주면, 그대로
-    흘려보낼 경우 그 해 달력이 통째로 지워진다 — 그것도 아무도 모르게. 정말 비우려면
-    `?allow_empty=true` 를 붙여야 한다.
+    **한꺼번에 많이 지우게 되면 막는다.** 남길 것보다 지울 것이 많으면 400 이다 —
+    특일 API 가 반쯤 죽어 몇 줄만 주거나, 한 달치를 한 해인 줄 알고 보냈거나,
+    엉뚱한 종류로 보낸 것이다. 어느 쪽이든 그대로 흘려보내면 달력이 조용히 빈다.
+    정말 그럴 작정이면 `?force=true`.
+
+    빈 목록은 창을 잡을 근거조차 없으므로 늘 400 이다 — 처음부터 비어 왔든,
+    `isHoliday` 로 걸러내고 나니 비었든.
     """
     serializer = SyncSerializer(
         # 목록이 어느 이름에 담겨 왔는지는 여기서 가려낸다. 그 뒤로는 모양이 하나다.
@@ -162,30 +172,20 @@ def sync_special_days(request):
     serializer.is_valid(raise_exception=True)
     data = serializer.validated_data
 
-    kind, start, end, wanted = data["kind"], data["from"], data["to"], data["items"]
+    plan = plan_sync(data["kind"], data["from"], data["to"], data["items"])
 
-    allow_empty = str(request.query_params.get("allow_empty", "")).lower() in {"1", "true"}
-    if not wanted and not allow_empty:
-        return Response(
-            {
-                "detail": (
-                    "목록이 비어 있습니다. 특일 API 가 응답하지 못한 것일 수 있어 "
-                    "기간을 비우지 않았습니다. 정말 비우려면 allow_empty=true 를 붙여주세요."
-                )
-            },
-            status=status.HTTP_400_BAD_REQUEST,
-        )
+    forced = str(request.query_params.get("force", "")).lower() in {"1", "true"}
+    if not forced and (refusal := mass_delete_refusal(plan)):
+        return Response({"detail": refusal}, status=status.HTTP_400_BAD_REQUEST)
 
-    return Response(apply_sync(kind, start, end, wanted))
+    apply_plan(plan)
+    return Response(plan["counts"])
 
 
-@transaction.atomic
-def apply_sync(kind: str, start: dt.date, end: dt.date, wanted: dict[dt.date, str]) -> dict:
+def plan_sync(kind: str, start: dt.date, end: dt.date, wanted: dict[dt.date, str]) -> dict:
     """
-    기간 안의 그 종류를 `wanted` 와 똑같이 만든다. 헤아린 결과를 돌려준다.
-
-    한 덩어리로 묶는다 — 중간에 끊기면 지우기만 하고 넣지 못한 채 남아, 달력에
-    공휴일이 사라진 상태가 된다.
+    **무엇을 할지 먼저 정하고, 쓰지는 않는다.** 가드가 헤아린 결과를 보고 막을 수
+    있어야 해서다 — 지운 뒤에 "많이 지웠네" 하면 늦는다.
     """
     current = {
         row.date: row
@@ -193,34 +193,78 @@ def apply_sync(kind: str, start: dt.date, end: dt.date, wanted: dict[dt.date, st
     }
 
     gone = [row.pk for date, row in current.items() if date not in wanted]
-    if gone:
-        SpecialDay.objects.filter(pk__in=gone).delete()
-
     fresh = [
         SpecialDay(date=date, kind=kind, name=name)
         for date, name in wanted.items()
         if date not in current
     ]
-    if fresh:
-        SpecialDay.objects.bulk_create(fresh)
-
     # 이름만 바뀐 것. 같은 이름까지 저장하면 updated_at 이 매번 새로 찍혀,
     # 나중에 "언제 실제로 바뀌었나" 를 되짚을 수 없다.
     changed = [row for date, row in current.items() if date in wanted and row.name != wanted[date]]
-    now = timezone.now()
     for row in changed:
         row.name = wanted[row.date]
-        # `auto_now` 는 save() 에서만 찍힌다. bulk_update 는 지나치므로 손으로 넣는다.
-        row.updated_at = now
-    if changed:
-        SpecialDay.objects.bulk_update(changed, ["name", "updated_at"])
 
     return {
-        "kind": kind,
-        "from": start,
-        "to": end,
-        "added": len(fresh),
-        "updated": len(changed),
-        "removed": len(gone),
-        "kept": len(current) - len(gone) - len(changed),
+        "gone": gone,
+        "fresh": fresh,
+        "changed": changed,
+        "counts": {
+            "kind": kind,
+            "from": start,
+            "to": end,
+            "added": len(fresh),
+            "updated": len(changed),
+            "removed": len(gone),
+            "kept": len(current) - len(gone) - len(changed),
+        },
     }
+
+
+#  이만큼 아래로는 가드가 나서지 않는다. 한두 건 지우는 것은 사고라 해도 잃는 것이
+#  적고 눈에 금방 띄는데, 여기에 가드를 걸면 자료가 몇 건뿐인 해를 정상적으로
+#  고치는 일마다 걸려서 정작 필요할 때 `force=true` 를 습관처럼 붙이게 된다.
+MASS_DELETE_FLOOR = 3
+
+
+def mass_delete_refusal(plan: dict) -> str | None:
+    """
+    한꺼번에 많이 지우게 되면 막는다. 막을 까닭이 없으면 None.
+
+    **남길 것보다 지울 것이 많으면** 무언가 잘못된 것이다: 특일 API 가 반쯤 죽어
+    몇 줄만 줬거나, 한 달치를 한 해인 줄 알고 보냈거나(창은 해 전체로 잡히므로
+    나머지 열한 달이 통째로 지워진다), 엉뚱한 종류로 보냈거나. 어느 쪽이든 실제로
+    지워지는 양이 `MASS_DELETE_FLOOR` 는 넘는다 — 한 해는 공휴일 스무 건 남짓,
+    절기 스물넷이다.
+
+    평소의 동기화는 여기 걸리지 않는다. 대체공휴일이 취소돼도 `removed=1, kept=19`
+    라 멀쩡히 지나간다.
+    """
+    counts = plan["counts"]
+    removed, kept = counts["removed"], counts["kept"]
+
+    if removed < MASS_DELETE_FLOOR or removed <= kept:
+        return None
+
+    return (
+        f"{counts['from']} ~ {counts['to']} 의 {counts['kind']} 에서 {removed}건을 지우고 "
+        f"{kept}건만 남기게 됩니다. 받아온 자료가 한 해치가 맞는지 확인해주세요. "
+        "정말 이대로 맞추려면 force=true 를 붙여주세요."
+    )
+
+
+@transaction.atomic
+def apply_plan(plan: dict) -> None:
+    """
+    정해둔 것을 쓴다. 한 덩어리로 묶는다 — 중간에 끊기면 지우기만 하고 넣지 못한
+    채 남아, 달력에 공휴일이 사라진 상태가 된다.
+    """
+    if plan["gone"]:
+        SpecialDay.objects.filter(pk__in=plan["gone"]).delete()
+    if plan["fresh"]:
+        SpecialDay.objects.bulk_create(plan["fresh"])
+    if plan["changed"]:
+        now = timezone.now()
+        for row in plan["changed"]:
+            # `auto_now` 는 save() 에서만 찍힌다. bulk_update 는 지나치므로 손으로 넣는다.
+            row.updated_at = now
+        SpecialDay.objects.bulk_update(plan["changed"], ["name", "updated_at"])

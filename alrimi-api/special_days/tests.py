@@ -38,11 +38,16 @@ class SyncTests(TestCase):
 
     url = reverse("special-day-sync")
 
-    def sync(self, items, kind="holiday", start="2026-01-01", end="2026-12-31", **params):
-        query = {"kind": kind, "from": start, "to": end, **params}
+    def sync(self, items, kind="holiday", **params):
+        """기간은 보낸 자료에서 뽑힌다 — 부르는 쪽이 적을 것이 `kind` 뿐이다."""
+        query = {"kind": kind, **params}
+        return self.post(items, "&".join(f"{k}={v}" for k, v in query.items()))
+
+    def post(self, body, query="kind=holiday"):
+        """본문을 손대지 않고 그대로 보낸다 (배열이든 객체든)."""
         return self.client.post(
-            f"{self.url}?" + "&".join(f"{k}={v}" for k, v in query.items()),
-            {"days": items},
+            f"{self.url}?{query}",
+            body if not isinstance(body, list) or query.startswith("raw") else {"days": body},
             content_type="application/json",
             headers={"x-api-key": KEY},
         )
@@ -120,7 +125,7 @@ class SyncTests(TestCase):
 
     def test_kind_defaults_to_holiday(self):
         res = self.client.post(
-            f"{self.url}?from=2026-01-01&to=2026-12-31",
+            f"{self.url}?kind=holiday",
             {"days": [{"date": "2026-01-01", "name": "1월 1일"}]},
             content_type="application/json",
             headers={"x-api-key": KEY},
@@ -145,7 +150,7 @@ class SyncTests(TestCase):
     def test_the_old_field_name_still_works(self):
         """`holidays` 로 짜둔 워크플로가 있으면 그대로 돌아야 한다."""
         res = self.client.post(
-            f"{self.url}?from=2026-01-01&to=2026-12-31",
+            f"{self.url}?kind=holiday",
             {"holidays": [{"date": "2026-01-01", "name": "1월 1일"}]},
             content_type="application/json",
             headers={"x-api-key": KEY},
@@ -179,7 +184,7 @@ class SyncTests(TestCase):
     def test_a_bare_array_works(self):
         """이름표 없이 배열만 보내도 된다."""
         res = self.client.post(
-            f"{self.url}?kind=term&from=2026-01-01&to=2026-12-31",
+            f"{self.url}?kind=term",
             [{"date": "2026-03-20", "name": "춘분"}],
             content_type="application/json",
             headers={"x-api-key": KEY},
@@ -190,7 +195,7 @@ class SyncTests(TestCase):
     def test_a_list_under_terms_works(self):
         """절기를 주는 쪽은 배열을 `terms` 에 담는다."""
         res = self.client.post(
-            f"{self.url}?kind=term&from=2026-01-01&to=2026-12-31",
+            f"{self.url}?kind=term",
             {"terms": [{"date": "2026-03-20", "name": "춘분"}]},
             content_type="application/json",
             headers={"x-api-key": KEY},
@@ -204,7 +209,7 @@ class SyncTests(TestCase):
         (`source`·`updatedAt`·`current`·`next`)가 붙어 와도 목록만 집어내야 한다.
         """
         res = self.client.post(
-            f"{self.url}?kind=term&from=2026-01-01&to=2026-12-31",
+            f"{self.url}?kind=term",
             [
                 {
                     "source": "api",
@@ -230,7 +235,7 @@ class SyncTests(TestCase):
     def test_extra_fields_on_a_row_are_ignored(self):
         """`sunLongitude`·`time`·`at`·`ts` 는 달력이 쓰지 않는다. 걸리적거리면 안 된다."""
         res = self.client.post(
-            f"{self.url}?kind=term&from=2026-01-01&to=2026-12-31",
+            f"{self.url}?kind=term",
             {
                 "terms": [
                     {
@@ -253,7 +258,7 @@ class SyncTests(TestCase):
     def test_several_wrapped_batches_are_joined(self):
         """달마다 부른 것을 모아 한 번에 넘길 때."""
         res = self.client.post(
-            f"{self.url}?kind=term&from=2026-01-01&to=2026-12-31",
+            f"{self.url}?kind=term",
             [
                 {"terms": [{"date": "2026-03-20", "name": "춘분"}]},
                 {"terms": [{"date": "2026-09-23", "name": "추분"}]},
@@ -265,7 +270,7 @@ class SyncTests(TestCase):
 
     def test_a_body_with_no_list_anywhere_is_400(self):
         res = self.client.post(
-            f"{self.url}?from=2026-01-01&to=2026-12-31",
+            f"{self.url}?kind=holiday",
             {"source": "api"},
             content_type="application/json",
             headers={"x-api-key": KEY},
@@ -321,9 +326,6 @@ class SyncTests(TestCase):
     def test_a_row_without_a_name_is_400(self):
         self.assertEqual(self.sync([{"date": "2026-01-01"}]).status_code, 400)
 
-    def test_a_date_outside_the_range_is_400(self):
-        self.assertEqual(self.sync([{"date": "2027-01-01", "name": "x"}]).status_code, 400)
-
     def test_the_same_day_with_two_names_is_400(self):
         res = self.sync(
             [
@@ -342,12 +344,13 @@ class SyncTests(TestCase):
         self.assertEqual(res.status_code, 400)
         self.assertEqual(len(self.rows()), 1, "빈 응답에 기존 자료가 지워졌다")
 
-    def test_an_empty_list_goes_through_when_asked_for(self):
+    def test_an_empty_list_cannot_be_forced_either(self):
+        """창을 자료에서 뽑으니, 빈 목록에는 '어느 기간을 비우라는 것인지' 가 없다."""
         SpecialDay.objects.create(date=dt.date(2026, 1, 1), kind="holiday", name="1월 1일")
-        res = self.sync([], allow_empty="true")
+        res = self.sync([], force="true")
 
-        self.assertEqual(res.status_code, 200)
-        self.assertEqual(self.rows(), [])
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(len(self.rows()), 1)
 
     def test_a_list_filtered_down_to_nothing_is_also_refused(self):
         """섞인 응답에서 쉬는 날이 하나도 없었던 경우. 결과는 빈 목록이라 같은 이유로 막는다."""
@@ -357,19 +360,123 @@ class SyncTests(TestCase):
         self.assertEqual(res.status_code, 400)
         self.assertEqual(len(self.rows()), 1)
 
-    # ── 기간·열쇠 ────────────────────────────────────────────────────
+    # ── 열쇠 ─────────────────────────────────────────────────────────
 
-    def test_a_missing_range_is_400(self):
-        res = self.client.post(
-            self.url, {"days": []}, content_type="application/json", headers={"x-api-key": KEY}
+    # ── 기간은 자료에서 뽑는다 ───────────────────────────────────────
+
+    def test_the_window_is_the_whole_year_the_data_falls_in(self):
+        res = self.sync([{"date": "2026-03-01", "name": "삼일절"}])
+
+        self.assertEqual(res.json()["from"], "2026-01-01")
+        self.assertEqual(res.json()["to"], "2026-12-31")
+
+    def test_two_years_of_data_make_a_two_year_window(self):
+        """절기는 두 해치가 한 번에 온다."""
+        res = self.sync(
+            [{"date": "2026-03-20", "name": "춘분"}, {"date": "2027-03-21", "name": "춘분"}],
+            kind="term",
         )
+
+        self.assertEqual(res.json()["from"], "2026-01-01")
+        self.assertEqual(res.json()["to"], "2027-12-31")
+
+    def test_the_last_holiday_of_a_year_can_still_be_cancelled(self):
+        """
+        창을 날짜의 최소~최대로 잡으면 이게 깨진다 — 12/31 이 취소되면 그 날짜가
+        목록에서 사라져 창 끝도 당겨지고, 정작 지워야 할 줄이 창 밖에 남는다.
+        해 전체로 넓혀 잡는 까닭이 이것이다.
+        """
+        self.sync(
+            [
+                {"date": "2026-03-01", "name": "삼일절"},
+                {"date": "2026-06-06", "name": "현충일"},
+                {"date": "2026-12-31", "name": "임시공휴일"},
+            ]
+        )
+
+        res = self.sync(
+            [{"date": "2026-03-01", "name": "삼일절"}, {"date": "2026-06-06", "name": "현충일"}]
+        )
+
+        self.assertEqual(res.json()["removed"], 1)
+        self.assertNotIn(("2026-12-31", "holiday", "임시공휴일"), self.rows())
+
+    def test_the_first_holiday_of_a_year_can_still_be_cancelled(self):
+        """앞쪽 끝도 마찬가지다."""
+        self.sync(
+            [
+                {"date": "2026-01-01", "name": "1월 1일"},
+                {"date": "2026-03-01", "name": "삼일절"},
+                {"date": "2026-06-06", "name": "현충일"},
+            ]
+        )
+
+        res = self.sync(
+            [{"date": "2026-03-01", "name": "삼일절"}, {"date": "2026-06-06", "name": "현충일"}]
+        )
+
+        self.assertEqual(res.json()["removed"], 1)
+        self.assertNotIn(("2026-01-01", "holiday", "1월 1일"), self.rows())
+
+    def test_a_year_with_no_data_sent_is_left_alone(self):
+        """2027년치만 보내면 2026년은 그대로다."""
+        SpecialDay.objects.create(date=dt.date(2026, 3, 1), kind="holiday", name="삼일절")
+
+        self.sync([{"date": "2027-03-01", "name": "삼일절"}])
+
+        self.assertIn(("2026-03-01", "holiday", "삼일절"), self.rows())
+
+    # ── 한꺼번에 많이 지우게 되면 막는다 ──────────────────────────────
+
+    def test_wiping_most_of_a_year_is_refused(self):
+        """한 달치를 한 해인 줄 알고 보내면 나머지가 통째로 지워질 판이 된다."""
+        for day in range(1, 6):
+            SpecialDay.objects.create(
+                date=dt.date(2026, day, 1), kind="holiday", name=f"공휴일{day}"
+            )
+
+        res = self.sync([{"date": "2026-03-01", "name": "공휴일3"}])
+
         self.assertEqual(res.status_code, 400)
+        self.assertIn("force=true", res.json()["detail"])
+        self.assertEqual(len(self.rows()), 5, "막혔는데 지워졌다")
 
-    def test_a_reversed_range_is_400(self):
-        self.assertEqual(self.sync([], start="2026-12-31", end="2026-01-01").status_code, 400)
+    def test_force_pushes_it_through(self):
+        for day in range(1, 6):
+            SpecialDay.objects.create(
+                date=dt.date(2026, day, 1), kind="holiday", name=f"공휴일{day}"
+            )
 
-    def test_an_absurd_range_is_refused(self):
-        self.assertEqual(self.sync([], start="2020-01-01", end="2030-01-01").status_code, 400)
+        res = self.sync([{"date": "2026-03-01", "name": "공휴일3"}], force="true")
+
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(len(self.rows()), 1)
+
+    def test_an_ordinary_cancellation_is_not_mistaken_for_a_wipe(self):
+        """한 해 스무 건에서 하나 빠지는 것은 평범한 일이다. 여기 걸리면 못 쓴다."""
+        days = [{"date": f"2026-{m:02d}-01", "name": f"공휴일{m}"} for m in range(1, 13)]
+        self.sync(days)
+
+        res = self.sync(days[:-1])
+
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json(), {**res.json(), "removed": 1, "kept": 11})
+
+    def test_a_first_sync_into_an_empty_range_is_never_refused(self):
+        """지울 것이 없으면 막을 것도 없다."""
+        self.assertEqual(self.sync([{"date": "2026-03-01", "name": "삼일절"}]).status_code, 200)
+
+    def test_a_tiny_change_is_not_refused(self):
+        """
+        자료가 두어 건뿐인 해를 고치는 일마다 걸리면, 정작 필요할 때 force=true 를
+        습관처럼 붙이게 된다. 그래서 바닥값(MASS_DELETE_FLOOR) 아래는 나서지 않는다.
+        """
+        SpecialDay.objects.create(date=dt.date(2026, 3, 2), kind="holiday", name="대체공휴일")
+
+        res = self.sync([{"date": "2026-01-01", "name": "1월 1일"}])
+
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()["removed"], 1)
 
     #  막힌 응답은 403 이다 — `authentication_classes([])` 라 DRF 가 "어떻게
     #  인증하라" 를 적어줄 수 없어 401 대신 403 으로 내려간다. 크론이 부르는
@@ -377,7 +484,7 @@ class SyncTests(TestCase):
 
     def test_without_the_key_it_is_shut(self):
         res = self.client.post(
-            f"{self.url}?from=2026-01-01&to=2026-12-31",
+            f"{self.url}?kind=holiday",
             {"days": []},
             content_type="application/json",
         )
