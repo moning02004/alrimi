@@ -60,5 +60,7 @@ export const pageUrl = {
   home: "/home",
   past: "/past",
   settings: "/settings",
+  // 로그인 없이 열린다. 구글 OAuth 동의 화면에 이 주소를 적는다
+  privacy: "/privacy",
   event: (eventId: number) => `/events/${eventId}`,
 } as const;

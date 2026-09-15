@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { api } from "@/lib/api";
@@ -86,6 +87,11 @@ export default function LoginPage() {
         <br />
         회원가입 기능은 없습니다.
       </p>
+
+      {/* 구글 OAuth 검증은 첫 화면에서 개인정보처리방침으로 가는 길을 요구한다 */}
+      <Link href={pageUrl.privacy} className="mt-3 text-center text-xs text-muted underline">
+        개인정보처리방침
+      </Link>
     </main>
   );
 }

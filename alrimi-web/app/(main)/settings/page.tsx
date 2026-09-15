@@ -215,6 +215,10 @@ export default function SettingsPage() {
             <p className="text-sm">비밀번호 변경</p>
             <span className="text-xs text-muted">›</span>
           </button>
+          <Link href={pageUrl.privacy} className={`${rowCls} w-full`}>
+            <p className="text-sm">개인정보처리방침</p>
+            <span className="text-xs text-muted">›</span>
+          </Link>
           <div className="px-4 py-3">
             <button onClick={logout} className="text-sm text-red-600">
               로그아웃
