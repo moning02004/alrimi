@@ -3,7 +3,7 @@
 import { CalendarBands } from "./CalendarBands";
 import { covers, layoutRow, type Limits } from "@/lib/calendar";
 import { dayName, startOfDay, toISO, windowDays } from "@/lib/date";
-import { allNames, leadMark, type MarkMap } from "@/lib/marks";
+import { DIM, allNames, filledCircle, leadMark, markText, type MarkMap } from "@/lib/marks";
 import type { CalendarEvent } from "@/types";
 
 /** 머리글 안이라 자리가 더 좁다 */
@@ -54,8 +54,17 @@ export function WeekStrip({ start, events, marks = {}, onJumpTo, jumpFrom }: Pro
           // 주 중반에는 이미 지난 날이 창 안에 들어온다. 띠만 흐리고 날짜가
           // 또렷하면 어디까지 지났는지가 두 곳에서 엇갈린다.
           const gone = iso < todayISO;
-          // 겹친 날(현충일 = 공휴일 + 기념일)은 맨 앞 하나가 칸을 대표한다
+          // 겹친 날(추분이 추석과 겹치는 해가 있다)은 맨 앞 하나가 칸을 대표한다
           const mark = leadMark(marks[iso]);
+
+          /*
+            이 칸의 칠. **오늘이 특일이면 동그라미도 그 색으로 찬다** — 초록으로만
+            채우면 하필 오늘 자리에서 무슨 날인지가 지워진다.
+
+            여기 오늘이 꽉 찬 동그라미인 것은, 주간 스트립에는 "고른 날" 이 없어
+            오늘이 곧 이 줄의 표시라서다(월간은 고른 날이 꽉 차고 오늘은 옅다).
+          */
+          const paint = isToday ? filledCircle(mark) : mark ? markText(mark, gone) : null;
 
           return (
             <div key={iso} className="min-w-0 flex-1">
@@ -65,29 +74,18 @@ export function WeekStrip({ start, events, marks = {}, onJumpTo, jumpFrom }: Pro
               <span className="mt-0.5 flex justify-center">
                 <span
                   /*
-                    특일은 **굵다**. 색만으로는 안 된다 — 이만한 크기의 숫자에서
-                    색은 잘 갈리지 않고, 애초에 무슨 색일지는 보는 사람이 정해서
-                    먹색일 수도 있다. 굵기는 색과 상관없는 둘째 신호다.
-
-                    오늘이 칠해지는 것은 그보다 먼저다 — 초록 동그라미 위에 다른
-                    글씨색을 얹으면 어느 쪽도 안 읽힌다. 그때는 아래 이름이 말해준다.
+                    특일은 **굵다**(위 `paint`). 색만으로는 안 된다 — 이만한 크기의
+                    숫자에서 색은 잘 갈리지 않고, 애초에 무슨 색일지는 보는 사람이
+                    정해서 먹색일 수도 있다. 굵기는 색과 상관없는 둘째 신호다.
 
                     지난 날은 특일이어도 같이 흐려진다. 여기서 흐림이 말하는 것은
                     "이미 지났다" 이고, 그 말은 무슨 날이든 그대로 맞다.
                   */
                   className={`flex h-6 w-6 items-center justify-center rounded-full text-sm ${
-                    isToday
-                      ? "bg-pine font-semibold text-white"
-                      : mark
-                        ? "font-semibold"
-                        : gone
-                          ? "text-muted/60"
-                          : hasItems
-                            ? ""
-                            : "text-muted/50"
+                    paint?.className ??
+                    (gone ? "text-muted/60" : hasItems ? "" : "text-muted/50")
                   }`}
-                  // 색은 인라인이다 — 보는 사람이 팔레트에서 고른 값이라 클래스로 못 박는다
-                  style={mark && !isToday ? { color: mark.color, opacity: gone ? 0.5 : 1 } : undefined}
+                  style={paint?.style}
                 >
                   {day.getDate()}
                 </span>
@@ -109,7 +107,7 @@ export function WeekStrip({ start, events, marks = {}, onJumpTo, jumpFrom }: Pro
                 <span
                   title={allNames(marks[iso])}
                   className="mt-0.5 block truncate px-0.5 text-[9px] font-medium leading-tight"
-                  style={{ color: mark.color, opacity: gone ? 0.5 : 1 }}
+                  style={{ color: mark.color, opacity: gone ? DIM : 1 }}
                 >
                   {mark.name}
                 </span>

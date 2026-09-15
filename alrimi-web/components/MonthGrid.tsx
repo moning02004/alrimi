@@ -3,7 +3,15 @@
 import { CalendarBands } from "./CalendarBands";
 import { covers, layoutRow, type Limits } from "@/lib/calendar";
 import { monthGridDays, startOfDay, toISO, WEEK_DAYS } from "@/lib/date";
-import { allNames, leadMark, type MarkMap } from "@/lib/marks";
+import {
+  DIM,
+  allNames,
+  filledCircle,
+  leadMark,
+  markText,
+  tintedCircle,
+  type MarkMap,
+} from "@/lib/marks";
 import type { CalendarEvent } from "@/types";
 
 // 주간 창과 같이 일요일부터. 일요일이 맨 앞이라 붉은 칸도 첫 칸이다
@@ -82,8 +90,24 @@ export function MonthGrid({
               const outside = day.getMonth() !== month;
               const isToday = iso === todayISO;
               const isSelected = iso === selected;
-              // 겹친 날(현충일 = 공휴일 + 기념일)은 맨 앞 하나가 칸을 대표한다
+              // 겹친 날(추분이 추석과 겹치는 해가 있다)은 맨 앞 하나가 칸을 대표한다
               const mark = leadMark(marks[iso]);
+
+              /*
+                이 칸의 칠. **고른 날은 그 특일 색으로 찬다** — 고른 날이 추석인데
+                동그라미만 초록이면 그 칸에서 "무슨 날인지" 가 지워진다.
+
+                셋 다 아니면 `null` 이라, 아래에서 여느 날의 옷을 그대로 입는다.
+                색이 클래스가 아니라 `style` 로 가는 까닭은 `lib/marks.ts` 참고 —
+                보는 사람이 고른 값이라 Tailwind 가 미리 뽑아둘 수가 없다.
+              */
+              const paint = isSelected
+                ? filledCircle(mark)
+                : isToday
+                  ? tintedCircle(mark)
+                  : mark
+                    ? markText(mark, outside)
+                    : null;
 
               return (
                 <span key={iso} className="flex min-w-0 flex-col items-center">
@@ -92,31 +116,14 @@ export function MonthGrid({
                       big ? "h-7 w-7 text-[15px]" : "h-6 w-6 text-sm"
                     } ${
                       /*
-                        특일은 **굵다**. 색만으로는 안 된다 — 이만한 크기의 숫자에서
-                        색은 잘 갈리지 않고, 애초에 무슨 색일지는 보는 사람이 정해서
-                        먹색일 수도 있다. 굵기는 색과 상관없는 둘째 신호라, 색이 안
-                        읽히는 눈에도 "여느 날이 아니다" 가 남는다.
-
-                        고른 날·오늘은 칸이 칠해지므로 그 위의 글자색이 이긴다 —
-                        빨간 글씨를 초록 동그라미 위에 얹으면 어느 쪽도 안 읽힌다.
-                        그때는 아래 이름 줄이 무슨 날인지 말해준다.
+                        특일은 **굵다**(위 `paint`). 색만으로는 안 된다 — 이만한
+                        크기의 숫자에서 색은 잘 갈리지 않고, 애초에 무슨 색일지는
+                        보는 사람이 정해서 먹색일 수도 있다. 굵기는 색과 상관없는
+                        둘째 신호라, 색이 안 읽히는 눈에도 "여느 날이 아니다" 가 남는다.
                       */
-                      isSelected
-                        ? "bg-pine font-semibold text-white"
-                        : isToday
-                          ? "bg-pinelt font-semibold text-pine"
-                          : mark
-                            ? "font-semibold"
-                            : outside
-                              ? "text-muted/40"
-                              : ""
+                      paint?.className ?? (outside ? "text-muted/40" : "")
                     }`}
-                    /*
-                      색은 인라인이다 — 보는 사람이 팔레트에서 고른 값이라 클래스로
-                      미리 적어둘 수 없다. 이 달 밖의 날은 흐리게: 여기서 흐림이
-                      말하는 것은 "이 달이 아니다" 라 특일에도 그대로 맞다.
-                    */
-                    style={mark ? { color: mark.color, opacity: outside ? 0.45 : 1 } : undefined}
+                    style={paint?.style}
                   >
                     {day.getDate()}
                   </span>
@@ -139,7 +146,7 @@ export function MonthGrid({
                       className={`w-full truncate px-0.5 font-medium leading-tight ${
                         big ? "text-[10px]" : "text-[9px]"
                       }`}
-                      style={{ color: mark.color, opacity: outside ? 0.45 : 1 }}
+                      style={{ color: mark.color, opacity: outside ? DIM : 1 }}
                     >
                       {mark.name}
                     </span>
