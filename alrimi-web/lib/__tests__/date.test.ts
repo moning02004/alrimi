@@ -135,7 +135,6 @@ const event = (id: number, event_date: string, end_date = event_date) =>
     end_date,
     event_hour: null,
     title: `#${id}`,
-    priority: 4,
     completed_at: null,
     zone_id: 1,
     zone_color: "#2F7A63",

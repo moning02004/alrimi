@@ -21,6 +21,8 @@ from urllib.request import Request, urlopen
 from django.conf import settings
 from django.utils import formats
 
+from .models import Priority
+
 logger = logging.getLogger(__name__)
 
 
@@ -109,7 +111,7 @@ def send_alert(alert) -> None:
             event.zone.owner.ntfy_topic,
             title=title,
             message=message,
-            priority=event.priority,
+            priority=Priority.NORMAL,
         )
     except NtfyError:
         alert.mark_failed()

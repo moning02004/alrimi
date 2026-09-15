@@ -107,7 +107,6 @@ class EventCrudTests(ApiTestCase):
             "event_date": str(self.today + dt.timedelta(days=1)),
             "title": "가을 운동회",
             "content": "흰 티셔츠, 모자",
-            "priority": 5,
             "alerts": ["D-1 20:00", "D 07:00"],
             **over,
         }
@@ -357,7 +356,6 @@ class CreateEventZoneTests(ApiTestCase):
             "event_date": str(self.today),
             "title": "본문으로 공간 지정",
             "content": "",
-            "priority": 4,
             "alerts": ["D 07:00"],
         }
 
@@ -1003,8 +1001,8 @@ class SendAlertTests(ApiTestCase):
         publish_mock.assert_called_once()
         topic = publish_mock.call_args.args[0]
         self.assertEqual(topic, self.user.ntfy_topic)
-        # 우선순위는 일정의 것을 그대로 쓴다 — 값이 ntfy 등급(1~5)과 같은 축이다
-        self.assertEqual(publish_mock.call_args.kwargs["priority"], self.event.priority)
+        # 일정마다 중요도를 고르지 않는다. 모두 일반 등급으로 나간다
+        self.assertEqual(publish_mock.call_args.kwargs["priority"], Priority.NORMAL)
 
         self.alert.refresh_from_db()
         self.assertEqual(self.alert.status, EventAlert.Status.SENT)
@@ -1070,7 +1068,7 @@ class CronEndpointTests(TestCase):
 
     def make(self, event_date, title="가을 운동회"):
         return Event.objects.create(
-            zone=self.zone, event_date=event_date, title=title, content="", priority=4
+            zone=self.zone, event_date=event_date, title=title, content=""
         )
 
     # ── 열쇠 ────────────────────────────────────────────────────
@@ -1169,7 +1167,7 @@ class CronEndpointTests(TestCase):
         other_zone = Zone.objects.create(owner=other, name="회사")
         self.make(dt.date(2026, 9, 14), "내_일정")
         Event.objects.create(
-            zone=other_zone, event_date=dt.date(2026, 9, 14), title="남_일정", content="", priority=3
+            zone=other_zone, event_date=dt.date(2026, 9, 14), title="남_일정", content=""
         )
 
         with patch("notices.views.timezone.localdate", return_value=dt.date(2026, 9, 13)):
@@ -1191,7 +1189,7 @@ class CronEndpointTests(TestCase):
         second = Zone.objects.create(owner=self.user, name="회사")
         self.make(dt.date(2026, 9, 14), "어린이집_일")
         Event.objects.create(
-            zone=second, event_date=dt.date(2026, 9, 15), title="회사_일", content="", priority=4
+            zone=second, event_date=dt.date(2026, 9, 15), title="회사_일", content=""
         )
 
         with patch("notices.views.timezone.localdate", return_value=dt.date(2026, 9, 13)):
@@ -1229,7 +1227,7 @@ class CronEndpointTests(TestCase):
 
     # ── 매시 발송도 공간마다 한 통 ──────────────────────────────
 
-    def due(self, zone, title, *, content="", priority=Priority.NORMAL, event_hour=None,
+    def due(self, zone, title, *, content="", event_hour=None,
             on=None, code="D 08:00"):
         """방금 시각이 된 예약 하나. `on` 을 주면 그 날 일정에 걸린다."""
         event = Event.objects.create(
@@ -1237,7 +1235,6 @@ class CronEndpointTests(TestCase):
             event_date=on or timezone.localdate(),
             title=title,
             content=content,
-            priority=priority,
             event_hour=event_hour,
         )
         return EventAlert.objects.create(
@@ -1329,14 +1326,6 @@ class CronEndpointTests(TestCase):
             [str(timezone.localdate()), " - 07시 체육복", "   └ 흰 티셔츠"],
         )
 
-    @override_settings(N8N_API_KEY="k")
-    def test_묶인_통은_가장_급한_중요도를_따른다(self):
-        """낮은 쪽을 따르면 긴급으로 잡아둔 일정이 방해금지에 막혀 조용히 도착한다."""
-        self.due(self.zone, "조용한 것", priority=Priority.LOW)
-        self.due(self.zone, "급한 것", priority=Priority.URGENT)
-
-        self.assertEqual(self.ready()["data"][0]["priority"], Priority.URGENT)
-
 
 class EventHourTests(ApiTestCase):
     """
@@ -1352,7 +1341,6 @@ class EventHourTests(ApiTestCase):
             "event_date": str(self.today + dt.timedelta(days=3)),
             "title": "가을 운동회",
             "content": "",
-            "priority": 4,
             "alerts": ["D-1 20:00"],
         }
         body.update(over)
@@ -1434,7 +1422,6 @@ class MultiDayEventTests(ApiTestCase):
             "event_date": str(self.today + dt.timedelta(days=1)),
             "title": "제주 여행",
             "content": "",
-            "priority": 4,
             "alerts": ["D-1 20:00"],
             **over,
         }
@@ -1699,9 +1686,9 @@ class WebPushTests(TestCase):
             auth="auth-secret",
         )
 
-    def make_due_alert(self, title="체육복", priority=4):
+    def make_due_alert(self, title="체육복"):
         event = Event.objects.create(
-            zone=self.zone, event_date=self.today, title=title, priority=priority
+            zone=self.zone, event_date=self.today, title=title
         )
         event.sync_alerts(["D 07:00"])
         alert = event.alerts.get()

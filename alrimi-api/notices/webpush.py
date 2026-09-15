@@ -139,7 +139,7 @@ def send_alert(alert) -> int:
         event.zone.owner,
         title=title,
         message=message,
-        priority=event.priority,
+        priority=Priority.NORMAL,
         # 같은 예약은 몇 번을 보내도 알림 하나로 덮인다
         tag=f"alert-{alert.pk}",
     )

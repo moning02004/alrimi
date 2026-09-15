@@ -1,5 +1,3 @@
-import type { Priority } from "@/types";
-
 /**
  * 알림 코드 형식: "D-1 20:00"(하루 전) / "D 07:00"(당일) / "D+3 20:00"(사흘 뒤).
  *
@@ -38,12 +36,6 @@ export const PRESETS: Record<string, string[]> = {
   "잊지 않게": ["D-7 20:00", "D-5 20:00", "D-3 20:00", "D-1 20:00", "D 08:00"],
 };
 
-export const PRIORITIES: { value: Priority; label: string; hint: string }[] = [
-  { value: 2, label: "조용히", hint: "소리와 진동 없이 조용히 도착해요" },
-  { value: 4, label: "일반", hint: "평소 알림처럼 소리가 울려요" },
-  { value: 5, label: "긴급", hint: "무음이나 방해금지 상태에서도 울려요" },
-];
-
 const pad = (n: number) => String(n).padStart(2, "0");
 
 export const makeCode = (offset: number, hour: number) =>
@@ -74,7 +66,3 @@ export function sortCodes(codes: string[]) {
     return y.offset - x.offset || x.hour - y.hour;
   });
 }
-
-/** 보통(3)은 기본값이라 목록에서 표시하지 않는다 */
-export const priorityLabel = (p: Priority) =>
-  p === 5 ? "긴급" : p === 2 ? "낮음" : null;

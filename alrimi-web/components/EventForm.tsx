@@ -8,7 +8,6 @@ import {
     DAY_OPTIONS,
     HOUR_OPTIONS,
     PRESETS,
-    PRIORITIES,
     codeLabel,
     makeCode,
     sortCodes,
@@ -29,7 +28,7 @@ import {onColor} from "@/lib/color";
 import {useZoneMark, useZones} from "@/hooks/useZones";
 import {Picker} from "./Picker";
 import {ZoneMark} from "./ZoneMark";
-import type {EventDetail, Priority} from "@/types";
+import type {EventDetail} from "@/types";
 import {LuCalendar} from "react-icons/lu";
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -239,7 +238,6 @@ export function EventForm({event, initialDate, resume = false, onDone}: Props) {
     */
     const [eventHour, setEventHour] = useState<number | null>(event?.event_hour ?? null);
     const [hourOpen, setHourOpen] = useState(event?.event_hour != null);
-    const [priority, setPriority] = useState<Priority>(event?.priority ?? 4);
     const [alerts, setAlerts] = useState<string[]>(
         event ? sortCodes(event.alerts.map((a) => a.code)) : PRESETS["기본으로"],
     );
@@ -340,7 +338,6 @@ export function EventForm({event, initialDate, resume = false, onDone}: Props) {
             event_hour: ranged ? null : eventHour,
             title: title.trim(),
             content: content.trim(),
-            priority,
             alerts,
             // 다시 잡으면 보류가 풀린다. 서버가 이 값을 보고 지난번에 나간
             // 예약까지 되살려 새 날짜로 다시 건다.
@@ -377,8 +374,6 @@ export function EventForm({event, initialDate, resume = false, onDone}: Props) {
     const chosenPreset = Object.keys(PRESETS).find(
         (name) => sortCodes(PRESETS[name]).join() === alerts.join(),
     );
-
-    const hint = PRIORITIES.find((p) => p.value === priority)!.hint;
 
     return (
         <>
@@ -607,38 +602,6 @@ export function EventForm({event, initialDate, resume = false, onDone}: Props) {
                         placeholder="흰 티셔츠, 모자"
                         className={`${inputCls} resize-none`}
                     />
-                </div>
-
-                {/*
-          아래 칸이 "알림"(언제 보낼지)이라 이 줄은 다른 이름이어야 한다.
-
-          "알림음" 은 소리만 말해서 맞지 않는다 — 긴급은 무음·방해금지까지 뚫고
-          울리는 것이라 소리 크기와는 다른 이야기다. 안드로이드가 이 설정을 한국어로
-          "중요도" 라 부르고(중요도 낮음 = 소리 없이 조용히), 조용히·일반·긴급이
-          그 눈금 위에 그대로 얹힌다.
-        */}
-                <div className="px-4 py-2.5">
-                    <div className="flex items-center gap-3">
-                        <span className="w-14 shrink-0 text-sm text-muted">알림</span>
-                        <div className="flex flex-1 gap-1.5">
-                            {PRIORITIES.map((p) => (
-                                <button
-                                    key={p.value}
-                                    type="button"
-                                    aria-pressed={priority === p.value}
-                                    onClick={() => setPriority(p.value)}
-                                    className={`flex-1 rounded-lg border py-1.5 text-sm ${
-                                        priority === p.value
-                                            ? "border-pine bg-pinelt font-medium text-pine"
-                                            : "border-line bg-paper text-muted"
-                                    }`}
-                                >
-                                    {p.label}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-                    <p className="ml-14 pl-3 pt-1.5 text-xs text-muted">{hint}</p>
                 </div>
 
                 {/*

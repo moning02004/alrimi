@@ -51,8 +51,6 @@ self.addEventListener("push", function (event) {
     // 덮어쓸 때 소리·진동을 다시 내지 않는다. 같은 내용으로 두 번 울리면
     // 새 일이 생긴 것으로 읽힌다.
     renotify: false,
-    // 긴급(5)은 손으로 치울 때까지 남긴다. 잠깐 떴다 사라지면 못 본 채 지나간다.
-    requireInteraction: payload.priority === 5,
     data: { url: payload.url || "/" },
   };
 

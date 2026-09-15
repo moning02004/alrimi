@@ -19,7 +19,7 @@ from rest_framework.views import APIView
 from accounts.permissions import HasAPIKey
 
 from .filters import FILTERS, filter_q, ordering_for
-from .models import EventAlert, Event
+from .models import EventAlert, Event, Priority
 from .ntfy import NtfyError, send_alert
 from .webpush import send_alert as push_alert, send_to_user
 from .serializers import (
@@ -466,9 +466,8 @@ def due_alert_groups(alerts) -> list[dict]:
             "title": f"[{zone_name}] 일정 {len(events)}건",
             # 날짜 묶음 사이는 한 줄 띄운다. 붙여두면 날짜 줄이 앞 묶음의 꼬리로 읽힌다.
             "message": "\n\n".join(blocks),
-            # 한 통에 섞였으니 가장 급한 것을 따른다. 낮은 쪽을 따르면 긴급으로
-            # 잡아둔 일정이 방해금지에 막혀 조용히 도착한다.
-            "priority": max(event.priority for event in events),
+            # 일정마다 중요도를 고르지 않는다. 모두 일반 등급으로 나간다.
+            "priority": Priority.NORMAL,
             "ids": ids[key],
         })
 

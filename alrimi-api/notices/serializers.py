@@ -51,7 +51,6 @@ class EventListSerializer(serializers.ModelSerializer):
             "end_date",
             "event_hour",
             "title",
-            "priority",
             "completed_at",
             # 보류함이 "9월 14일에 있던 일정" 을 적으려면 치운 때가 아니라 보류
             # 여부를 알아야 한다. 목록 카드도 이 값으로 완료 동그라미를 감춘다 —
@@ -84,7 +83,6 @@ class EventDetailSerializer(serializers.ModelSerializer):
             "event_hour",
             "title",
             "content",
-            "priority",
             "completed_at",
             "held_at",
             "zone_id",
@@ -117,7 +115,6 @@ class EventWriteSerializer(serializers.ModelSerializer):
             "event_hour",
             "title",
             "content",
-            "priority",
             "alerts",
             "completed",
             "held",

@@ -12,8 +12,8 @@ class EventAlertInline(admin.TabularInline):
 @admin.register(Event)
 class EventAdmin(admin.ModelAdmin):
     # 시작일만으로는 여행이 하루짜리처럼 보인다. 마지막 날을 같이 세운다.
-    list_display = ("id", "event_date", "end_date", "title", "zone", "priority", "completed_at")
-    list_filter = ("zone", "priority", "completed_at")
+    list_display = ("id", "event_date", "end_date", "title", "zone", "completed_at")
+    list_filter = ("zone", "completed_at")
     search_fields = ("title", "content")
     date_hierarchy = "event_date"
     inlines = [EventAlertInline]

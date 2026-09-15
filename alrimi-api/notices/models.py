@@ -19,8 +19,11 @@ MAX_ALERT_OFFSET_DAYS = 60
 
 class Priority(models.IntegerChoices):
     """
-    값이 2·3·5 로 띄엄띄엄한 것은 ntfy 우선순위(1~5)를 그대로 쓰기 때문이다.
-    웹도 이 숫자를 그대로 주고받으므로 다시 매기지 않는다.
+    알림을 보낼 때의 등급. 값이 2·4·5 로 띄엄띄엄한 것은 ntfy 우선순위(1~5)를 그대로
+    쓰기 때문이다. 웹 푸시는 이 값을 Urgency 헤더로 옮긴다(`notices.webpush.URGENCY`).
+
+    일정마다 고르던 칸은 없앴다 — 조용히·긴급을 거의 쓰지 않았다. 지금 매시 발송은
+    모두 NORMAL 로 나간다.
     """
 
     LOW = 2, "조용히"
@@ -104,7 +107,6 @@ class Event(models.Model):
             "분까지 물으면 없는 정확도를 지어내게 된다."
         ),
     )
-    priority = models.IntegerField(choices=Priority.choices, default=Priority.NORMAL)
     completed_at = models.DateTimeField(
         null=True,
         blank=True,

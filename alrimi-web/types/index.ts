@@ -1,5 +1,3 @@
-export type Priority = 2 | 4 | 5;
-
 export interface Zone {
   id: number;
   name: string;
@@ -33,7 +31,6 @@ export interface EventListItem {
   /** 몇 시 일인지(0~23). 선택이라 비어 있을 수 있고, 그때는 "하루 종일" 이다 */
   event_hour: number | null;
   title: string;
-  priority: Priority;
   /** 완료 표시한 시각. 목록에서는 빠지고 하루 보기에만 흐리게 남는다 */
   completed_at: string | null;
   /**
@@ -64,7 +61,6 @@ export interface EventPayload {
   event_hour: number | null;
   title: string;
   content: string;
-  priority: Priority;
   alerts: string[];
   /** 상세 화면의 완료 토글만 쓴다. 등록/수정 폼은 보내지 않는다 */
   completed?: boolean;

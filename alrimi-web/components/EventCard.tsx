@@ -4,7 +4,6 @@ import Link from "next/link";
 import toast from "react-hot-toast";
 import { HiCheckCircle, HiOutlineCheckCircle } from "react-icons/hi2";
 import { pageUrl } from "@/constants/routeUrl";
-import { priorityLabel } from "@/lib/alerts";
 import { dayIndex, hourLabel, spanDays } from "@/lib/date";
 import { useToggleComplete } from "@/hooks/useEvents";
 import { useZoneMark } from "@/hooks/useZones";
@@ -35,7 +34,6 @@ export function EventCard({
    */
   on?: string;
 }) {
-  const badge = priorityLabel(event.priority);
   const zone = useZoneMark()(event.zone_id);
   // 목록에서는 완료한 것이 아예 빠진다. 기간·하루 보기에만 흐리게 남아 되돌릴 수 있다.
   const done = event.completed_at !== null;
@@ -80,12 +78,6 @@ export function EventCard({
         <span className={`truncate font-medium ${done ? "line-through" : ""}`}>
           {event.title}
         </span>
-        {badge === "긴급" && (
-          <span className="shrink-0 rounded-full bg-amberlt px-2 py-0.5 text-xs text-amber">
-            긴급
-          </span>
-        )}
-        {badge === "낮음" && <span className="shrink-0 text-xs text-muted">낮음</span>}
       </span>
 
       {dayMark && (

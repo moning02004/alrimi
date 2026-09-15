@@ -193,14 +193,6 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
           {done && (
             <span className="rounded-full bg-pinelt px-2.5 py-1 text-xs text-pine">완료</span>
           )}
-          {event.priority === 5 && (
-            <span className="rounded-full bg-amberlt px-2.5 py-1 text-xs text-amber">긴급</span>
-          )}
-          {event.priority === 2 && (
-            <span className="rounded-full border border-line px-2.5 py-1 text-xs text-muted">
-              낮음
-            </span>
-          )}
           <span className="flex items-center gap-1.5 rounded-full border border-line py-1 pl-1 pr-2.5 text-xs text-muted">
             <ZoneMark mark={zoneMark} color={event.zone_color} size="sm" />
             {event.zone_name}
