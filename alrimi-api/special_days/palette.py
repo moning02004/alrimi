@@ -17,12 +17,12 @@
 #  확인할 수 없고, 화면 낭독기에는 아예 안 읽힌다.
 PALETTE = [
     {"color": "#DC2626", "name": "빨강"},
+    {"color": "#EA580C", "name": "주황"},
+    {"color": "#16A34A", "name": "초록"},
+    {"color": "#0D9488", "name": "청록"},
     {"color": "#2563EB", "name": "파랑"},
-    {"color": "#15803D", "name": "초록"},
     {"color": "#7C3AED", "name": "보라"},
-    {"color": "#C2410C", "name": "주황"},
-    {"color": "#1F2937", "name": "먹색"},
-    {"color": "#6B7280", "name": "잿빛"},
+    {"color": "#DB2777", "name": "자홍"},
 ]
 
 COLORS = [item["color"] for item in PALETTE]
