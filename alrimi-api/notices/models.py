@@ -220,10 +220,13 @@ class Event(models.Model):
                     alert.due_at = due_at
                     alert.save(update_fields=["due_at"])
 
+        # 이미 나간 것은 기록이라 코드에서 빠져도 남긴다 — 알림 시점을 통째로 지워도
+        # ("없음") 그 날 무엇이 나갔는지는 그대로 남아야 한다. 실패한 예약은 나간 적이
+        # 없으므로 함께 지운다.
         stale = [
             alert.pk
             for code, alert in existing.items()
-            if code not in wanted
+            if code not in wanted and alert.sent_at is None
         ]
         if stale:
             EventAlert.objects.filter(pk__in=stale).delete()

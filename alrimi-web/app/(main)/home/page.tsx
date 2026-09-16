@@ -29,7 +29,8 @@ import {useRouter, useSearchParams} from "next/navigation";
 import {pageUrl} from "@/constants/routeUrl";
 import {ZoneChips} from "@/components/ZoneChips";
 import {UpcomingList} from "@/components/UpcomingList";
-import {useAddSheet} from "@/store/ui";
+import {SelectionBar} from "@/components/SelectionBar";
+import {useAddSheet, useSelection} from "@/store/ui";
 
 /**
  * `useSearchParams` 를 쓰는 부분은 Suspense 로 감싼다. 감싸지 않으면 Next 가
@@ -48,6 +49,8 @@ function Home() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const {open: addOpen, openAdd} = useAddSheet();
+    const startSelecting = useSelection((s) => s.start);
+    const stopSelecting = useSelection((s) => s.stop);
     const isDesktop = useIsDesktop();
 
     const [expanded, setExpanded] = useState(false);
@@ -83,6 +86,9 @@ function Home() {
 
     const todayISO = toISO(startOfDay(new Date()));
 
+    // 이 화면을 떠나면 고르기를 끈다. 켜둔 채 옮기면 다른 목록의 카드가 고르는 자리가 된다
+    useEffect(() => () => stopSelecting(), [stopSelecting]);
+
     /**
      * PC 는 늘 월간 + 하루다. 가로가 남으니 달력을 접을 이유가 없고, 접었다 펴는
      * 손잡이도 마우스에는 군더더기다. 모바일에서만 접힘/펼침이 있다.
@@ -113,7 +119,7 @@ function Home() {
      *
      * 창이 달력 한 주(일~토)라 수요일에 열어도 월·화가 위에 남는다. 그것은 이미
      * 지난 일정인데, 위에서부터 훑는 사람에게는 아직 해야 할 일처럼 읽힌다.
-     * 그래서 오늘 앞은 아예 그리지 않고, 그 앞은 "지난 일정 보기" 로 넘긴다.
+     * 그래서 오늘 앞은 아예 그리지 않고, 그 앞은 "지난 일정/보류 보기" 로 넘긴다.
      *
      * **지난 주로 넘겨 볼 때는 자르지 않는다.** ‹ 로 일부러 뒤로 간 것이라
      * 오늘로 자르면 화면이 통째로 빈다.
@@ -429,12 +435,21 @@ function Home() {
                             <p className="text-xs font-medium text-muted">
                                 {rangeLabel(grid[0], grid[grid.length - 1])}
                             </p>
-                            <Link
-                                href={pageUrl.past}
-                                className="shrink-0 text-xs text-muted hover:text-pine"
-                            >
-                                지난 일정 보기 ›
-                            </Link>
+                            <span className="flex shrink-0 items-center gap-3">
+                                {/* 여러 개를 골라 한 번에 지운다. 고르는 동안은 아래에 막대가 선다 */}
+                                <button
+                                    onClick={startSelecting}
+                                    className="text-xs text-muted hover:text-pine"
+                                >
+                                    선택
+                                </button>
+                                <Link
+                                    href={pageUrl.past}
+                                    className="text-xs text-muted hover:text-pine"
+                                >
+                                    지난 일정/보류 보기 ›
+                                </Link>
+                            </span>
                         </div>
 
                         {list.isLoading && <LoadingBlock/>}
@@ -453,6 +468,9 @@ function Home() {
                     </>
                 )}
             </main>
+
+            {/* 고르는 중에만 선다. 탭바를 덮고 화면 아래에 붙는다 */}
+            <SelectionBar/>
         </>
     );
 }

@@ -325,10 +325,6 @@ export function EventForm({event, initialDate, resume = false, onDone}: Props) {
             setError("제목을 적어주세요");
             return;
         }
-        if (alerts.length === 0) {
-            setError("알림을 하나 이상 추가해주세요");
-            return;
-        }
 
         const payload = {
             zone: zoneId,
@@ -675,7 +671,7 @@ export function EventForm({event, initialDate, resume = false, onDone}: Props) {
                         <div className="mt-2.5 flex flex-wrap gap-1.5">
                             {alerts.length === 0 ? (
                                 <span className="py-1 text-sm text-muted/70">
-                                    아직 없어요 — 위에서 골라주세요
+                                    알림 없이 저장돼요 — 필요하면 위에서 고르세요
                                 </span>
                             ) : (
                                 alerts.map((code) => (

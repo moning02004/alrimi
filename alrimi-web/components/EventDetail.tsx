@@ -33,6 +33,8 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
   const [editing, setEditing] = useState(false);
   /** 보류함에서 꺼내는 중. 같은 폼이지만 날짜를 새로 고르게 열린다 */
   const [resuming, setResuming] = useState(false);
+  /** 발송 기록 모달. 이미 나간 알림은 예정된 것과 섞지 않고 여기서 본다 */
+  const [history, setHistory] = useState(false);
   const { data: event, isLoading, isError, refetch } = useEvent(eventId);
   const remove = useDeleteEvent();
   const toggleComplete = useToggleComplete(eventId);
@@ -47,6 +49,16 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
   const held = event.held_at !== null;
   // 이 화면은 공간 이름을 그대로 적으므로 딱지는 목록에서 본 것과 같은지 확인시켜 준다
   const zoneMark = markOf(event.zone_id)?.mark ?? "";
+
+  /*
+    예정된 알림과 이미 나간 것을 나눈다. 한 줄에 섞으면 목록이 길어질수록 "앞으로 올 것"
+    이 무엇인지 흐려진다. 나간 것은 기록이라 알림 시점을 "없음" 으로 바꿔도 지워지지
+    않는다(`Event.sync_alerts`) — 그래서 시점 목록과는 다른 자리에 둔다.
+
+    실패한 것은 예정 쪽에 남긴다. 나간 적이 없고, 여기서 다시 밀어볼 것이라서다.
+  */
+  const pending = event.alerts.filter((alert) => alert.status !== "sent");
+  const sent = event.alerts.filter((alert) => alert.status === "sent");
 
   /**
    * 취소됐지만 다시 잡힐 수 있는 일정을 치워둔다. 지우면 제목·내용·알림 시점을
@@ -199,9 +211,19 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
           </span>
         </div>
 
-        <p className="mb-2 mt-6 text-xs font-medium text-muted">알림 {event.alerts.length}개</p>
+        <p className="mb-2 mt-6 text-xs font-medium text-muted">
+          {pending.length > 0 ? `알림 ${pending.length}개` : "알림"}
+        </p>
         <ul className="divide-y divide-line rounded-2xl border border-line bg-card">
-          {event.alerts.map((alert) => (
+          {/* 올 것이 없는 자리. 빈 상자만 남으면 고장으로 읽힌다 */}
+          {pending.length === 0 && (
+            <li className="px-4 py-3 text-sm text-muted">
+              {sent.length > 0
+                ? "앞으로 올 알림은 없어요. 나간 알림은 아래 기록에 있어요."
+                : "알림 없이 날짜만 적어뒀어요. 수정에서 언제 알릴지 고를 수 있어요."}
+            </li>
+          )}
+          {pending.map((alert) => (
             <li key={alert.id} className="flex items-center justify-between px-4 py-3">
               <div>
                 <p className="text-sm font-medium">{codeLabel(alert.code)}</p>
@@ -209,11 +231,7 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
               </div>
 
               <div className="flex shrink-0 items-center gap-2.5">
-                {alert.status === "sent" && alert.sent_at ? (
-                  <span className="rounded-full bg-pinelt px-2.5 py-1 text-xs text-pine">
-                    {timeLabel(alert.sent_at)} 발송
-                  </span>
-                ) : alert.status === "fail" ? (
+                {alert.status === "fail" ? (
                   // 저절로 다시 시도하지 않는다. "대기 중"으로 두면 올 것처럼 읽힌다.
                   <span className="text-xs text-red-600">발송 실패</span>
                 ) : done || held ? (
@@ -231,16 +249,49 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
                   className="rounded-full border border-pine px-2.5 py-1 text-xs font-medium
                              text-pine disabled:opacity-60"
                 >
-                  {send.isPending && send.variables === alert.id
-                    ? "보내는 중"
-                    : alert.status === "sent"
-                      ? "다시 보내기"
-                      : "보내기"}
+                  {send.isPending && send.variables === alert.id ? "보내는 중" : "보내기"}
                 </button>
               </div>
             </li>
           ))}
         </ul>
+
+        {/*
+          나간 알림은 접어둔다. 늘 펼쳐두면 오래된 일정일수록 기록이 목록을 채워
+          정작 앞으로 올 알림이 아래로 밀린다.
+        */}
+        {sent.length > 0 && (
+          <button onClick={() => setHistory(true)} className="mt-2 px-1 text-xs text-pine">
+            발송 기록 {sent.length}건 보기
+          </button>
+        )}
+
+        <BottomSheet open={history} onOpenChange={setHistory} title="발송 기록">
+          <ul className="mb-3 divide-y divide-line rounded-2xl border border-line bg-card">
+            {sent.map((alert) => (
+              <li key={alert.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">{codeLabel(alert.code)}</p>
+                  {/* 언제 나갔는지가 이 목록의 알맹이다. 예약 시각이 아니라 실제 발송 시각이다 */}
+                  <p className="mt-0.5 text-xs text-muted">
+                    {alert.sent_at
+                      ? `${monthDayLabel(alert.sent_at)} ${timeLabel(alert.sent_at)} 발송`
+                      : "발송"}
+                  </p>
+                </div>
+
+                <button
+                  onClick={() => onSend(alert.id)}
+                  disabled={send.isPending}
+                  className="shrink-0 rounded-full border border-pine px-2.5 py-1 text-xs
+                             font-medium text-pine disabled:opacity-60"
+                >
+                  {send.isPending && send.variables === alert.id ? "보내는 중" : "다시 보내기"}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </BottomSheet>
 
         {/*
           바닥에 남는 큰 버튼은 이것 하나뿐이다. 보류함에서 꺼내는 일은 이 화면에

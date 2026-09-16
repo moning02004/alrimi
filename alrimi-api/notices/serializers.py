@@ -18,14 +18,17 @@ class EventAlertItemSerializer(serializers.ModelSerializer):
 
 
 class AlertCodesField(serializers.ListField):
-    """웹은 알림 코드 배열을 통째로 보낸다. 여기서 형식만 검사한다."""
+    """
+    웹은 알림 코드 배열을 통째로 보낸다. 여기서 형식만 검사한다.
+
+    **빈 배열도 받는다.** 알림 없이 날짜만 적어두는 일정이 있다 — 달력에서 보기만 하면
+    되는 것까지 울리게 하면, 정작 챙겨야 할 알림이 그 사이에 묻힌다.
+    """
 
     child = serializers.CharField(max_length=16)
 
     def to_internal_value(self, data):
         codes = super().to_internal_value(data)
-        if not codes:
-            raise serializers.ValidationError("알림을 하나 이상 넣어주세요.")
 
         for code in codes:
             try:
@@ -207,9 +210,8 @@ class EventWriteSerializer(serializers.ModelSerializer):
 
     @transaction.atomic
     def create(self, validated_data):
-        codes = validated_data.pop("alerts", None)
-        if not codes:
-            raise serializers.ValidationError({"alerts": "알림을 하나 이상 넣어주세요."})
+        # 알림 없이 날짜만 적어두는 일정이 있다. 빈 배열도, 아예 안 보낸 것도 "안 울린다" 다.
+        codes = validated_data.pop("alerts", None) or []
         validated_data.pop("completed", None)
         # 등록하는 일정은 늘 잡혀 있는 것이다. 보류로 시작할 길은 두지 않는다
         # — 날짜와 알림을 다 고른 뒤 보류함에 넣는 것은 아무 뜻도 없다.

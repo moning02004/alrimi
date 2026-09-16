@@ -105,7 +105,7 @@ export function SideNav() {
         />
         <Item
           href={pageUrl.past}
-          label="지난 일정"
+          label="지난 일정/보류"
           active={pathname.startsWith(pageUrl.past)}
           collapsed={collapsed}
           On={HiClock}

@@ -10,6 +10,7 @@ import {SideNav} from "@/components/SideNav";
 import {BottomSheet} from "@/components/BottomSheet";
 import {EventForm} from "@/components/EventForm";
 import {PasswordChangeRequired} from "@/components/PasswordChangeRequired";
+import {ZoneChangeSheet} from "@/components/ZoneChangeSheet";
 import {useAddSheet} from "@/store/ui";
 
 export default function MainLayout({children}: { children: React.ReactNode }) {
@@ -93,6 +94,12 @@ export default function MainLayout({children}: { children: React.ReactNode }) {
             >
                 <EventForm initialDate={initialDate} onDone={closeAdd}/>
             </BottomSheet>
+
+            {/*
+              목록 카드의 공간 딱지를 누르면 열린다. 카드마다 달지 않고 여기 하나만
+              둔다 — 목록에 있는 카드 수만큼 시트가 생기지 않도록(`store/ui.ts`).
+            */}
+            <ZoneChangeSheet/>
         </div>
     );
 }

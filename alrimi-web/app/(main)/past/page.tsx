@@ -1,7 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useEvents } from "@/hooks/useEvents";
+import { SelectionBar } from "@/components/SelectionBar";
+import { useSelection } from "@/store/ui";
 import { useZones } from "@/hooks/useZones";
 import { groupByDate } from "@/lib/date";
 import { EventGroups } from "@/components/EventGroups";
@@ -28,6 +30,15 @@ type Tab = "past" | "held";
 export default function PastPage() {
   const { selectedZoneId } = useZones();
   const [tab, setTab] = useState<Tab>("past");
+  const startSelecting = useSelection((s) => s.start);
+  const stopSelecting = useSelection((s) => s.stop);
+
+  /*
+    탭을 옮기거나 화면을 떠나면 고르기를 끈다. 보류 탭의 줄은 고르는 카드가 아니고
+    (`HeldList`), 고른 것을 다른 화면까지 들고 가면 거기 카드가 까닭 없이 고르는
+    자리가 된다.
+  */
+  useEffect(() => stopSelecting, [tab, stopSelecting]);
 
   const past = useEvents("past", selectedZoneId);
   /*
@@ -45,20 +56,32 @@ export default function PastPage() {
       <header className="sticky top-0 z-20 border-b border-line bg-card px-4 py-3">
         <div className="mx-auto w-full max-w-2xl">
           {/* 머리글은 탭이 겸한다 — 위에 "지난 일정" 을 또 적으면 같은 말이 두 줄이다 */}
-          <h1 className="sr-only">지난 일정과 보류함</h1>
+          <h1 className="sr-only">지난 일정/보류</h1>
 
           {/*
             밑줄 탭이다. 알약 모양으로 하면 아래 공간 칩과 같은 생김새가 되어,
             두 줄이 같은 축(공간)을 두 번 고르는 것처럼 읽힌다.
           */}
-          <div role="tablist" className="flex gap-4 border-b border-line">
-            <TabButton on={tab === "past"} onClick={() => setTab("past")}>
-              지난 일정
-            </TabButton>
-            <TabButton on={tab === "held"} onClick={() => setTab("held")}>
-              보류
-              {heldCount > 0 && <span className="ml-1.5 tabular-nums">{heldCount}</span>}
-            </TabButton>
+          <div className="flex items-end justify-between gap-3 border-b border-line">
+            <div role="tablist" className="flex gap-4">
+              <TabButton on={tab === "past"} onClick={() => setTab("past")}>
+                지난 일정
+              </TabButton>
+              <TabButton on={tab === "held"} onClick={() => setTab("held")}>
+                보류
+                {heldCount > 0 && <span className="ml-1.5 tabular-nums">{heldCount}</span>}
+              </TabButton>
+            </div>
+
+            {/*
+              지난 일정만 여러 개를 고를 수 있다. 보류함의 줄은 카드가 아니라 "다시 잡기"
+              하나짜리 자리라(`HeldList`) 고를 것이 없다.
+            */}
+            {tab === "past" && (
+              <button onClick={startSelecting} className="pb-2 text-xs text-muted hover:text-pine">
+                선택
+              </button>
+            )}
           </div>
 
           <div className="mt-2">
@@ -86,6 +109,9 @@ export default function PastPage() {
           </>
         )}
       </main>
+
+      {/* 고르는 중에만 선다. 탭바를 덮고 화면 아래에 붙는다 */}
+      <SelectionBar />
     </>
   );
 }

@@ -7,6 +7,7 @@ import { pageUrl } from "@/constants/routeUrl";
 import { dayIndex, hourLabel, spanDays } from "@/lib/date";
 import { useToggleComplete } from "@/hooks/useEvents";
 import { useZoneMark } from "@/hooks/useZones";
+import { useSelection, useZoneSheet } from "@/store/ui";
 import { AlertDots } from "./AlertDots";
 import { ZoneMark } from "./ZoneMark";
 import type { EventListItem } from "@/types";
@@ -17,8 +18,17 @@ import type { EventListItem } from "@/types";
  * 시끄럽다. 한 글자면 훑는 속도를 늦추지 않으면서 어느 공간인지 말해준다.
  * 날짜는 섹션 헤더가 이미 말해주므로 카드에 두지 않는다.
  *
+ * **딱지를 누르면 공간을 바꾼다.** 등록할 때 공간을 잘못 고르는 일이 흔한데, 고치러
+ * 상세 → 수정 → 공간 → 저장까지 가야 했다. 딱지가 이미 "이 일정의 공간" 을 말하는
+ * 자리라 그것을 누르는 것이 곧 그 값을 고치는 동작으로 읽힌다. 그래서 딱지는 카드를
+ * 여는 링크 **밖에** 선다 — 링크 안에 버튼을 넣을 수는 없다.
+ *
  * 오른쪽 동그라미로 여기서 바로 완료할 수 있다. 아침에 목록을 훑으며 끝난 것을
  * 지우는 게 이 앱의 주 용도인데, 그때마다 상세로 들어갔다 나오면 두 번씩 오간다.
+ *
+ * **고르는 중(`useSelection`)에는 카드가 통째로 고르는 자리가 된다.** 그때는 열지도
+ * 완료하지도 공간을 바꾸지도 않는다 — 지울 것을 고르는 동안 다른 조작이 섞이면
+ * 무엇을 누른 건지 알 수 없다.
  */
 export function EventCard({
   event,
@@ -39,6 +49,11 @@ export function EventCard({
   const done = event.completed_at !== null;
   const toggle = useToggleComplete(event.id);
 
+  const selecting = useSelection((s) => s.active);
+  const picked = useSelection((s) => s.ids.includes(event.id));
+  const pick = useSelection((s) => s.toggle);
+  const openZoneSheet = useZoneSheet((s) => s.openFor);
+
   /*
     며칠째인지. 여행 둘째 날 카드가 첫날 카드와 똑같이 생기면 목록을 훑다가
     "어제 본 그건가?" 하고 멈추게 된다.
@@ -55,78 +70,110 @@ export function EventCard({
   const dayMark = span < 2 ? null : nth ? `${nth}/${span}` : `${span}일간`;
   const zoneColor = zone?.color ?? event.zone_color;
 
-  const inner = (
+  const mark = zone ? (
+    <ZoneMark mark={zone.mark} color={zone.color} name={zone.name} />
+  ) : (
+    // 공간 목록이 아직 안 왔을 때. 자리를 비워두면 제목 줄이 흔들린다.
+    <span className="h-6 w-6 shrink-0 rounded-lg" style={{ background: zoneColor }} />
+  );
+
+  const body = (
     <>
-      {zone ? (
-        <ZoneMark mark={zone.mark} color={zone.color} name={zone.name} />
-      ) : (
-        // 공간 목록이 아직 안 왔을 때. 자리를 비워두면 제목 줄이 흔들린다.
-        <span className="h-6 w-6 shrink-0 rounded-lg" style={{ background: zoneColor }} />
-      )}
-
-      <span className="flex min-w-0 flex-1 items-center gap-2">
-        {/*
-          목록이 같은 날 안에서 시각 순이라 제목 앞에 둔다 — 눈이 훑는 축과 같은
-          자리다. 없는 줄에는 자리도 만들지 않는다: 대부분 시각이 없는데 빈 칸을
-          잡아두면 목록 전체가 그 폭만큼 밀린다.
-        */}
-        {event.event_hour !== null && (
-          <span className="shrink-0 text-xs tabular-nums text-muted">
-            {hourLabel(event.event_hour)}
-          </span>
-        )}
-        <span className={`truncate font-medium ${done ? "line-through" : ""}`}>
-          {event.title}
+      {/*
+        목록이 같은 날 안에서 시각 순이라 제목 앞에 둔다 — 눈이 훑는 축과 같은
+        자리다. 없는 줄에는 자리도 만들지 않는다: 대부분 시각이 없는데 빈 칸을
+        잡아두면 목록 전체가 그 폭만큼 밀린다.
+      */}
+      {event.event_hour !== null && (
+        <span className="shrink-0 text-xs tabular-nums text-muted">
+          {hourLabel(event.event_hour)}
         </span>
-      </span>
+      )}
+      <span className={`truncate font-medium ${done ? "line-through" : ""}`}>{event.title}</span>
+    </>
+  );
 
+  const tail = (
+    <>
       {dayMark && (
         <span className="shrink-0 rounded-full bg-paper px-2 py-0.5 text-xs tabular-nums text-muted">
           {dayMark}
         </span>
       )}
-
       {!done && <AlertDots alerts={event.alerts} />}
     </>
   );
 
-  const openCls = "flex min-w-0 flex-1 items-center gap-3 py-3 pl-3 pr-2 text-left";
+  const cardCls = `relative flex items-center overflow-hidden rounded-xl border bg-card
+                   transition-colors ${done ? "opacity-55" : ""}`;
+
+  /*
+    며칠에 걸치는 일정만 왼쪽에 띠가 선다.
+
+    그런 일정은 걸치는 날마다 한 장씩 나오는데, 목록을 훑을 때 "2일차" 딱지는
+    카드 오른쪽 끝에 있어서 제목까지 다 읽은 뒤에야 눈에 든다. 왼쪽 띠는 훑는
+    눈이 지나가는 자리라, 읽기 전에 이미 "이건 이어지는 일" 이라고 말한다.
+
+    파스텔이다 — 공간 색을 그대로 세우면 왼쪽 딱지와 같은 색이 두 번 나와
+    시끄럽고, 제목보다 띠가 먼저 읽힌다. 있는 줄만 알면 되는 표시다.
+    `overflow-hidden` 은 이 띠를 카드의 둥근 모서리에 맞춰 잘라준다.
+  */
+  const band = span > 1 && (
+    <span
+      aria-hidden="true"
+      className="absolute inset-y-0 left-0 w-1.5"
+      style={{ background: zoneColor, opacity: 0.3 }}
+    />
+  );
+
+  if (selecting) {
+    return (
+      <button
+        type="button"
+        onClick={() => pick(event.id)}
+        aria-pressed={picked}
+        className={`${cardCls} w-full gap-3 py-3 pl-3 pr-3 text-left ${
+          picked ? "border-pine bg-pinelt/40" : "border-line"
+        }`}
+      >
+        {band}
+        <CheckMark on={picked} />
+        {mark}
+        <span className="flex min-w-0 flex-1 items-center gap-2">{body}</span>
+        {tail}
+      </button>
+    );
+  }
+
+  const openCls = "flex min-w-0 flex-1 items-center gap-2 py-3 pr-2 text-left";
 
   return (
     // 링크 안에 버튼을 넣으면 안 된다(중첩 조작 요소). 나란히 둔다.
-    <div
-      className={`relative flex items-center overflow-hidden rounded-xl border border-line
-                  bg-card transition-colors hover:border-muted/40 hover:bg-paper
-                  ${done ? "opacity-55" : ""}`}
-    >
-      {/*
-        며칠에 걸치는 일정만 왼쪽에 띠가 선다.
+    <div className={`${cardCls} border-line hover:border-muted/40 hover:bg-paper`}>
+      {band}
 
-        그런 일정은 걸치는 날마다 한 장씩 나오는데, 목록을 훑을 때 "2일차" 딱지는
-        카드 오른쪽 끝에 있어서 제목까지 다 읽은 뒤에야 눈에 든다. 왼쪽 띠는 훑는
-        눈이 지나가는 자리라, 읽기 전에 이미 "이건 이어지는 일" 이라고 말한다.
-
-        파스텔이다 — 공간 색을 그대로 세우면 왼쪽 딱지와 같은 색이 두 번 나와
-        시끄럽고, 제목보다 띠가 먼저 읽힌다. 있는 줄만 알면 되는 표시다.
-        `overflow-hidden` 은 이 띠를 카드의 둥근 모서리에 맞춰 잘라준다.
-      */}
-      {span > 1 && (
-        <span
-          aria-hidden="true"
-          className="absolute inset-y-0 left-0 w-1.5"
-          style={{ background: zoneColor, opacity: 0.3 }}
-        />
-      )}
+      {/* 딱지는 링크 밖이다. 누르면 공간을 바꾼다 */}
+      <button
+        type="button"
+        onClick={() => openZoneSheet(event)}
+        title="공간 바꾸기"
+        aria-label={`공간 바꾸기${zone ? ` · 지금 ${zone.name}` : ""}`}
+        className="relative shrink-0 rounded-lg py-3 pl-3 pr-1 transition-transform hover:scale-110"
+      >
+        {mark}
+      </button>
 
       {onSelect ? (
         <button type="button" onClick={() => onSelect(event.id)} className={openCls}>
-          {inner}
+          {body}
         </button>
       ) : (
         <Link href={pageUrl.event(event.id)} className={openCls}>
-          {inner}
+          {body}
         </Link>
       )}
+
+      {tail}
 
       {/*
         44px 과녁. 보이는 동그라미는 20px 이지만 손가락으로 겨냥하는 자리는 그보다
@@ -154,5 +201,23 @@ export function EventCard({
         )}
       </button>
     </div>
+  );
+}
+
+/** 고르는 중에만 나오는 네모. 완료 동그라미와 모양을 달리해 둘을 헷갈리지 않게 한다 */
+function CheckMark({ on }: { on: boolean }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md border text-white ${
+        on ? "border-pine bg-pine" : "border-line bg-card"
+      }`}
+    >
+      {on && (
+        <svg viewBox="0 0 20 20" className="h-3.5 w-3.5" fill="none" stroke="currentColor">
+          <path d="M5 10.5l3.5 3.5L15 7" strokeWidth="2.5" strokeLinecap="round" />
+        </svg>
+      )}
+    </span>
   );
 }

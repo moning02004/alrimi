@@ -180,9 +180,48 @@ class EventCrudTests(ApiTestCase):
         )
         self.assertEqual(res.status_code, 400)
 
-    def test_empty_alerts_is_400(self):
+    def test_알림_없이도_저장된다(self):
+        """
+        달력에서 보기만 하면 되는 일정이 있다. 그런 것까지 울리게 하면 정작 챙겨야 할
+        알림이 그 사이에 묻힌다. 울릴 것이 없으면 예약도 만들지 않는다.
+        """
         res = self.post(reverse("event-list"), self.payload(alerts=[]))
-        self.assertEqual(res.status_code, 400)
+
+        self.assertEqual(res.status_code, 201)
+        self.assertEqual(res.json()["alerts"], [])
+        self.assertEqual(EventAlert.objects.filter(event_id=res.json()["id"]).count(), 0)
+
+    def test_수정에서_알림을_모두_뺄_수_있다(self):
+        event_id = self.post(reverse("event-list"), self.payload()).json()["id"]
+
+        res = self.client.patch(
+            reverse("event-detail", args=[event_id]),
+            {"alerts": []},
+            content_type="application/json",
+            headers=self.auth,
+        )
+
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()["alerts"], [])
+        self.assertEqual(EventAlert.objects.filter(event_id=event_id).count(), 0)
+
+    def test_알림을_모두_빼도_이미_나간_것은_남는다(self):
+        """
+        "없음" 으로 바꿔도 그 날 무엇이 나갔는지는 기록이다. 지워버리면 받은 알림을
+        두고 "온 적 없다" 고 말하는 화면이 된다.
+        """
+        event_id = self.post(reverse("event-list"), self.payload()).json()["id"]
+        EventAlert.objects.get(event_id=event_id, code="D-1 20:00").mark_sent()
+
+        res = self.client.patch(
+            reverse("event-detail", args=[event_id]),
+            {"alerts": []},
+            content_type="application/json",
+            headers=self.auth,
+        )
+
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual([alert["code"] for alert in res.json()["alerts"]], ["D-1 20:00"])
 
     def test_update_keeps_sent_alerts_and_replaces_the_rest(self):
         event_id = self.post(

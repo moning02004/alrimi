@@ -154,6 +154,27 @@ export function useSendAlert(eventId: number) {
   });
 }
 
+/**
+ * 여러 개를 한 번에 지운다. 서버에 묶음 삭제가 없어 낱개로 나란히 보낸다 —
+ * 한 줌이면 충분하고, 그만큼을 위해 새 엔드포인트를 열 이유가 없다.
+ *
+ * 하나가 실패해도 나머지는 계속 지운다(`allSettled`). 도중에 멈추면 무엇이 지워졌고
+ * 무엇이 남았는지 알 수 없어, 고른 것을 다시 세어봐야 한다.
+ */
+export function useDeleteEvents() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (ids: number[]) => {
+      const results = await Promise.allSettled(
+        ids.map((id) => api.delete<void>(apiUrl.event(id))),
+      );
+      const failed = results.filter((r) => r.status === "rejected").length;
+      return { deleted: ids.length - failed, failed };
+    },
+    onSuccess: () => invalidateAll(qc),
+  });
+}
+
 export function useDeleteEvent() {
   const qc = useQueryClient();
   return useMutation({
