@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useEvents } from "@/hooks/useEvents";
-import { SelectionBar } from "@/components/SelectionBar";
+import { DeleteSelected, SelectToggle } from "@/components/SelectionActions";
 import { useSelection } from "@/store/ui";
 import { useZones } from "@/hooks/useZones";
 import { groupByDate } from "@/lib/date";
@@ -30,8 +30,8 @@ type Tab = "past" | "held";
 export default function PastPage() {
   const { selectedZoneId } = useZones();
   const [tab, setTab] = useState<Tab>("past");
-  const startSelecting = useSelection((s) => s.start);
   const stopSelecting = useSelection((s) => s.stop);
+  const selecting = useSelection((s) => s.active);
 
   /*
     탭을 옮기거나 화면을 떠나면 고르기를 끈다. 보류 탭의 줄은 고르는 카드가 아니고
@@ -77,10 +77,17 @@ export default function PastPage() {
               지난 일정만 여러 개를 고를 수 있다. 보류함의 줄은 카드가 아니라 "다시 잡기"
               하나짜리 자리라(`HeldList`) 고를 것이 없다.
             */}
+            {/*
+              지난 일정만 여러 개를 고를 수 있다. 보류함의 줄은 카드가 아니라 "다시 잡기"
+              하나짜리 자리라(`HeldList`) 고를 것이 없다.
+
+              고르는 중에는 삭제가 옆에 선다 — 홈 목록과 같은 자리, 같은 모양이다.
+            */}
             {tab === "past" && (
-              <button onClick={startSelecting} className="pb-2 text-xs text-muted hover:text-pine">
-                선택
-              </button>
+              <div className="flex shrink-0 items-center gap-2 pb-1.5">
+                {selecting && <DeleteSelected />}
+                <SelectToggle />
+              </div>
             )}
           </div>
 
@@ -110,8 +117,6 @@ export default function PastPage() {
         )}
       </main>
 
-      {/* 고르는 중에만 선다. 탭바를 덮고 화면 아래에 붙는다 */}
-      <SelectionBar />
     </>
   );
 }

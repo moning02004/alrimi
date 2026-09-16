@@ -29,7 +29,7 @@ import {useRouter, useSearchParams} from "next/navigation";
 import {pageUrl} from "@/constants/routeUrl";
 import {ZoneChips} from "@/components/ZoneChips";
 import {UpcomingList} from "@/components/UpcomingList";
-import {SelectionBar} from "@/components/SelectionBar";
+import {DeleteSelected, SelectToggle} from "@/components/SelectionActions";
 import {useAddSheet, useSelection} from "@/store/ui";
 
 /**
@@ -49,8 +49,8 @@ function Home() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const {open: addOpen, openAdd} = useAddSheet();
-    const startSelecting = useSelection((s) => s.start);
     const stopSelecting = useSelection((s) => s.stop);
+    const selecting = useSelection((s) => s.active);
     const isDesktop = useIsDesktop();
 
     const [expanded, setExpanded] = useState(false);
@@ -86,8 +86,13 @@ function Home() {
 
     const todayISO = toISO(startOfDay(new Date()));
 
-    // 이 화면을 떠나면 고르기를 끈다. 켜둔 채 옮기면 다른 목록의 카드가 고르는 자리가 된다
-    useEffect(() => () => stopSelecting(), [stopSelecting]);
+    /*
+      다른 날로 옮기거나 이 화면을 떠나면 고르기를 끈다.
+
+      켜둔 채 화면을 옮기면 다른 목록의 카드가 까닭 없이 고르는 자리가 되고, 날짜를
+      옮기면 고른 것이 화면에서 사라진 채 개수만 남아 무엇을 지우는지 알 수 없다.
+    */
+    useEffect(() => stopSelecting, [selectedDate, stopSelecting]);
 
     /**
      * PC 는 늘 월간 + 하루다. 가로가 남으니 달력을 접을 이유가 없고, 접었다 펴는
@@ -429,27 +434,34 @@ function Home() {
                         */}
                         <div
                             ref={rangeRowRef}
-                            className="sticky top-[var(--header-h)] z-10 -mx-4 flex items-baseline shadow-sm
+                            className="sticky top-[var(--header-h)] z-10 -mx-4 flex items-center shadow-sm
                                        justify-between gap-3 bg-paper px-5 pb-2 pt-3"
                         >
-                            <p className="text-xs font-medium text-muted">
-                                {rangeLabel(grid[0], grid[grid.length - 1])}
-                            </p>
-                            <span className="flex shrink-0 items-center gap-3">
-                                {/* 여러 개를 골라 한 번에 지운다. 고르는 동안은 아래에 막대가 선다 */}
-                                <button
-                                    onClick={startSelecting}
-                                    className="text-xs text-muted hover:text-pine"
-                                >
-                                    선택
-                                </button>
+                            {/*
+                              왼쪽은 **아래 목록에 대한 것**이다 — 고르기 버튼과 지금 보고 있는
+                              기간. 오른쪽은 지금 할 수 있는 **다음 걸음**이다: 평소에는 지난
+                              일정으로 가는 길이고, 고르는 중에는 고른 것을 지우는 버튼이다.
+
+                              고르는 동안 링크를 감추는 것은, 그때 할 일이 지우는 것 하나뿐이고
+                              다른 화면으로 가버리면 고른 것이 흩어지기 때문이다.
+                            */}
+                            <div className="flex min-w-0 items-center gap-2">
+                                <SelectToggle/>
+                                <p className="truncate text-xs font-medium text-muted">
+                                    {rangeLabel(grid[0], grid[grid.length - 1])}
+                                </p>
+                            </div>
+
+                            {selecting ? (
+                                <DeleteSelected/>
+                            ) : (
                                 <Link
                                     href={pageUrl.past}
-                                    className="text-xs text-muted hover:text-pine"
+                                    className="shrink-0 text-xs text-muted hover:text-pine"
                                 >
                                     지난 일정/보류 보기 ›
                                 </Link>
-                            </span>
+                            )}
                         </div>
 
                         {list.isLoading && <LoadingBlock/>}
@@ -469,8 +481,6 @@ function Home() {
                 )}
             </main>
 
-            {/* 고르는 중에만 선다. 탭바를 덮고 화면 아래에 붙는다 */}
-            <SelectionBar/>
         </>
     );
 }

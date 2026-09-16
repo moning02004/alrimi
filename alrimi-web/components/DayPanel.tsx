@@ -1,7 +1,9 @@
 "use client";
 
 import { EventCard } from "./EventCard";
+import { DeleteSelected, SelectToggle } from "./SelectionActions";
 import { ErrorBlock, LoadingBlock } from "./Loading";
+import { useSelection } from "@/store/ui";
 import { fullLabel, sectionLabel } from "@/lib/date";
 import type { DayMark } from "@/lib/marks";
 import type { EventListItem } from "@/types";
@@ -47,38 +49,56 @@ export function DayPanel({
   size = "sm",
 }: Props) {
   const big = size === "lg";
+  const selecting = useSelection((s) => s.active);
 
   return (
     <section>
-      <div className={`flex items-baseline justify-between gap-3 px-1 ${big ? "pb-3" : "pb-1.5 pt-4"}`}>
-        {big ? (
-          <h2 className="text-lg font-semibold tracking-tight">
-            {fullLabel(date)}
-            {marks.map((mark) => (
-              <span key={mark.kind} className="ml-2 text-sm font-normal" style={{ color: mark.color }}>
-                {mark.name}
+      <div className={`flex items-center justify-between gap-3 px-1 ${big ? "pb-3" : "pb-1.5 pt-4"}`}>
+        {/*
+          왼쪽은 **이 목록에 대한 것**이다 — 고르기 버튼과 지금 보고 있는 날.
+          모바일 주간 목록의 머리줄도 같은 차림이라(`app/(main)/home/page.tsx`),
+          어느 화면에서든 "선택" 은 늘 줄 맨 앞에 있다.
+        */}
+        <div className="flex min-w-0 items-center gap-2">
+          {items.length > 0 && <SelectToggle />}
+          {big ? (
+            <h2 className="text-lg font-semibold tracking-tight">
+              {fullLabel(date)}
+              {marks.map((mark) => (
+                <span key={mark.kind} className="ml-2 text-sm font-normal" style={{ color: mark.color }}>
+                  {mark.name}
+                </span>
+              ))}
+              <span className="ml-2 text-sm font-normal text-muted">
+                {items.length > 0 ? `${items.length}건` : "비어 있음"}
               </span>
-            ))}
-            <span className="ml-2 text-sm font-normal text-muted">
-              {items.length > 0 ? `${items.length}건` : "비어 있음"}
-            </span>
-          </h2>
-        ) : (
-          <p className="text-xs font-medium text-muted">
-            {sectionLabel(date)}
-            {marks.map((mark) => (
-              <span key={mark.kind} style={{ color: mark.color }}>
-                {" · "}
-                {mark.name}
-              </span>
-            ))}
-          </p>
-        )}
-        {canAdd && items.length > 0 && (
-          <button onClick={onAdd} className="shrink-0 text-xs text-pine hover:underline">
-            + 추가
-          </button>
-        )}
+            </h2>
+          ) : (
+            <p className="text-xs font-medium text-muted">
+              {sectionLabel(date)}
+              {marks.map((mark) => (
+                <span key={mark.kind} style={{ color: mark.color }}>
+                  {" · "}
+                  {mark.name}
+                </span>
+              ))}
+            </p>
+          )}
+        </div>
+
+        {/*
+          오른쪽은 지금 할 수 있는 **다음 걸음**이다 — 고르는 중이면 지우기, 아니면
+          이 날에 하나 더 얹기. 고르는 중에 "+ 추가" 를 감추는 것은, 지울 것을 고르는
+          동안 새로 만드는 길까지 열어두면 손이 엉키기 때문이다.
+        */}
+        <div className="flex shrink-0 items-center gap-2">
+          {selecting && <DeleteSelected />}
+          {canAdd && items.length > 0 && !selecting && (
+            <button onClick={onAdd} className="text-xs text-pine hover:underline">
+              + 추가
+            </button>
+          )}
+        </div>
       </div>
 
       {isLoading ? (
@@ -93,7 +113,7 @@ export function DayPanel({
             ))}
           </div>
 
-          {canAdd ? (
+          {canAdd && !selecting ? (
             // 비어 있을 때만이 아니라 항상 둔다. 그 날에 하나 더 얹는 일이 흔한데
             // 탭바의 + 로 열면 날짜가 비어 있어 다시 골라야 한다.
             <button
