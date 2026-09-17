@@ -57,6 +57,27 @@ export function CalendarHeader({
    * 날짜가 그 표시에 먹혀 두 번 눌러야 골라졌다. 시각으로 두면 늦게 온 클릭은 절대 안 삼킨다.
    */
   const swipedAt = useRef(0);
+  const wrapper = useRef<HTMLDivElement>(null);
+
+  /**
+   * 달력에서 시작한 터치가 움직이는 동안은 브라우저가 스크롤로 가져가지 못하게 막는다.
+   *
+   * `touch-none`(touch-action: none) 만으로는 모자란 브라우저가 있다 — 특히 iOS Safari 는
+   * 손가락이 달력 밖(아래 목록)으로 나가면 바깥 스크롤 칸을 끌거나 끝에서 튕긴다. 그러면
+   * 펼친 뒤에도 스크롤이 아직 움직이는 중이라, 처음 누른 날짜는 "스크롤 멈추기" 로만 쓰이고
+   * 클릭이 가지 않는다(두 번 눌러야 골라졌다). 이름을 눌러 펼치면 스크롤이 없어 멀쩡했다.
+   *
+   * React 의 onTouchMove 는 passive 로 붙어 preventDefault 가 먹지 않아 직접 붙인다.
+   */
+  useEffect(() => {
+    const el = wrapper.current;
+    if (!el) return;
+    const block = (e: TouchEvent) => {
+      if (e.cancelable) e.preventDefault();
+    };
+    el.addEventListener("touchmove", block, { passive: false });
+    return () => el.removeEventListener("touchmove", block);
+  }, []);
 
   /**
    * 좌우로 넘기는 폭. 펼쳤으면 한 달, 접었으면 한 주.
@@ -111,6 +132,7 @@ export function CalendarHeader({
 
   return (
     <div
+      ref={wrapper}
       // 제스처는 달력 안에서만 시작한다
       onPointerDown={(e) => {
         start.current = { x: e.clientX, y: e.clientY };
