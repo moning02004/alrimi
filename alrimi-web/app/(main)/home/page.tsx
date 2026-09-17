@@ -28,6 +28,7 @@ import {ZoneFilter} from "@/components/ZoneFilter";
 import {UpcomingList} from "@/components/UpcomingList";
 import {DeleteSelected, SelectToggle} from "@/components/SelectionActions";
 import {useAddSheet, useSelection} from "@/store/ui";
+import {useDoubleBackToExit} from "@/hooks/useDoubleBackToExit";
 
 /**
  * `useSearchParams` 를 쓰는 부분은 Suspense 로 감싼다. 감싸지 않으면 Next 가
@@ -49,6 +50,8 @@ function Home() {
     const stopSelecting = useSelection((s) => s.stop);
     const selecting = useSelection((s) => s.active);
     const isDesktop = useIsDesktop();
+    // 설치한 앱의 홈에서는 뒤로가기를 두 번 눌러야 닫힌다(안드로이드)
+    useDoubleBackToExit();
 
     const [expanded, setExpanded] = useState(false);
     /** 붙박이로 서는 두 조각. 높이를 재서 아래가 비켜설 거리로 내보낸다 */
