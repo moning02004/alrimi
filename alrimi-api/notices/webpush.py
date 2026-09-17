@@ -47,18 +47,20 @@ def configured() -> bool:
     return bool(settings.VAPID_PUBLIC_KEY and settings.VAPID_PRIVATE_KEY)
 
 
-def _payload(*, title: str, message: str, priority: int, tag: str) -> str:
+def _payload(*, title: str, message: str, priority: int, tag: str, path: str) -> str:
     """
     서비스 워커(`public/sw.js`)가 그대로 받아 읽는 모양.
 
     `tag` 는 같은 알림이 두 번 도착했을 때 겹쳐 쌓지 않고 덮어쓰게 하는 이름이다.
     크론이 한 번 걸러 따라잡느라 같은 묶음을 다시 보내는 일이 있어서 필요하다.
+
+    `url` 은 알림을 눌렀을 때 열 화면이다. 일정 하나면 그 상세, 여럿이면 홈이다.
     """
     return json.dumps(
         {
             "title": title,
             "body": message,
-            "url": settings.WEB_ORIGIN,
+            "url": settings.WEB_ORIGIN + path,
             "tag": tag,
             "priority": priority,
         },
@@ -66,7 +68,9 @@ def _payload(*, title: str, message: str, priority: int, tag: str) -> str:
     )
 
 
-def send_to_user(user, *, title: str, message: str, priority: int, tag: str) -> int:
+def send_to_user(
+    user, *, title: str, message: str, priority: int, tag: str, path: str = "/home"
+) -> int:
     """
     이 사람이 켜둔 기기 전부에 보낸다. 돌려주는 값은 실제로 닿은 기기 수다.
 
@@ -82,7 +86,7 @@ def send_to_user(user, *, title: str, message: str, priority: int, tag: str) -> 
     if not configured():
         return 0
 
-    body = _payload(title=title, message=message, priority=priority, tag=tag)
+    body = _payload(title=title, message=message, priority=priority, tag=tag, path=path)
     delivered = 0
     dead = []
 
@@ -123,9 +127,9 @@ def send_to_user(user, *, title: str, message: str, priority: int, tag: str) -> 
     return delivered
 
 
-def send_alert(alert) -> int:
+def send_alert(alert, user) -> int:
     """
-    예약 하나를 웹 푸시로 보낸다. 상세 화면의 "보내기" 가 ntfy 보다 **먼저** 부르고,
+    예약 하나를 `user` 의 기기들로 웹 푸시한다. 상세 화면의 "보내기" 가 ntfy 보다 **먼저** 부르고,
     돌려준 값이 0 일 때만 ntfy 로 넘어간다.
 
     문구는 ntfy 와 같은 곳에서 만든다(`notices.ntfy.compose`) — 어느 길로 나가든
@@ -136,10 +140,11 @@ def send_alert(alert) -> int:
     event = alert.event
     title, message = compose(event)
     return send_to_user(
-        event.zone.owner,
+        user,
         title=title,
         message=message,
         priority=Priority.NORMAL,
         # 같은 예약은 몇 번을 보내도 알림 하나로 덮인다
         tag=f"alert-{alert.pk}",
+        path=f"/events/{event.pk}",
     )

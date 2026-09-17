@@ -71,6 +71,103 @@ def due_at_for(event_date: dt.date, code: str) -> dt.datetime:
     return timezone.make_aware(naive, timezone.get_default_timezone())
 
 
+#  반복 일정 한 벌이 만들 수 있는 최대 개수와 기간. 매일 반복을 끝없이 두면 일정이
+#  수천 건 생기고, 연도를 잘못 골라 수십 년치가 만들어지는 사고를 여기서 막는다.
+#  매년 반복도 5년이면 충분하다 — 그 뒤는 그때 다시 만들면 된다.
+MAX_REPEAT_COUNT = 366
+MAX_REPEAT_YEARS = 5
+
+
+class EventSeries(models.Model):
+    """
+    반복 일정의 규칙. 일정 자체는 날마다 따로 만들어 둔다(`Event.series`).
+
+    **규칙으로 그때그때 펼치지 않고 미리 만들어 둔다.** 알림 예약(`EventAlert`)이
+    일정마다 행으로 있어야 크론이 시각을 찾을 수 있고, 완료·보류·하루만 고치기도
+    일정 한 건을 단위로 한다. 펼쳐서 그리는 방식이면 이 모든 자리가 "아직 없는
+    일정" 을 따로 다뤄야 한다. 그 대신 끝나는 날이 꼭 있어야 한다.
+
+    규칙은 만들 때만 쓰고 나중에 바꾸지 않는다. 바꾸고 싶으면 "이후 모두" 를 지우고
+    새로 만든다 — 이미 완료하거나 따로 고친 날을 새 규칙에 어떻게 맞출지 정할
+    방법이 없다.
+    """
+
+    class Freq(models.TextChoices):
+        DAILY = "daily", "매일"
+        WEEKLY = "weekly", "매주"
+        MONTHLY = "monthly", "매월"
+        YEARLY = "yearly", "매년"
+
+    freq = models.CharField(max_length=8, choices=Freq.choices)
+    weekdays = models.CharField(
+        max_length=13,
+        blank=True,
+        default="",
+        help_text="매주일 때 요일들. 월=0 … 일=6 을 쉼표로 (\"0,2,4\"). 다른 규칙은 비운다.",
+    )
+    until = models.DateField(help_text="마지막으로 반복할 수 있는 날 (포함)")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self) -> str:
+        return f"{self.get_freq_display()} ~{self.until}"
+
+    @property
+    def weekday_list(self) -> list[int]:
+        return [int(day) for day in self.weekdays.split(",") if day != ""]
+
+
+def _add_months(year: int, month: int, months: int) -> tuple[int, int]:
+    index = year * 12 + (month - 1) + months
+    return index // 12, index % 12 + 1
+
+
+def repeat_dates(
+    start: dt.date, freq: str, until: dt.date, weekdays: list[int] | None = None
+) -> list[dt.date]:
+    """
+    반복 규칙이 만드는 시작일들. `start` 부터 `until` 까지(둘 다 포함).
+
+    - 매주는 고른 요일에 해당하는 날만이다. 시작일의 요일을 안 골랐으면 시작일도 빠진다.
+    - **매월 31일·매년 2월 29일은 그 날이 없는 달·해를 건너뛴다.** 말일로 당기면
+      "31일" 이라고 적어둔 일이 30일에 오고, 사람은 규칙이 틀렸다고 읽는다.
+    - 개수가 `MAX_REPEAT_COUNT` 를 넘어도 여기서 자르지 않는다 — 넘었는지는 부르는
+      쪽이 보고 거절한다. 조용히 자르면 끝나는 날까지 반복된다고 믿게 된다.
+    """
+    dates: list[dt.date] = []
+    if until < start:
+        return dates
+
+    if freq in (EventSeries.Freq.DAILY, EventSeries.Freq.WEEKLY):
+        wanted = set(weekdays or []) if freq == EventSeries.Freq.WEEKLY else None
+        day = start
+        while day <= until:
+            if wanted is None or day.weekday() in wanted:
+                dates.append(day)
+                if len(dates) > MAX_REPEAT_COUNT:
+                    break
+            day += dt.timedelta(days=1)
+        return dates
+
+    step = 12 if freq == EventSeries.Freq.YEARLY else 1
+    months = 0
+    while True:
+        year, month = _add_months(start.year, start.month, months)
+        months += step
+        try:
+            day = dt.date(year, month, start.day)
+        except ValueError:
+            # 그 달에 그 날이 없다(31일·2월 29일). 건너뛴다.
+            if dt.date(year, month, 1) > until:
+                break
+            continue
+        if day > until:
+            break
+        dates.append(day)
+        if len(dates) > MAX_REPEAT_COUNT:
+            break
+    return dates
+
+
 #  하루짜리도 여기까지는 걸칠 수 있다. 여행이 두 달을 넘는 일은 드물고, 연도를
 #  잘못 골라 몇 년치 달력이 통째로 칠해지는 사고는 이 선에서 걸린다.
 MAX_SPAN_DAYS = 60
@@ -86,6 +183,15 @@ class Event(models.Model):
     """
 
     zone = models.ForeignKey(Zone, on_delete=models.CASCADE, related_name="events")
+    series = models.ForeignKey(
+        EventSeries,
+        null=True,
+        blank=True,
+        # 규칙이 사라져도 이미 만든 일정은 남는다 — 그 날들은 따로 떨어진 일정이 된다
+        on_delete=models.SET_NULL,
+        related_name="events",
+        help_text="반복으로 만든 일정이면 그 규칙. '이후 모두 고치기·지우기' 가 이것으로 형제를 찾는다.",
+    )
     event_date = models.DateField(help_text="시작하는 날. 알림 시점(D-1 …)도 이 날을 기준으로 잰다.")
     end_date = models.DateField(
         blank=True,

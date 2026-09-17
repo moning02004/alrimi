@@ -3,6 +3,7 @@ import json
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from django.urls import reverse
@@ -14,6 +15,11 @@ from .filters import UPCOMING_DAYS, upcoming_end
 from .models import MAX_SPAN_DAYS, EventAlert, Event, Priority, due_at_for, parse_code
 from .views import next_week
 from .ntfy import NtfyError, compose, publish
+
+
+def dated(day: dt.date) -> str:
+    """알림 본문의 날짜 줄. `2026-09-17 (목)`"""
+    return f"{day.isoformat()} ({'월화수목금토일'[day.weekday()]})"
 
 User = get_user_model()
 
@@ -275,6 +281,44 @@ class EventCrudTests(ApiTestCase):
         res = self.client.delete(reverse("event-detail", args=[event_id]), headers=self.auth)
         self.assertEqual(res.status_code, 204)
         self.assertFalse(EventAlert.objects.filter(event_id=event_id).exists())
+
+
+class BulkDeleteTests(ApiTestCase):
+    def make(self, title, zone=None):
+        return Event.objects.create(
+            zone=zone or self.zone, event_date=self.today + dt.timedelta(days=1), title=title
+        )
+
+    def test_고른_것을_한꺼번에_지운다(self):
+        a, b, keep = self.make("a"), self.make("b"), self.make("keep")
+        a.sync_alerts(["D 07:00"])
+
+        res = self.post(reverse("event-bulk-delete"), {"ids": [a.id, b.id]})
+
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json(), {"deleted": 2})
+        self.assertEqual(list(Event.objects.values_list("id", flat=True)), [keep.id])
+        self.assertFalse(EventAlert.objects.filter(event_id=a.id).exists())
+
+    def test_남의_일정은_건너뛴다(self):
+        mine = self.make("mine")
+        theirs = self.make("theirs", zone=Zone.objects.create(owner=self.other, name="남의집"))
+
+        res = self.post(reverse("event-bulk-delete"), {"ids": [mine.id, theirs.id, 999999]})
+
+        self.assertEqual(res.json(), {"deleted": 1})
+        self.assertTrue(Event.objects.filter(id=theirs.id).exists())
+
+    def test_잘못된_본문은_막는다(self):
+        for body in ({}, {"ids": []}, {"ids": "1,2"}, {"ids": [1, "2"]}, {"ids": [True]}):
+            with self.subTest(body=body):
+                self.assertEqual(self.post(reverse("event-bulk-delete"), body).status_code, 400)
+
+    def test_로그인해야_한다(self):
+        res = self.client.post(
+            reverse("event-bulk-delete"), {"ids": [1]}, content_type="application/json"
+        )
+        self.assertEqual(res.status_code, 401)
 
 
 class EventListTests(ApiTestCase):
@@ -873,13 +917,17 @@ class HoldTests(ApiTestCase):
         self.hold(True)
         self.assertNotIn(alert, due_alerts())
 
+    @override_settings(N8N_API_KEY="k")
     def test_it_is_left_out_of_the_weekly_digest(self):
         start, _ = next_week()
         Event.objects.filter(pk=self.event.pk).update(event_date=start, end_date=start)
 
-        self.assertIn("저녁 약속", self.client.get(reverse("weekly-events")).json()[0]["message"])
+        def weekly():
+            return self.client.get(reverse("weekly-events"), headers={"x-api-key": "k"}).json()
+
+        self.assertIn("저녁 약속", weekly()[0]["message"])
         self.hold(True)
-        self.assertEqual(self.client.get(reverse("weekly-events")).json(), [])
+        self.assertEqual(weekly(), [])
 
     def test_it_stops_counting_towards_upcoming_count(self):
         before = self.get(reverse("zone-list")).json()[0]["upcoming_count"]
@@ -995,6 +1043,9 @@ class NtfyPublishTests(TestCase):
                 "title": "[우리집] 준비물",
                 "message": "9월 8일 (화)",
                 "priority": 5,
+                "actions": [
+                    {"action": "view", "label": "웹에서 확인", "url": settings.WEB_ORIGIN}
+                ],
             },
         )
         # 한글 제목은 헤더(X-Title)로는 못 보낸다. JSON 본문이라 UTF-8 로 그대로 실린다.
@@ -1300,7 +1351,7 @@ class CronEndpointTests(TestCase):
         self.assertEqual(
             row["message"].splitlines(),
             [
-                str(timezone.localdate()),
+                dated(timezone.localdate()),
                 " - 체육복",
                 "   └ 흰 티셔츠",
                 " - 준비물",
@@ -1324,7 +1375,7 @@ class CronEndpointTests(TestCase):
         message = self.ready()["data"][0]["message"]
         self.assertEqual(
             message.splitlines(),
-            [str(soon), " - 내일 것", "", str(later), " - 모레 것"],
+            [dated(soon), " - 내일 것", "", dated(later), " - 모레 것"],
         )
 
     @override_settings(N8N_API_KEY="k")
@@ -1349,20 +1400,20 @@ class CronEndpointTests(TestCase):
         rows = self.ready()["data"]
         self.assertEqual(len(rows), 2)
         self.assertEqual(
-            {row["title"] for row in rows}, {"[어린이집] 체육복", "[회사] 회의 자료"}
+            {row["title"] for row in rows}, {"[어린이집] 일정 1건", "[회사] 일정 1건"}
         )
 
     @override_settings(N8N_API_KEY="k")
-    def test_한_건이면_제목이_그_일정을_그대로_말한다(self):
-        """"1건" 으로 접으면 잠금화면에서 무엇을 챙기라는 건지 열어봐야 안다."""
+    def test_한_건이어도_제목은_개수로_적는다(self):
+        """무엇인지는 본문이 말한다 — 여러 건일 때와 같은 모양이다."""
         self.due(self.zone, "체육복", content="흰 티셔츠", event_hour=7)
 
         row = self.ready()["data"][0]
-        self.assertEqual(row["title"], "[어린이집] 07시 체육복")
+        self.assertEqual(row["title"], "[어린이집] 일정 1건")
         # 본문은 한 건일 때도 같은 모양이다 — 제목에 없는 날짜가 여기 있다
         self.assertEqual(
             row["message"].splitlines(),
-            [str(timezone.localdate()), " - 07시 체육복", "   └ 흰 티셔츠"],
+            [dated(timezone.localdate()), " - 07시 체육복", "   └ 흰 티셔츠"],
         )
 
 
@@ -1755,6 +1806,25 @@ class WebPushTests(TestCase):
         self.assertEqual(body["title"], "[어린이집] 체육복")
         self.assertEqual(body["tag"], "t")
 
+    @override_settings(
+        VAPID_PUBLIC_KEY="pub", VAPID_PRIVATE_KEY="priv", WEB_ORIGIN="https://web.example"
+    )
+    def test_알림을_누르면_열_화면이_실린다(self):
+        """한 건이면 그 일정 상세로, 여럿이면 홈으로 간다(`public/sw.js`)."""
+        from notices.views import due_alert_groups, due_alerts, push_group
+
+        one = self.make_due_alert("체육복")
+        with patch("notices.webpush.webpush") as sender:
+            push_group(due_alert_groups(due_alerts())[0])
+        body = json.loads(sender.call_args.kwargs["data"])
+        self.assertEqual(body["url"], f"https://web.example/events/{one.event_id}")
+
+        self.make_due_alert("준비물")
+        with patch("notices.webpush.webpush") as sender:
+            push_group(due_alert_groups(due_alerts())[0])
+        body = json.loads(sender.call_args.kwargs["data"])
+        self.assertEqual(body["url"], "https://web.example/home")
+
     @override_settings(**{"VAPID_PUBLIC_KEY": "pub", "VAPID_PRIVATE_KEY": "priv"})
     def test_죽은_구독은_그_자리에서_지운다(self):
         """
@@ -2050,3 +2120,205 @@ class SendAlertFallbackTests(ApiTestCase):
         self.assertEqual(res.status_code, 200)
         ntfy.assert_called_once()
         push.assert_not_called()
+
+
+class RepeatDatesTests(TestCase):
+    """반복 규칙이 만드는 날들. 모델 함수 하나라 요청 없이 본다."""
+
+    def dates(self, start, freq, until, weekdays=None):
+        from .models import repeat_dates
+
+        return repeat_dates(start, freq, until, weekdays)
+
+    def test_매일(self):
+        self.assertEqual(
+            self.dates(dt.date(2026, 9, 17), "daily", dt.date(2026, 9, 19)),
+            [dt.date(2026, 9, 17), dt.date(2026, 9, 18), dt.date(2026, 9, 19)],
+        )
+
+    def test_매주는_고른_요일만(self):
+        # 2026-09-17 은 목요일(3). 월(0)·목(3)
+        self.assertEqual(
+            self.dates(dt.date(2026, 9, 17), "weekly", dt.date(2026, 9, 28), [0, 3]),
+            [dt.date(2026, 9, 17), dt.date(2026, 9, 21), dt.date(2026, 9, 24), dt.date(2026, 9, 28)],
+        )
+
+    def test_매월_31일은_없는_달을_건너뛴다(self):
+        self.assertEqual(
+            self.dates(dt.date(2026, 10, 31), "monthly", dt.date(2027, 3, 31)),
+            [dt.date(2026, 10, 31), dt.date(2026, 12, 31), dt.date(2027, 1, 31), dt.date(2027, 3, 31)],
+        )
+
+    def test_매년_2월_29일은_윤년에만(self):
+        self.assertEqual(
+            self.dates(dt.date(2028, 2, 29), "yearly", dt.date(2033, 1, 1)),
+            [dt.date(2028, 2, 29), dt.date(2032, 2, 29)],
+        )
+
+    def test_끝나는_날이_앞서면_비어_있다(self):
+        self.assertEqual(self.dates(dt.date(2026, 9, 17), "daily", dt.date(2026, 9, 16)), [])
+
+
+class RepeatEventTests(ApiTestCase):
+    def create(self, **over):
+        body = {
+            "zone": self.zone.id,
+            "event_date": str(self.start),
+            "title": "체육복",
+            "alerts": ["D-1 20:00"],
+            "repeat": {"freq": "weekly", "weekdays": [self.start.weekday()], "until": str(self.start + dt.timedelta(days=21))},
+            **over,
+        }
+        return self.post(reverse("event-list"), body)
+
+    def setUp(self):
+        super().setUp()
+        self.start = self.today + dt.timedelta(days=1)
+
+    def series_events(self):
+        return list(Event.objects.filter(series__isnull=False).order_by("event_date"))
+
+    def patch(self, event, body, scope=None):
+        url = reverse("event-detail", args=[event.id]) + (f"?scope={scope}" if scope else "")
+        return self.client.patch(url, body, content_type="application/json", headers=self.auth)
+
+    def test_매주_반복은_날마다_일정과_알림을_만든다(self):
+        res = self.create()
+
+        self.assertEqual(res.status_code, 201)
+        events = self.series_events()
+        self.assertEqual([e.event_date for e in events], [self.start + dt.timedelta(days=7 * n) for n in range(4)])
+        self.assertTrue(all(e.alerts.count() == 1 for e in events))
+        self.assertEqual(res.json()["id"], events[0].id)
+        self.assertEqual(res.json()["repeat"]["freq"], "weekly")
+
+    def test_여러_날짜리는_길이를_지킨다(self):
+        self.create(end_date=str(self.start + dt.timedelta(days=1)))
+        self.assertTrue(all(e.span_days == 2 for e in self.series_events()))
+
+    def test_지킬_수_없는_규칙은_막는다(self):
+        cases = {
+            "끝이_앞섬": {"freq": "daily", "until": str(self.today)},
+            "요일_없음": {"freq": "weekly", "weekdays": [], "until": str(self.start + dt.timedelta(days=7))},
+            "너무_많음": {"freq": "daily", "until": str(self.start + dt.timedelta(days=400))},
+            "너무_멂": {"freq": "yearly", "until": str(self.start.replace(year=self.start.year + 6))},
+        }
+        for name, repeat in cases.items():
+            with self.subTest(name):
+                self.assertEqual(self.create(repeat=repeat).status_code, 400)
+        self.assertFalse(Event.objects.exists())
+
+    def test_반복_규칙은_나중에_못_바꾼다(self):
+        self.create()
+        first = self.series_events()[0]
+        res = self.patch(first, {"repeat": {"freq": "daily", "until": str(self.start)}})
+        self.assertEqual(res.status_code, 400)
+
+    def test_이_일정만_고치면_나머지는_그대로다(self):
+        self.create()
+        second = self.series_events()[1]
+
+        self.assertEqual(self.patch(second, {"title": "운동화"}).status_code, 200)
+        self.assertEqual([e.title for e in self.series_events()], ["체육복", "운동화", "체육복", "체육복"])
+
+    def test_이후_모두_고치면_뒤따르는_것까지_바뀐다(self):
+        self.create()
+        second = self.series_events()[1]
+
+        res = self.patch(
+            second,
+            {"title": "운동화", "event_date": str(second.event_date + dt.timedelta(days=1)), "alerts": ["D 07:00"]},
+            scope="following",
+        )
+
+        self.assertEqual(res.status_code, 200)
+        events = self.series_events()
+        self.assertEqual([e.title for e in events], ["체육복", "운동화", "운동화", "운동화"])
+        self.assertEqual(
+            [e.event_date for e in events],
+            [self.start, self.start + dt.timedelta(days=8), self.start + dt.timedelta(days=15), self.start + dt.timedelta(days=22)],
+        )
+        self.assertEqual([a.code for a in events[3].alerts.all()], ["D 07:00"])
+        self.assertEqual([a.code for a in events[0].alerts.all()], ["D-1 20:00"])
+
+    def test_완료는_이후_모두에도_그_날만이다(self):
+        self.create()
+        second = self.series_events()[1]
+        self.patch(second, {"completed": True}, scope="following")
+        self.assertEqual([e.completed_at is not None for e in self.series_events()], [False, True, False, False])
+
+    def test_이후_모두_지우기(self):
+        self.create()
+        third = self.series_events()[2]
+
+        res = self.client.delete(
+            reverse("event-detail", args=[third.id]) + "?scope=following", headers=self.auth
+        )
+
+        self.assertEqual(res.status_code, 204)
+        self.assertEqual(len(self.series_events()), 2)
+
+    def test_이_일정만_지우기(self):
+        self.create()
+        third = self.series_events()[2]
+        self.client.delete(reverse("event-detail", args=[third.id]), headers=self.auth)
+        self.assertEqual(len(self.series_events()), 3)
+
+    def test_잘못된_범위는_막는다(self):
+        self.create()
+        first = self.series_events()[0]
+        self.assertEqual(self.patch(first, {"title": "x"}, scope="all").status_code, 400)
+        self.assertEqual(first.__class__.objects.get(pk=first.pk).title, "체육복")
+
+
+class SearchTests(ApiTestCase):
+    def make(self, title, days, content="", zone=None, **extra):
+        return Event.objects.create(
+            zone=zone or self.zone,
+            event_date=self.today + dt.timedelta(days=days),
+            title=title,
+            content=content,
+            **extra,
+        )
+
+    def search(self, q):
+        from urllib.parse import quote
+
+        return self.get(f"/events?q={quote(q)}")
+
+    def test_제목과_내용에서_찾는다(self):
+        self.make("가을 소풍", 3)
+        self.make("준비물", 1, content="소풍 도시락")
+        self.make("체육복", 2)
+
+        titles = [row["title"] for row in self.search("소풍").json()]
+        self.assertEqual(titles, ["준비물", "가을 소풍"])
+
+    def test_띄어_쓴_말은_모두_있어야_한다(self):
+        self.make("가을 소풍", 3)
+        self.make("봄 소풍", 4, content="도시락")
+        self.assertEqual([r["title"] for r in self.search("소풍 도시락").json()], ["봄 소풍"])
+
+    def test_앞으로의_일정이_먼저_그다음_최근_지난_일정(self):
+        self.make("소풍 지난달", -30)
+        self.make("소풍 어제", -1)
+        self.make("소풍 다음주", 7)
+        self.make("소풍 내일", 1)
+
+        self.assertEqual(
+            [r["title"] for r in self.search("소풍").json()],
+            ["소풍 내일", "소풍 다음주", "소풍 어제", "소풍 지난달"],
+        )
+
+    def test_완료와_보류도_찾는다(self):
+        self.make("소풍 완료", 1, completed_at=timezone.now())
+        self.make("소풍 보류", 2, held_at=timezone.now())
+        self.assertEqual(len(self.search("소풍").json()), 2)
+
+    def test_남의_일정은_안_나온다(self):
+        self.make("소풍", 1, zone=Zone.objects.create(owner=self.other, name="남의집"))
+        self.assertEqual(self.search("소풍").json(), [])
+
+    def test_빈_말은_막는다(self):
+        self.assertEqual(self.search("   ").status_code, 400)
+        self.assertEqual(self.search("가" * 51).status_code, 400)

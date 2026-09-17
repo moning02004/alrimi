@@ -4,6 +4,7 @@ from collections import defaultdict
 from datetime import timedelta
 
 from django.conf import settings
+from django.db import transaction
 from django.db.models import F, Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -12,11 +13,12 @@ from rest_framework import generics, status
 from rest_framework.authentication import TokenAuthentication, SessionAuthentication
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.exceptions import ValidationError
-from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.permissions import SAFE_METHODS, AllowAny, BasePermission, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.permissions import HasAPIKey
+from zones.models import editable_zones, recipients, visible_zones
 
 from .filters import FILTERS, filter_q, ordering_for
 from .models import EventAlert, Event, Priority
@@ -30,19 +32,54 @@ from .serializers import (
 )
 
 
-def owned_events(user):
-    return Event.objects.filter(zone__owner=user).select_related("zone").prefetch_related("alerts")
+def visible_events(user):
+    """
+    볼 수 있는 일정 — 내 공간과 함께 보는 공간의 것. 목록·달력·상세·검색이 쓴다.
+
+    고치고 지우는 쪽은 `deletable_events`·`EventDetailView` 가 따로 좁힌다(`editable_zones`).
+    보는 사람은 보기와 알림만 함께한다(`zones.models.Sharing`).
+    """
+    return Event.objects.filter(zone__in=visible_zones(user))
+
+
+def deletable_events(user):
+    """지울 수 있는 일정. 알림까지 딸려 지워지므로 미리 불러올 것이 없다."""
+    return Event.objects.filter(zone__in=editable_zones(user))
+
+
+class IsEventOwnerOrReadOnly(BasePermission):
+    """
+    받은 공간의 일정은 보기만 한다 — 주인이 "함께 보는 사람도 일정 추가·수정" 을 켜두지 않았으면.
+    """
+
+    message = "이 공간의 일정은 주인만 고칠 수 있어요."
+
+    def has_object_permission(self, request, view, event):
+        if request.method in SAFE_METHODS or event.zone.owner_id == request.user.id:
+            return True
+        return editable_zones(request.user).filter(pk=event.zone_id).exists()
 
 
 def zone_filter(request) -> Q:
-    """?zone={id} 는 목록을 좁히는 선택 필터다. 없으면 전체 공간."""
-    raw = request.query_params.get("zone")
-    if not raw:
-        return Q()
-    try:
-        return Q(zone_id=int(raw))
-    except ValueError:
-        raise ValidationError({"zone": "공간 id는 정수여야 합니다."}) from None
+    """
+    목록을 좁히는 선택 필터. 없으면 전체 공간.
+
+    - `?zone={id}`  — 공간 하나
+    - `?owner={id}` — 그 사람의 공간 전부(내가 볼 수 있는 것만). 받은 공간은 웹이 사람마다
+      칩 하나로 묶어 보여주므로, 그 칩을 누르면 이 필터로 온다.
+
+    둘이 함께 오면 zone 이 이긴다 — 더 좁은 쪽이다.
+    """
+    params = request.query_params
+    for key, field in (("zone", "zone_id"), ("owner", "zone__owner_id")):
+        raw = params.get(key)
+        if not raw:
+            continue
+        try:
+            return Q(**{field: int(raw)})
+        except ValueError:
+            raise ValidationError({key: "id는 정수여야 합니다."}) from None
+    return Q()
 
 
 def parse_date(raw: str, field: str) -> dt.date:
@@ -85,17 +122,22 @@ def parse_range(params, *, require_end: bool = True) -> tuple[dt.date, dt.date |
     return start, end
 
 
+#  검색 결과는 여기까지. 이보다 많으면 찾는 말을 더 적는 편이 빠르다.
+SEARCH_LIMIT = 100
+
+
 class EventListCreateView(generics.ListCreateAPIView):
     """
     GET  /events?from=&to=&zone={id}          — 임의 기간. 주간 스트립이 쓴다
     GET  /events?date=2026-08-19&zone={id}    — 하루치
     GET  /events?filter=upcoming|later|past|held&zone={id}
+    GET  /events?q=소풍&zone={id}             — 제목·내용 검색 (최근 날짜부터 100건)
     POST /events                              — 공간은 본문의 zone
 
     `filter=held` 만 보류함이다. 나머지 창은 전부 보류를 빼고 본다 — 보류는
     "아직 날짜가 없는 것" 이라 날짜를 축으로 삼는 목록 어디에도 자리가 없다.
 
-    셋이 겹치면 date > from/to > filter 순으로 이긴다. 화면마다 창이 하나뿐이라
+    넷이 겹치면 q > date > from/to > filter 순으로 이긴다. 화면마다 창이 하나뿐이라
     섞이면 목록이 어느 창을 그린 건지 알 수 없어진다.
     """
 
@@ -120,7 +162,7 @@ class EventListCreateView(generics.ListCreateAPIView):
         그 날 무엇이 있었는지가 틀리게 읽힌다. 그래서 `held` 가 이 갈림을 통째로
         가른다 — 보류함만 True 로 부르고, 나머지는 전부 보류를 빼고 본다.
         """
-        queryset = Event.objects.filter(zone__owner=self.request.user, held_at__isnull=not held)
+        queryset = visible_events(self.request.user).filter(held_at__isnull=not held)
         if hide_completed:
             # 끝난 날짜가 기준이다 — 오늘까지 이어지는 여행을 완료로 덮었다면
             # 마지막 날까지는 앞으로의 목록에서 빠져야 한다.
@@ -134,8 +176,41 @@ class EventListCreateView(generics.ListCreateAPIView):
             .order_by(*ordering)
         )
 
+    def search(self, raw: str):
+        """
+        제목·내용에서 찾는다. 띄어 쓴 말은 **모두** 들어 있어야 한다("소풍 도시락").
+
+        날짜 창이 없다 — "소풍 언제였지" 도 "다음 소풍 언제지" 도 여기로 온다. 그래서
+        완료·보류·지난 것을 가리지 않고 다 담고, 가까운 미래가 위에 오도록 날짜가 늦은
+        것부터가 아니라 **오늘에서 가까운 것부터** 세운다: 앞으로의 일정(날짜순) 다음에
+        지난 일정(최근순).
+        """
+        terms = raw.split()
+        if not terms or len(raw) > 50:
+            raise ValidationError({"q": "찾을 말을 50자 안으로 적어주세요."})
+
+        condition = Q()
+        for term in terms:
+            condition &= Q(title__icontains=term) | Q(content__icontains=term)
+
+        today = timezone.localdate()
+        queryset = (
+            visible_events(self.request.user)
+            .filter(zone_filter(self.request), condition)
+            .select_related("zone")
+            .prefetch_related("alerts")
+        )
+        upcoming = list(queryset.filter(end_date__gte=today).order_by("event_date", "id")[:SEARCH_LIMIT])
+        past = list(
+            queryset.filter(end_date__lt=today).order_by("-event_date", "-id")[: SEARCH_LIMIT - len(upcoming)]
+        )
+        return upcoming + past
+
     def get_queryset(self):
         params = self.request.query_params
+
+        if "q" in params:
+            return self.search(params["q"])
 
         # 달력을 펼치면 하루만 본다. 여기서는 완료한 것도 보여준다 —
         # 이 화면이 완료를 되돌리는 유일한 길이다.
@@ -203,9 +278,8 @@ class CalendarView(APIView):
         start, end = parse_range(request.query_params)
 
         rows = (
-            Event.objects.filter(
+            visible_events(request.user).filter(
                 zone_filter(request),
-                zone__owner=request.user,
                 # 창에 걸치기만 하면 된다. 창 밖에서 시작한 여행도 창 안의 날들에는
                 # 띠가 지나가야 한다.
                 event_date__lte=end,
@@ -249,7 +323,7 @@ class CalendarView(APIView):
 class EventDetailView(generics.RetrieveUpdateDestroyAPIView):
     """GET/PATCH/DELETE /events/{id}"""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsEventOwnerOrReadOnly]
     lookup_url_kwarg = "event_id"
     http_method_names = ["get", "patch", "delete", "head", "options"]
 
@@ -257,7 +331,68 @@ class EventDetailView(generics.RetrieveUpdateDestroyAPIView):
         return EventWriteSerializer if self.request.method == "PATCH" else EventDetailSerializer
 
     def get_queryset(self):
-        return owned_events(self.request.user)
+        # 함께 보는 공간의 일정도 찾는다. 남의 것이 404 가 아니라 403 이어야 웹이
+        # "주인만 고칠 수 있다" 고 말할 수 있다 — 권한은 위의 permission 이 가른다.
+        return (
+            visible_events(self.request.user)
+            .select_related("zone", "series")
+            .prefetch_related("alerts")
+        )
+
+    def perform_destroy(self, instance):
+        """
+        `?scope=following` 이면 같은 반복의 뒤따르는 일정까지 지운다. 앞선 날은
+        남는다 — 지난 기록이거나, 이미 따로 챙기고 있는 날이다.
+        """
+        scope = self.request.query_params.get("scope", "this")
+        if scope not in ("this", "following"):
+            raise ValidationError({"scope": "this 또는 following 이어야 합니다."})
+
+        if scope == "following" and instance.series_id:
+            with transaction.atomic():
+                Event.objects.filter(
+                    series_id=instance.series_id, event_date__gte=instance.event_date
+                ).delete()
+            return
+        instance.delete()
+
+
+class BulkDeleteEventsView(APIView):
+    """
+    POST /events/bulk-delete  {"ids": [1, 2, 3]} → {"deleted": 3}
+
+    목록에서 여럿을 골라 지울 때 쓴다. 웹이 DELETE 를 개수만큼 따로 보내면 모바일 망에서
+    일부만 실패하기 쉽고, 몇 개가 남았는지 사람이 다시 확인해야 한다. 한 요청 안에서
+    한꺼번에 지우므로 전부 지워지거나 하나도 안 지워진다.
+
+    **남의 일정 id 는 조용히 건너뛴다.** 없는 것과 남의 것을 구분해 알려주면 그 id 가
+    있는지를 떠볼 수 있다. 웹은 `deleted` 를 보낸 개수와 비교해 빠진 것을 알린다.
+
+    DELETE 가 아니라 POST 인 까닭은 본문 때문이다 — 본문을 실은 DELETE 는 프록시에
+    따라 본문이 떨어진다.
+    """
+
+    permission_classes = [IsAuthenticated]
+    MAX_IDS = 500
+
+    def post(self, request):
+        ids = request.data.get("ids")
+        if (
+            not isinstance(ids, list)
+            or not ids
+            or not all(isinstance(i, int) and not isinstance(i, bool) for i in ids)
+        ):
+            raise ValidationError({"ids": "지울 일정 id 목록(정수)이 필요합니다."})
+        if len(ids) > self.MAX_IDS:
+            raise ValidationError({"ids": f"한 번에 {self.MAX_IDS}개까지 지울 수 있습니다."})
+
+        with transaction.atomic():
+            events = deletable_events(request.user).filter(id__in=set(ids))
+            deleted = events.count()
+            # 일정마다 신호(구글 캘린더 반영)가 나가도록 쿼리셋 delete 를 쓴다
+            events.delete()
+
+        return Response({"deleted": deleted})
 
 
 class SendEventAlertView(APIView):
@@ -283,22 +418,34 @@ class SendEventAlertView(APIView):
             EventAlert.objects.select_related("event__zone__owner"),
             pk=event_alert_id,
             event_id=event_id,
-            event__zone__owner=request.user,
+            event__zone__in=editable_zones(request.user),
         )
 
-        if push_alert(alert):
-            # 닿았으면 발송이다. ntfy 를 건너뛴 것이지 못 보낸 것이 아니다.
+        # 공간을 함께 보는 사람에게도 보낸다. 사람마다 웹 푸시 → 안 닿으면 ntfy 순서다.
+        reached = 0
+        errors: list[NtfyError] = []
+        for person in recipients(alert.event.zone):
+            if push_alert(alert, person):
+                # 닿았으면 발송이다. ntfy 를 건너뛴 것이지 못 보낸 것이 아니다.
+                reached += 1
+                continue
+            try:
+                send_alert(alert, person)
+            except NtfyError as exc:
+                errors.append(exc)
+            else:
+                reached += 1
+
+        # 한 사람에게라도 닿았으면 발송으로 찍는다. 예약은 하나라 사람마다 나눠 적을
+        # 자리가 없고, 못 찍으면 예약 시각에 닿은 사람까지 한 번 더 받는다.
+        if reached:
             alert.mark_sent()
             return Response(EventAlertItemSerializer(alert).data)
 
-        try:
-            send_alert(alert)
-        except NtfyError as exc:
-            # 두 길이 다 막혔다. 실패도 EventAlert 에 남으므로(status="fail") 화면이
-            # 그 자리에서 까닭을 보여줄 수 있도록 이유를 그대로 싣는다.
-            return Response({"detail": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
-
-        return Response(EventAlertItemSerializer(alert).data)
+        # 모두에게 두 길이 다 막혔다. 실패도 EventAlert 에 남으므로(status="fail") 화면이
+        # 그 자리에서 까닭을 보여줄 수 있도록 이유를 그대로 싣는다.
+        alert.mark_failed()
+        return Response({"detail": str(errors[0])}, status=status.HTTP_502_BAD_GATEWAY)
 
 
 def next_week() -> tuple[dt.date, dt.date]:
@@ -319,8 +466,7 @@ def next_week() -> tuple[dt.date, dt.date]:
 @authentication_classes([])
 # 열쇠를 빼면 남의 일정 제목과 ntfy 토픽이 그대로 열린다. 로그인으로도 못 들어온다
 # — 크론은 사람 계정이 없고, 사람은 이 자리를 볼 일이 없다.
-# @permission_classes([HasAPIKey])
-@permission_classes([])
+@permission_classes([HasAPIKey])
 def list_weekly(request):
     """
     GET /events/weekly → ntfy 로 보낼 묶음 목록
@@ -336,7 +482,8 @@ def list_weekly(request):
 
     start_date, end_date = next_week()
     rows = (
-        Event.objects.select_related("zone", "zone__owner").prefetch_related("alerts")
+        Event.objects.select_related("zone", "zone__owner")
+        .prefetch_related("alerts", "zone__owner__viewers__viewer")
         # 이 주에 걸치기만 하면 담는다. 지난주에 떠나 이번 주에 돌아오는 여행도
         # 이번 주에 있는 일이다.
         .filter(event_date__lte=end_date,
@@ -359,11 +506,14 @@ def list_weekly(request):
             # 며칠째인지는 창이 아니라 일정의 시작일부터 센다
             nth = (day - event.event_date).days + 1
             mark = f" ({nth}/{span}일차)" if span > 1 else ""
-            key = (event.zone.owner.ntfy_topic, event.zone.name)
             # 제목이 공간을 말하므로 줄마다 [공간] 을 다시 적지 않는다
             weekday = day.weekday()
             weekday_mark = f" ({weekday_marks[weekday]})"
-            weekly[key][f'{day.strftime("%Y-%m-%d")}{weekday_mark}'].append(f"{event_hour}{event.title}{mark}")
+            line = f"{event_hour}{event.title}{mark}"
+            # 함께 보는 사람도 같은 정리를 받는다. 통은 받는 사람마다 따로다
+            for person in recipients(event.zone):
+                key = (person.ntfy_topic, event.zone.name)
+                weekly[key][f'{day.strftime("%Y-%m-%d")}{weekday_mark}'].append(line)
 
     start_label = start_date.strftime("%Y-%m-%d")
     end_label = end_date.strftime("%Y-%m-%d")
@@ -392,7 +542,7 @@ def list_weekly(request):
                 {
                     "action": "view",
                     "label": "웹으로 이동",
-                    "url": "https://alrimi.jeonghoon.dev"
+                    "url": settings.WEB_ORIGIN,
                 }
             ]
         })
@@ -422,12 +572,15 @@ def due_alert_groups(alerts) -> list[dict]:
 
     for alert in alerts:
         event = alert.event
-        key = (event.zone.owner_id, event.zone.owner, event.zone.name)
-        # 한 일정에 걸린 예약 둘이 같은 창에 들어올 수 있다 — 크론이 한 번 걸러
-        # 따라잡을 때 "1일 전" 과 "당일" 이 함께 온다. 찍을 것은 둘 다지만
-        # 적을 것은 하나다(id 로 눌러 담는다).
-        grouped[key][event.event_date][event.id] = event
-        ids[key].append(alert.id)
+        # 공간을 함께 보는 사람도 같은 알림을 받는다. 통은 받는 사람마다 따로다 —
+        # 토픽과 기기가 사람마다 다르다.
+        for person in recipients(event.zone):
+            key = (person.pk, person, event.zone.name)
+            # 한 일정에 걸린 예약 둘이 같은 창에 들어올 수 있다 — 크론이 한 번 걸러
+            # 따라잡을 때 "1일 전" 과 "당일" 이 함께 온다. 찍을 것은 둘 다지만
+            # 적을 것은 하나다(id 로 눌러 담는다).
+            grouped[key][event.event_date][event.id] = event
+            ids[key].append(alert.id)
 
     def head(event) -> str:
         """시각 + 제목. 잠금화면의 제목 줄에 들어갈 만큼만이다."""
@@ -439,7 +592,7 @@ def due_alert_groups(alerts) -> list[dict]:
     # 도착하는 차례가 달라진다. 사람 객체는 정렬 기준이 못 되므로 id 로 줄 세운다.
     weekday_marks = ['월', '화', '수', '목', '금', '토', '일']
     for key in sorted(grouped, key=lambda k: (k[0], k[2])):
-        owner, zone_name = key[1], key[2]
+        recipient, zone_name = key[1], key[2]
         by_date = grouped[key]
         blocks = []
         events = []
@@ -458,17 +611,18 @@ def due_alert_groups(alerts) -> list[dict]:
             blocks.append("\n".join(lines))
 
         groups.append({
-            "owner": owner,
+            # 받는 사람. 공간 주인일 수도, 함께 보는 사람일 수도 있다
+            "recipient": recipient,
             "zone_name": zone_name,
-            # 한 건이면 제목이 그 일정을 그대로 말한다. "1건" 으로 접으면 잠금화면에서
-            # 무엇을 챙기라는 건지 열어봐야 안다. 여럿을 한 제목에 우겨넣으면 잘려서
-            # 어느 것도 못 읽으므로 그때는 개수만 적고 본문에 맡긴다.
+            # 제목은 건수만 적는다. 한 건이어도 같다 — 무엇인지는 본문이 말한다.
             "title": f"[{zone_name}] 일정 {len(events)}건",
             # 날짜 묶음 사이는 한 줄 띄운다. 붙여두면 날짜 줄이 앞 묶음의 꼬리로 읽힌다.
             "message": "\n\n".join(blocks),
             # 일정마다 중요도를 고르지 않는다. 모두 일반 등급으로 나간다.
             "priority": Priority.NORMAL,
             "ids": ids[key],
+            # 알림을 눌렀을 때 열 화면을 고르는 데 쓴다(`push_group`)
+            "event_ids": [event.id for event in events],
         })
 
     return groups
@@ -487,6 +641,9 @@ def due_alerts(*, ids: list[int] | None = None):
     """
     queryset = EventAlert.objects.select_related(
         "event", "event__zone", "event__zone__owner"
+    ).prefetch_related(
+        # 받는 사람을 고를 때(`recipients`) 공간마다 쿼리를 다시 내지 않도록
+        "event__zone__owner__viewers__viewer"
         # 보류한 일정의 예약은 나가지 않는다. 다시 잡을 때 `revive_alerts` 가
         # 새 날짜로 되살리므로, 여기서 빼도 알림이 영영 사라지지는 않는다.
     ).filter(event__completed_at__isnull=True, event__held_at__isnull=True)
@@ -504,10 +661,18 @@ def due_alerts(*, ids: list[int] | None = None):
     return queryset.order_by("event__event_date", "event__event_hour", "id")
 
 
+def alert_ids(groups) -> list[int]:
+    """
+    묶음들에 담긴 예약 id. 공간을 여럿이 함께 보면 같은 예약이 받는 사람마다 한 번씩
+    담기므로 겹친 것을 한 번만 남긴다(순서는 처음 나온 대로).
+    """
+    return list(dict.fromkeys(alert_id for group in groups for alert_id in group["ids"]))
+
+
 def ntfy_payload(group) -> dict:
     """묶음 하나를 n8n 이 그대로 ntfy 로 POST 할 수 있는 모양으로."""
     return {
-        "topic": group["owner"].ntfy_topic,
+        "topic": group["recipient"].ntfy_topic,
         "title": group["title"],
         "message": group["message"],
         "priority": group["priority"],
@@ -524,20 +689,21 @@ def ntfy_payload(group) -> dict:
 def push_group(group) -> int:
     """묶음 하나를 웹 푸시로 민다. 돌려주는 값은 실제로 닿은 기기 수다."""
     return send_to_user(
-        group["owner"],
+        group["recipient"],
         title=group["title"],
         message=group["message"],
         priority=group["priority"],
         # 같은 묶음이 두 번 도착해도 알림은 하나로 덮인다. 크론이 한 번 걸러
         # 따라잡을 때 앞서 나간 것과 겹칠 수 있다.
         tag=f"due-{min(group['ids'])}",
+        # 한 건이면 누르자마자 그 일정이 열린다. 여럿이면 홈에서 훑는다.
+        path=f"/events/{group['event_ids'][0]}" if len(group["event_ids"]) == 1 else "/home",
     )
 
 
 @api_view(["GET"])
 @authentication_classes([])
-# @permission_classes([HasAPIKey])
-@permission_classes([])
+@permission_classes([HasAPIKey])
 def list_due_alerts(request):
     """
     GET /events/alerts → 지금 나가야 할 예약들. **읽기만 한다.**
@@ -558,7 +724,7 @@ def list_due_alerts(request):
 
     return Response({
         "data": [ntfy_payload(group) for group in groups],
-        "ids": [alert_id for group in groups for alert_id in group["ids"]],
+        "ids": alert_ids(groups),
     })
 
 
@@ -602,7 +768,7 @@ def push_due_alerts(request):
 
     return Response({
         "data": [ntfy_payload(group) for group in groups if not push_group(group)],
-        "ids": [alert_id for group in groups for alert_id in group["ids"]],
+        "ids": alert_ids(groups),
     })
 
 
