@@ -3,12 +3,14 @@
 import { useState } from "react";
 import toast from "react-hot-toast";
 import { useDeleteEvent, useEvent, useHold, useSendAlert, useToggleComplete } from "@/hooks/useEvents";
-import { useZoneMark } from "@/hooks/useZones";
+import { useZoneMark, useZones } from "@/hooks/useZones";
 import { ZoneMark } from "@/components/ZoneMark";
 import { ErrorBlock, LoadingBlock } from "@/components/Loading";
 import { firstError } from "@/lib/api";
 import { codeLabel } from "@/lib/alerts";
 import { hourLabel, monthDayLabel, spanLabel, timeLabel } from "@/lib/date";
+import { repeatLabel } from "@/lib/repeat";
+import type { EditScope } from "@/types";
 import { BottomSheet } from "@/components/BottomSheet";
 import { EventForm } from "@/components/EventForm";
 import { Menu } from "@/components/Menu";
@@ -35,20 +37,30 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
   const [resuming, setResuming] = useState(false);
   /** 발송 기록 모달. 이미 나간 알림은 예정된 것과 섞지 않고 여기서 본다 */
   const [history, setHistory] = useState(false);
+  /** 반복 일정을 지울 때 어디까지 지울지 묻는 시트 */
+  const [deleting, setDeleting] = useState(false);
   const { data: event, isLoading, isError, refetch } = useEvent(eventId);
   const remove = useDeleteEvent();
   const toggleComplete = useToggleComplete(eventId);
   const hold = useHold(eventId);
   const send = useSendAlert(eventId);
   const markOf = useZoneMark();
+  const { zones } = useZones();
 
   if (isLoading) return <LoadingBlock />;
   if (isError || !event) return <ErrorBlock onRetry={() => refetch()} />;
 
   const done = event.completed_at !== null;
   const held = event.held_at !== null;
+  /*
+    함께 보는(공유받은) 공간의 일정은 보기만 한다. 고치는 자리 — 점 세 개 메뉴, 완료
+    동그라미, 알림 보내기, 다시 잡기 — 를 통째로 감춘다. 눌러봐야 서버가 403 으로 막는다.
+  */
+  const readOnly = !event.can_edit;
+  const sharedZone = zones.find((zone) => zone.id === event.zone_id && zone.role === "member");
   // 이 화면은 공간 이름을 그대로 적으므로 딱지는 목록에서 본 것과 같은지 확인시켜 준다
-  const zoneMark = markOf(event.zone_id)?.mark ?? "";
+  const zoneInfo = markOf(event.zone_id);
+  const zoneMark = zoneInfo?.mark ?? "";
 
   /*
     예정된 알림과 이미 나간 것을 나눈다. 한 줄에 섞으면 목록이 길어질수록 "앞으로 올 것"
@@ -76,15 +88,30 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
       onError: () => toast.error("옮기지 못했어요"),
     });
 
-  const onDelete = () => {
-    if (!confirm("이 일정을 삭제할까요? 예약된 알림도 함께 사라집니다.")) return;
-    remove.mutate(eventId, {
-      onSuccess: () => {
-        toast.success("삭제했어요");
-        onDeleted();
+  const removeScoped = (scope: EditScope) =>
+    remove.mutate(
+      { eventId, scope },
+      {
+        onSuccess: () => {
+          toast.success(scope === "following" ? "이 일정과 이후 반복을 지웠어요" : "삭제했어요");
+          setDeleting(false);
+          onDeleted();
+        },
+        onError: () => toast.error("삭제하지 못했어요"),
       },
-      onError: () => toast.error("삭제하지 못했어요"),
-    });
+    );
+
+  /**
+   * 반복 일정이면 어디까지 지울지 시트로 묻는다. 한 번짜리는 지금처럼 한 번만 묻는다 —
+   * 고를 것이 없는데 시트를 띄우면 누를 버튼만 하나 늘어난다.
+   */
+  const onDelete = () => {
+    if (event.series_id) {
+      setDeleting(true);
+      return;
+    }
+    if (!confirm("이 일정을 삭제할까요? 예약된 알림도 함께 사라집니다.")) return;
+    removeScoped("this");
   };
 
   /**
@@ -115,6 +142,7 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
           완료만은 여기 없다. 아침에 목록을 훑으며 끝난 것을 찍는 것이 이 앱의
           주 용도라, 그 조작은 접어두지 않고 제목 옆에 그대로 둔다(아래).
         */}
+        {!readOnly && (
         <Menu
           items={[
             { label: "수정", onSelect: () => setEditing(true) },
@@ -126,6 +154,7 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
             { label: "삭제", onSelect: onDelete, disabled: remove.isPending, danger: true },
           ]}
         />
+        )}
         </div>
       </header>
 
@@ -164,7 +193,7 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
           </h1>
 
           {/* 보류한 것에는 끝낼 일이 없다. 서버도 보류하면 완료를 지운다 */}
-          {!held && (
+          {!held && !readOnly && (
             <button
               type="button"
               onClick={() =>
@@ -198,7 +227,7 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
         </div>
         {event.content && <p className="mt-2 text-base text-muted">{event.content}</p>}
 
-        <div className="mt-3 flex gap-1.5">
+        <div className="mt-3 flex flex-wrap gap-1.5">
           {held && (
             <span className="rounded-full bg-amberlt px-2.5 py-1 text-xs text-amber">보류 중</span>
           )}
@@ -206,9 +235,22 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
             <span className="rounded-full bg-pinelt px-2.5 py-1 text-xs text-pine">완료</span>
           )}
           <span className="flex items-center gap-1.5 rounded-full border border-line py-1 pl-1 pr-2.5 text-xs text-muted">
-            <ZoneMark mark={zoneMark} color={event.zone_color} size="sm" />
-            {event.zone_name}
+            <ZoneMark mark={zoneMark} color={zoneInfo?.color ?? event.zone_color} size="sm" round={zoneInfo?.received} />
+            {/* 받은 공간은 누구의 것인지까지 — 목록 제목의 [아빠_어린이집] 과 같은 이름이다 */}
+            {zoneInfo?.label ?? event.zone_name}
           </span>
+          {/* 반복 규칙. 고치거나 지울 때 "이후 모두" 가 무엇을 가리키는지 여기서 읽는다 */}
+          {event.repeat && (
+            <span className="rounded-full border border-line px-2.5 py-1 text-xs text-muted">
+              {repeatLabel(event.repeat)}
+            </span>
+          )}
+          {/* 남의 공간이다. 왜 고치는 자리가 없는지를 이것이 말한다 */}
+          {readOnly && (
+            <span className="rounded-full bg-paper px-2.5 py-1 text-xs text-muted">
+              {sharedZone ? `${sharedZone.owner_name}님이 공유 · 보기 전용` : "보기 전용"}
+            </span>
+          )}
         </div>
 
         <p className="mb-2 mt-6 text-xs font-medium text-muted">
@@ -243,6 +285,7 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
                 )}
 
                 {/* 시각이 되기 전에 손으로 밀거나, 실패한 것을 다시 밀 때 */}
+                {!readOnly && (
                 <button
                   onClick={() => onSend(alert.id)}
                   disabled={send.isPending}
@@ -251,6 +294,7 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
                 >
                   {send.isPending && send.variables === alert.id ? "보내는 중" : "보내기"}
                 </button>
+                )}
               </div>
             </li>
           ))}
@@ -280,14 +324,16 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
                   </p>
                 </div>
 
-                <button
-                  onClick={() => onSend(alert.id)}
-                  disabled={send.isPending}
-                  className="shrink-0 rounded-full border border-pine px-2.5 py-1 text-xs
-                             font-medium text-pine disabled:opacity-60"
-                >
-                  {send.isPending && send.variables === alert.id ? "보내는 중" : "다시 보내기"}
-                </button>
+                {!readOnly && (
+                  <button
+                    onClick={() => onSend(alert.id)}
+                    disabled={send.isPending}
+                    className="shrink-0 rounded-full border border-pine px-2.5 py-1 text-xs
+                               font-medium text-pine disabled:opacity-60"
+                  >
+                    {send.isPending && send.variables === alert.id ? "보내는 중" : "다시 보내기"}
+                  </button>
+                )}
               </li>
             ))}
           </ul>
@@ -303,7 +349,7 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
           보류가 아닌 일정에는 여기 아무것도 없다. 완료는 제목 옆 동그라미가
           맡는다(위) — 알림 목록 아래까지 내려가야 보이는 버튼이 아니라.
         */}
-        {held && (
+        {held && !readOnly && (
           <>
             <button
               onClick={() => setResuming(true)}
@@ -320,6 +366,33 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
           </>
         )}
       </main>
+
+      <BottomSheet open={deleting} onOpenChange={setDeleting} title="반복 일정 삭제">
+        <p className="px-1 text-sm">어디까지 지울까요?</p>
+        <p className="mt-1 px-1 text-xs text-muted">
+          앞선 날은 남아요. 예약된 알림도 함께 사라지고 되돌릴 수 없어요.
+        </p>
+        <div className="my-3 flex flex-col gap-2">
+          <button
+            onClick={() => removeScoped("this")}
+            disabled={remove.isPending}
+            className="rounded-xl border border-red-300 py-3 text-sm font-medium text-red-600
+                       disabled:opacity-60"
+          >
+            이 일정만 삭제
+          </button>
+          <button
+            onClick={() => removeScoped("following")}
+            disabled={remove.isPending}
+            className="rounded-xl bg-red-600 py-3 text-sm font-medium text-white disabled:opacity-60"
+          >
+            이 일정과 이후 모두 삭제
+          </button>
+          <button onClick={() => setDeleting(false)} className="py-2 text-sm text-muted">
+            취소
+          </button>
+        </div>
+      </BottomSheet>
 
       <BottomSheet open={editing} onOpenChange={setEditing} title="일정 수정">
         <EventForm event={event} onDone={() => setEditing(false)} />

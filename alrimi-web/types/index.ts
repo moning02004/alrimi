@@ -4,7 +4,54 @@ export interface Zone {
   color: string;
   upcoming_count: number;
   past_count: number;
+  /**
+   * 함께 보기. 켜면 내가 정해둔 "함께 보는 사람" 모두가 이 공간을 본다. 사람은 설정에서
+   * 한 번 정하고(`/sharing`), 공간은 켜고 끄기만 한다.
+   */
+  shared: boolean;
+  /**
+   * 함께 보는 사람도 이 공간의 일정을 추가·수정·완료·삭제할 수 있다. 아빠가 만든 아이
+   * 공간에 엄마도 일정을 넣는 자리다. 공간 설정(이름·색·함께 보기)은 여전히 주인만 바꾼다.
+   */
+  viewers_can_edit: boolean;
+  /** 이 사람이 이 공간에 일정을 넣을 수 있나 — 내 공간이거나, 받았는데 주인이 허락했거나 */
+  writable: boolean;
+  owner_id: number;
+  /**
+   * `member` 는 남이 보여주는(받은) 공간이다. **보기와 알림만** 함께한다 — 그 공간에 일정을
+   * 만들거나 고치지 못하고, 이름·색·구성원도 못 바꾼다. 서버도 같은 선에서 막는다.
+   */
+  role: "owner" | "member";
+  /** 공간 주인의 이름(없으면 아이디). 공유받은 공간에 "누구의 공간인지" 를 적는다 */
+  owner_name: string;
 }
+
+/**
+ * 목록·달력을 좁히는 필터. 내 공간은 하나씩(`zone:3`), 받은 공간은 **사람마다**(`owner:11`)
+ * 고른다 — 한 사람이 공간을 여럿 보여줘도 칩은 그 사람 하나다. null 이면 전체.
+ */
+export type ZoneScope = `zone:${number}` | `owner:${number}` | null;
+
+/** 사람 한 명 — 함께 볼 사람 찾기, 함께 보는 사람 목록. 이름과 아이디뿐이다 */
+export interface UserSummary {
+  id: number;
+  username: string;
+  name: string | null;
+}
+
+/** 반복 규칙. 요일은 월=0 … 일=6 이다(서버 파이썬 `weekday()` 와 같다) */
+export type RepeatFreq = "daily" | "weekly" | "monthly" | "yearly";
+
+export interface Repeat {
+  freq: RepeatFreq;
+  /** 매주일 때만. 다른 규칙은 빈 배열 */
+  weekdays: number[];
+  /** 마지막으로 반복할 수 있는 날 (YYYY-MM-DD, 포함) */
+  until: string;
+}
+
+/** 반복 일정을 고치거나 지울 때 어디까지 닿는가 */
+export type EditScope = "this" | "following";
 
 export interface AlertSummary {
   total: number;
@@ -45,12 +92,18 @@ export interface EventListItem {
   zone_id: number;
   zone_color: string;
   alerts: AlertSummary;
+  /** 고칠 수 있는가. 함께 보는(공유받은) 공간의 일정은 false — 보기만 한다 */
+  can_edit: boolean;
+  /** 반복으로 만든 일정이면 그 규칙의 id. 카드가 반복 표시를 붙인다 */
+  series_id: number | null;
 }
 
 export interface EventDetail extends Omit<EventListItem, "alerts"> {
   content: string;
   zone_name: string;
   alerts: AlertItem[];
+  /** 반복으로 만든 일정이면 그 규칙. 상세가 "매주 수요일 · 12월 31일까지" 를 적는다 */
+  repeat: Repeat | null;
 }
 
 export interface EventPayload {
@@ -69,6 +122,11 @@ export interface EventPayload {
    * 함께 보내야 한다 — 서버가 지난 날짜로 푸는 것을 막는다(알림이 한 통도 안 나간다).
    */
   held?: boolean;
+  /**
+   * 등록할 때만. 날마다 한 건씩 미리 만들어진다(서버 `EventSeries`). 규칙은 나중에
+   * 바꾸지 못한다 — 바꾸려면 "이후 모두" 를 지우고 새로 만든다.
+   */
+  repeat?: Repeat;
 }
 
 /**

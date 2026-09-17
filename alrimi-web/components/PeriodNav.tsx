@@ -1,5 +1,9 @@
 "use client";
 
+import Link from "next/link";
+import { LuSearch } from "react-icons/lu";
+import { pageUrl } from "@/constants/routeUrl";
+
 interface Props {
     label: string;
     expanded: boolean;
@@ -38,6 +42,18 @@ export function PeriodNav({label, expanded, onToggle, nav}: Props) {
             </button>
 
             <div className="flex items-center gap-1 text-sm text-muted">
+                {/*
+                  검색은 모바일에서 여기로 들어간다. 탭바는 홈·등록·설정 셋으로 두어 가운데
+                  등록 버튼이 가운데에 선다. 머리글 오른쪽은 "다른 일정을 찾아가는" 자리라
+                  기간 이동 옆이 어울린다.
+                */}
+                <Link
+                    href={pageUrl.search}
+                    aria-label="일정 검색"
+                    className="mr-1 flex h-8 w-8 items-center justify-center rounded-full hover:bg-paper"
+                >
+                    <LuSearch className="h-4 w-4" aria-hidden="true"/>
+                </Link>
                 <button onClick={nav.onPrev} aria-label={nav.prevLabel} className="px-2 py-0.5">
                     ‹
                 </button>

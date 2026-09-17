@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { IconType } from "react-icons";
-import { LuPanelLeftClose, LuPanelLeftOpen } from "react-icons/lu";
+import { LuPanelLeftClose, LuPanelLeftOpen, LuSearch } from "react-icons/lu";
 import {
   HiClock,
   HiCog6Tooth,
@@ -102,6 +102,14 @@ export function SideNav() {
           collapsed={collapsed}
           On={HiHome}
           Off={HiOutlineHome}
+        />
+        <Item
+          href={pageUrl.search}
+          label="검색"
+          active={pathname.startsWith(pageUrl.search)}
+          collapsed={collapsed}
+          On={LuSearch}
+          Off={LuSearch}
         />
         <Item
           href={pageUrl.past}
