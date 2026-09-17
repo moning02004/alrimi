@@ -1,5 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import toast from "react-hot-toast";
+import { isOffline } from "@/lib/api";
 import type { EventListItem } from "@/types";
 
 interface AddSheetState {
@@ -13,7 +15,14 @@ interface AddSheetState {
 export const useAddSheet = create<AddSheetState>((set) => ({
   open: false,
   initialDate: null,
-  openAdd: (initialDate) => set({ open: true, initialDate: initialDate ?? null }),
+  openAdd: (initialDate) => {
+    // 오프라인은 읽기 전용이다. 다 적고 저장에서 막히면 적은 것이 헛수고가 되므로 열기 전에 막는다.
+    if (isOffline()) {
+      toast("오프라인이라 지금은 등록할 수 없어요");
+      return;
+    }
+    set({ open: true, initialDate: initialDate ?? null });
+  },
   closeAdd: () => set({ open: false, initialDate: null }),
 }));
 

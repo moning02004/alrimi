@@ -35,7 +35,13 @@ export function ZoneChangeSheet() {
 }
 
 function ZonePicker({ event, onDone }: { event: EventForPicker; onDone: () => void }) {
-  const { zones } = useZones();
+  /*
+    옮겨 갈 수 있는 것은 **같은 주인의** 고칠 수 있는 공간뿐이다. 함께 고치는 공간이라도
+    일정을 다른 사람의 공간으로 빼가면 주인의 목록과 알림에서 사라진다(서버도 막는다).
+  */
+  const { writableZones, zones: allZones } = useZones();
+  const ownerId = allZones.find((zone) => zone.id === event.zone_id)?.owner_id;
+  const zones = writableZones.filter((zone) => zone.owner_id === ownerId);
   const markOf = useZoneMark();
   const update = useUpdateEvent(event.id);
 

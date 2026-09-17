@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
@@ -157,6 +158,35 @@ class UserListCreateView(APIView):
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
         return Response(UserSerializer(user).data, status=status.HTTP_201_CREATED)
+
+
+class UserSearchView(APIView):
+    """
+    GET /users/search?q=엄 → [{id, username, name}, ...] (최대 10명)
+
+    공간을 함께 볼 사람을 고를 때 쓴다. **로그인한 누구나** 부를 수 있다 — 관리자
+    목록(`/users`)과 달리 권한·가입일·마지막 로그인 같은 것은 싣지 않고, 고르는 데 드는
+    이름과 아이디만 준다. 이 서비스의 계정은 관리자가 넣은 몇 사람이라 서로 찾을 수
+    있어야 가족끼리 나눠 볼 수 있다.
+
+    한 글자부터 찾는다. 빈 말로는 아무도 주지 않는다 — 목록 전체를 한 번에 훑어가는
+    길을 열지 않으려는 것이다. 나 자신과 비활성 계정은 빠진다.
+    """
+
+    permission_classes = [IsAuthenticated]
+    LIMIT = 10
+
+    def get(self, request):
+        q = request.query_params.get("q", "").strip()
+        if not q:
+            return Response([])
+        users = (
+            User.objects.filter(is_active=True)
+            .exclude(pk=request.user.pk)
+            .filter(Q(username__icontains=q) | Q(name__icontains=q))
+            .order_by("name", "username")[: self.LIMIT]
+        )
+        return Response([{"id": u.pk, "username": u.username, "name": u.name} for u in users])
 
 
 class UserDetailView(APIView):

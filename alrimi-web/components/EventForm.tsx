@@ -23,12 +23,21 @@ import {
     toISO,
 } from "@/lib/date";
 import {firstError} from "@/lib/api";
+import {
+    FREQ_LABEL,
+    MAX_REPEAT_COUNT,
+    WEEKDAY_NAMES,
+    defaultUntil,
+    latestUntil,
+    repeatDates,
+    serverWeekday,
+} from "@/lib/repeat";
 import {useCreateEvent, useUpdateEvent} from "@/hooks/useEvents";
 import {onColor} from "@/lib/color";
 import {useZoneMark, useZones} from "@/hooks/useZones";
 import {Picker} from "./Picker";
 import {ZoneMark} from "./ZoneMark";
-import type {EventDetail} from "@/types";
+import type {EditScope, EventDetail, RepeatFreq} from "@/types";
 import {LuCalendar} from "react-icons/lu";
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -198,7 +207,8 @@ interface Props {
 
 export function EventForm({event, initialDate, resume = false, onDone}: Props) {
     const editing = Boolean(event);
-    const {zones, defaultZone} = useZones();
+    // 일정을 넣을 수 있는 공간만 — 내 공간과, 주인이 일정 추가·수정을 허락한 받은 공간
+    const {writableZones: zones, defaultZone, isLoading: zonesLoading} = useZones();
     const markOf = useZoneMark();
 
     // 공간 목록이 아직 안 왔으면 기본 공간도 정할 수 없다. 직접 고르기 전까지는
@@ -242,9 +252,24 @@ export function EventForm({event, initialDate, resume = false, onDone}: Props) {
         event ? sortCodes(event.alerts.map((a) => a.code)) : PRESETS["기본으로"],
     );
 
+    /*
+      반복. 등록할 때만 고른다 — 서버가 날마다 일정을 미리 만들어 두므로 규칙을 나중에
+      바꿀 수 없다(`EventSeries`). 기본은 "안 함" 이고 칸도 접혀 있다.
+    */
+    const [repeatFreq, setRepeatFreq] = useState<RepeatFreq | null>(null);
+    const [weekdays, setWeekdays] = useState<number[]>([]);
+    const [until, setUntil] = useState("");
+    /*
+      반복 일정을 고칠 때 어디까지 닿을지. 고를 수 있는 자리를 늘 보여준다 — 저장을
+      누른 뒤 한 번 더 묻는 창을 띄우면, 그 창을 읽기 전에 손이 먼저 "확인" 을 누른다.
+    */
+    const [scope, setScope] = useState<EditScope>("this");
+    const inSeries = editing && !resume && Boolean(event?.series_id);
+
     // 달력을 띄울 기준. 날짜 칸이 아니라 그 줄 전체다 — DateField 주석 참고
     const dateRow = useRef<HTMLDivElement>(null);
     const endRow = useRef<HTMLDivElement>(null);
+    const untilRow = useRef<HTMLDivElement>(null);
 
     const [day, setDay] = useState(1);
     const [hour, setHour] = useState(20);
@@ -275,6 +300,12 @@ export function EventForm({event, initialDate, resume = false, onDone}: Props) {
     const lastDate = ranged && endDate ? endDate : eventDate;
     const span = spanDays(eventDate, lastDate);
 
+    // 반복이 만들 날들. 저장 전에 몇 개가 생기는지 보여주고 한도를 넘으면 미리 막는다
+    const repeatPlan =
+        repeatFreq && eventDate && until
+            ? repeatDates(eventDate, {freq: repeatFreq, weekdays, until})
+            : [];
+
     const create = useCreateEvent();
     const update = useUpdateEvent(event?.id ?? 0);
     const mutation = editing ? update : create;
@@ -292,6 +323,31 @@ export function EventForm({event, initialDate, resume = false, onDone}: Props) {
             setEndDate(iso ? toISO(addDays(toDate(iso), keep - 1)) : "");
         }
         setEventDate(iso);
+        // 매주를 고른 뒤 시작일을 바꿨는데 요일이 하나뿐이면 새 날의 요일로 따라간다.
+        // 여럿을 골랐으면 일부러 고른 것이라 건드리지 않는다.
+        if (repeatFreq === "weekly" && weekdays.length <= 1 && iso) {
+            setWeekdays([serverWeekday(toDate(iso))]);
+        }
+        if (repeatFreq && iso && (!until || until < iso)) setUntil(defaultUntil(iso, repeatFreq));
+    };
+
+    const pickRepeat = (freq: RepeatFreq | null) => {
+        setError(null);
+        setRepeatFreq(freq);
+        if (!freq) {
+            setWeekdays([]);
+            setUntil("");
+            return;
+        }
+        if (freq === "weekly" && weekdays.length === 0 && eventDate) {
+            setWeekdays([serverWeekday(toDate(eventDate))]);
+        }
+        if (eventDate) setUntil(defaultUntil(eventDate, freq));
+    };
+
+    const toggleWeekday = (day: number) => {
+        setError(null);
+        setWeekdays(weekdays.includes(day) ? weekdays.filter((d) => d !== day) : [...weekdays, day].sort());
     };
 
     const addAlert = () => {
@@ -325,6 +381,24 @@ export function EventForm({event, initialDate, resume = false, onDone}: Props) {
             setError("제목을 적어주세요");
             return;
         }
+        if (repeatFreq) {
+            if (repeatFreq === "weekly" && weekdays.length === 0) {
+                setError("반복할 요일을 골라주세요");
+                return;
+            }
+            if (!until) {
+                setError("반복이 끝나는 날을 골라주세요");
+                return;
+            }
+            if (repeatPlan.length === 0) {
+                setError("이 규칙으로는 만들어질 날이 없어요");
+                return;
+            }
+            if (repeatPlan.length > MAX_REPEAT_COUNT) {
+                setError(`한 번에 ${MAX_REPEAT_COUNT}개까지 반복할 수 있어요. 끝나는 날을 앞당겨 주세요.`);
+                return;
+            }
+        }
 
         const payload = {
             zone: zoneId,
@@ -338,9 +412,12 @@ export function EventForm({event, initialDate, resume = false, onDone}: Props) {
             // 다시 잡으면 보류가 풀린다. 서버가 이 값을 보고 지난번에 나간
             // 예약까지 되살려 새 날짜로 다시 건다.
             ...(resume ? {held: false} : {}),
+            ...(repeatFreq && !editing
+                ? {repeat: {freq: repeatFreq, weekdays: repeatFreq === "weekly" ? weekdays : [], until}}
+                : {}),
         };
 
-        mutation.mutate(payload, {
+        const handlers = {
             onSuccess: () => {
                 // 먼 일정은 목록 화면 밖에 저장되므로 언제인지 알려준다
                 toast.success(
@@ -349,7 +426,11 @@ export function EventForm({event, initialDate, resume = false, onDone}: Props) {
                             ? `${fullLabel(eventDate)}부터 ${span}일간으로 다시 잡았어요`
                             : `${fullLabel(eventDate)}로 다시 잡았어요`
                         : editing
-                        ? "수정했어요"
+                        ? inSeries && scope === "following"
+                            ? "이 일정과 이후 반복을 모두 수정했어요"
+                            : "수정했어요"
+                        : repeatFreq
+                        ? `${fullLabel(eventDate)}부터 ${repeatPlan.length}번 반복해 등록했어요`
                         : span > 1
                             // 며칠짜리는 시작일만 말하면 얼마나 걸치는지가 안 보인다
                             ? `${fullLabel(eventDate)}부터 ${span}일간 등록했어요`
@@ -358,8 +439,11 @@ export function EventForm({event, initialDate, resume = false, onDone}: Props) {
                 onDone();
             },
             // 어느 칸이 틀렸는지는 서버가 말해준다. 뭉뚱그리면 고칠 자리를 못 찾는다.
-            onError: (e) => setError(firstError(e, "저장하지 못했어요. 잠시 후 다시 눌러주세요.")),
-        });
+            onError: (e: unknown) => setError(firstError(e, "저장하지 못했어요. 잠시 후 다시 눌러주세요.")),
+        };
+
+        if (editing) update.mutate({...payload, scope: inSeries ? scope : "this"}, handlers);
+        else create.mutate(payload, handlers);
     };
 
     /*
@@ -376,6 +460,15 @@ export function EventForm({event, initialDate, resume = false, onDone}: Props) {
             <div className="divide-y divide-line rounded-2xl border border-line bg-card mb-4">
                 <div className="flex items-center gap-3 px-4 py-2.5">
                     <span className="w-14 shrink-0 text-sm text-muted">공간</span>
+                    {/*
+                      함께 보는 공간만 있는 사람. 거기에는 일정을 넣을 수 없으므로 빈 칩 줄 대신
+                      무엇을 해야 하는지 적는다.
+                    */}
+                    {!zonesLoading && zones.length === 0 && (
+                        <span className="text-sm text-muted">
+                            내 공간이 없어요. 설정에서 공간을 먼저 만들어 주세요.
+                        </span>
+                    )}
                     <div className="flex flex-1 gap-1.5 overflow-x-auto">
                         {zones.map((zone) => {
                             const on = zone.id === zoneId;
@@ -415,10 +508,11 @@ export function EventForm({event, initialDate, resume = false, onDone}: Props) {
                     <div ref={dateRow} className={`${dateRowCls} py-1`}>
                         {/*
                           하루짜리에는 "날짜" 하나뿐이라 시작이라고 부를 것이 없다. 기간을 켜야
-                          비로소 시작과 끝이 생기므로, 그때 이름도 같이 바뀐다.
+                          비로소 시작과 끝이 생기므로, 그때 이름도 같이 바뀐다. 반복을 켜면
+                          이 날이 반복의 첫날이 된다.
                         */}
                         <label htmlFor="date" className={labelCls}>
-                            {ranged ? "시작" : "날짜"}
+                            {ranged ? "시작" : repeatFreq ? "첫날" : "날짜"}
                         </label>
                         <DateField
                             id="date"
@@ -514,11 +608,133 @@ export function EventForm({event, initialDate, resume = false, onDone}: Props) {
                                 </div>
                             </div>
                         </>
+                    ) : repeatFreq ? (
+                        /*
+                          반복. 여러 날과 **함께 켜지 않는다** — 셋 중 하나다: 하루, 여러 날, 반복.
+                          둘을 같이 두면 "종료" 와 "마지막" 두 개의 끝나는 날이 한 칸 안에 서서
+                          어느 것이 무엇의 끝인지 읽을 수 없다.
+
+                          그래서 날짜 칸이 "첫날" 이 되고, 규칙과 마지막 날이 같은 칸 안에서 이어진다.
+                          등록할 때만 열린다 — 규칙은 만든 뒤에 바꾸지 못한다(서버 `EventSeries`).
+                        */
+                        <>
+                            {/*
+                              라벨(14px)과 고르는 글자(12px)는 크기가 달라 위를 맞추면 글자가 뜬다.
+                              둘 다 날짜 칸과 같은 40px 줄에 세워 가운데를 맞춘다. 요일 줄이 열리면
+                              그 아래로 자라므로 줄 전체는 위에 붙인다.
+                            */}
+                            <div className="flex items-start gap-3 px-4 py-1">
+                                <span className={`${labelCls} leading-10`}>반복</span>
+                                <div className="min-w-0 flex-1">
+                                    <div className="flex min-h-10 flex-wrap items-center gap-x-4 pl-1.5 text-xs text-muted">
+                                        {(["daily", "weekly", "monthly", "yearly"] as const).map((freq) => (
+                                            <button
+                                                key={freq}
+                                                type="button"
+                                                aria-pressed={repeatFreq === freq}
+                                                onClick={() => pickRepeat(freq)}
+                                                className={`shrink-0 transition-colors hover:text-pine ${
+                                                    repeatFreq === freq ? "font-medium text-pine" : ""
+                                                }`}
+                                            >
+                                                {FREQ_LABEL[freq]}
+                                            </button>
+                                        ))}
+                                    </div>
+
+                                    {repeatFreq === "weekly" && (
+                                        <div className="mb-1 flex gap-1 pl-1.5" role="group" aria-label="반복할 요일">
+                                            {WEEKDAY_NAMES.map((name, day) => {
+                                                const on = weekdays.includes(day);
+                                                return (
+                                                    <button
+                                                        key={name}
+                                                        type="button"
+                                                        aria-pressed={on}
+                                                        onClick={() => toggleWeekday(day)}
+                                                        className={`h-8 w-8 shrink-0 rounded-full text-xs transition-colors ${
+                                                            on
+                                                                ? "bg-pine font-medium text-white"
+                                                                : "border border-line text-muted hover:border-pine/50"
+                                                        }`}
+                                                    >
+                                                        {name}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div ref={untilRow} className={`${dateRowCls} py-1`}>
+                                <label htmlFor="repeat-until" className={labelCls}>
+                                    마지막
+                                </label>
+                                <DateField
+                                    id="repeat-until"
+                                    value={until}
+                                    min={eventDate || minDate}
+                                    max={eventDate ? latestUntil(eventDate) : undefined}
+                                    placeholder="날짜 선택"
+                                    onPick={(iso) => {
+                                        setUntil(iso);
+                                        setError(null);
+                                    }}
+                                    row={untilRow}
+                                />
+                            </div>
+
+                            {/*
+                              몇 개가 만들어지는지와 되돌리는 길. 여러 날의 "3일간 · 하루로 되돌리기" 와
+                              같은 자리, 같은 모양이다.
+                            */}
+                            <div className={`${dateRowCls} py-1`}>
+                                <span className={labelCls} aria-hidden/>
+                                <div className="flex min-w-0 flex-wrap items-center gap-x-2 pl-1.5 text-xs text-muted">
+                                    <span
+                                        className={`tabular-nums ${
+                                            repeatPlan.length > MAX_REPEAT_COUNT || (eventDate && until && repeatPlan.length === 0)
+                                                ? "text-red-600"
+                                                : ""
+                                        }`}
+                                    >
+                                        {!eventDate || !until
+                                            ? "첫날과 마지막 날을 고르세요"
+                                            : repeatPlan.length > MAX_REPEAT_COUNT
+                                            ? `${MAX_REPEAT_COUNT}개를 넘어요`
+                                            : repeatPlan.length === 0
+                                            ? "만들어질 날이 없어요"
+                                            : `일정 ${repeatPlan.length}개`}
+                                    </span>
+                                    <span aria-hidden className="text-muted/40">·</span>
+                                    <button
+                                        type="button"
+                                        onClick={() => pickRepeat(null)}
+                                        className="shrink-0 transition-colors hover:text-pine"
+                                    >
+                                        반복 안 함
+                                    </button>
+                                    {!hourOpen && (
+                                        <>
+                                            <span aria-hidden className="text-muted/40">·</span>
+                                            <button
+                                                type="button"
+                                                onClick={() => setHourOpen(true)}
+                                                className="shrink-0 transition-colors hover:text-pine"
+                                            >
+                                                + 시간도 정해요
+                                            </button>
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+                        </>
                     ) : (
                         /*
-                          날짜에 딸린 선택지 둘(여러 날·시간)은 평소엔 이 한 줄로만 있다가,
+                          날짜에 딸린 선택지(여러 날·시간·반복)는 평소엔 이 한 줄로만 있다가,
                           눌러야 칸이 열린다. 대부분의 일정은 하루짜리이고 몇 시인지도 정해져
-                          있지 않아서, 빈 칸을 미리 놓아두면 채울 것이 둘 더 있어 보인다.
+                          있지 않아서, 빈 칸을 미리 놓아두면 채울 것이 더 있어 보인다.
 
                           위 줄들과 같은 자를 쓴다: 라벨 자리를 비워 두고 글자를 날짜 칸의
                           **글자**와 같은 자리에서 시작한다(칸이 -mx-1 만큼 왼쪽으로 나가 있어
@@ -527,7 +743,7 @@ export function EventForm({event, initialDate, resume = false, onDone}: Props) {
                         */
                         <div className={`${dateRowCls} py-1`}>
                             <span className={labelCls} aria-hidden/>
-                            <div className="flex min-w-0 gap-4 pl-1.5 text-xs text-muted">
+                            <div className="flex min-w-0 flex-wrap gap-x-4 gap-y-1 pl-1.5 text-xs text-muted">
                                 <button
                                     type="button"
                                     onClick={() => {
@@ -553,6 +769,17 @@ export function EventForm({event, initialDate, resume = false, onDone}: Props) {
                                         className="shrink-0 transition-colors hover:text-pine"
                                     >
                                         + 시간도 정해요
+                                    </button>
+                                )}
+
+                                {/* 반복은 등록할 때만. 대부분 매주라 켜면 매주로 열린다 */}
+                                {!editing && (
+                                    <button
+                                        type="button"
+                                        onClick={() => pickRepeat("weekly")}
+                                        className="shrink-0 transition-colors hover:text-pine"
+                                    >
+                                        + 반복해요
                                     </button>
                                 )}
                             </div>
@@ -715,6 +942,37 @@ export function EventForm({event, initialDate, resume = false, onDone}: Props) {
                     </div>
                 </div>
             </div>
+
+            {/*
+              반복 일정을 고칠 때 어디까지 닿을지. 저장 바로 위라 누르기 전에 눈에 든다.
+              완료·보류는 여기서 고르지 않는다 — 그 날 한 번의 일이라 늘 이 일정만이다.
+            */}
+            {inSeries && (
+                <div className="mt-2 rounded-2xl border border-line bg-card px-4 py-3">
+                    <p className="text-xs text-muted">반복 일정이에요. 어디까지 고칠까요?</p>
+                    <div className="mt-2 flex gap-2" role="radiogroup" aria-label="고칠 범위">
+                        {([
+                            ["this", "이 일정만"],
+                            ["following", "이 일정과 이후 모두"],
+                        ] as const).map(([value, label]) => (
+                            <button
+                                key={value}
+                                type="button"
+                                role="radio"
+                                aria-checked={scope === value}
+                                onClick={() => setScope(value)}
+                                className={`flex-1 rounded-lg border px-3 py-2 text-sm transition-colors ${
+                                    scope === value
+                                        ? "border-pine bg-pinelt font-medium text-pine"
+                                        : "border-line text-muted hover:border-pine/50"
+                                }`}
+                            >
+                                {label}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
 

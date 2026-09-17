@@ -25,7 +25,11 @@ export function TabBar() {
   const openAdd = useAddSheet((s) => s.openAdd);
 
   return (
-    <div className="flex flex-row justify-between mt-auto py-3  bg-card border-t border-line lg:hidden">
+    /*
+      아래 여백은 홈 인디케이터 높이와 12px 중 큰 쪽이다. 안전영역만 두면 인디케이터가
+      없는 기기에서 아이콘이 바닥에 붙고, 12px 만 두면 아이폰에서 스와이프 자리에 물린다.
+    */
+    <div className="mt-auto flex flex-row justify-between border-t border-line bg-card pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] lg:hidden">
       <Tab
         href={pageUrl.home}
         label="홈"

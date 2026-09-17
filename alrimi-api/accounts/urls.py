@@ -11,6 +11,7 @@ from .views import (
     RevokeTokenView,
     UserDetailView,
     UserListCreateView,
+    UserSearchView,
 )
 
 # APPEND_SLASH = False — 경로 끝에 슬래시를 붙이지 않는다.
@@ -27,6 +28,8 @@ user_patterns = [
     path("users/me/password", ChangePasswordView.as_view(), name="change-password"),
     # 사용자 관리. 추가는 관리자부터, 권한 변경·삭제는 최고 관리자만
     path("users", UserListCreateView.as_view(), name="users"),
+    # 공간을 함께 볼 사람 찾기. 로그인한 누구나. `<int:user_id>` 보다 먼저 와야 한다
+    path("users/search", UserSearchView.as_view(), name="user-search"),
     path("users/<int:user_id>", UserDetailView.as_view(), name="user-detail"),
 ]
 

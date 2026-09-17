@@ -26,7 +26,7 @@ const submitCls =
  * 서버가 같은 경계로 막는다(`accounts.views`). 여기서 버튼을 감추는 것은 눌러봐야
  * 403 이 날 자리를 보여주지 않으려는 것이지 막는 수단이 아니다.
  */
-export function UserAdminGroup({ me }: { me?: Me }) {
+export function UserAdminGroup({ me, heading = true }: { me?: Me; heading?: boolean }) {
   const canAdd = Boolean(me && (me.is_staff || me.is_superuser));
   const superuser = Boolean(me?.is_superuser);
   const { data: users, isLoading } = useUsers(canAdd);
@@ -37,7 +37,7 @@ export function UserAdminGroup({ me }: { me?: Me }) {
 
   return (
     <>
-      <p className={headCls}>사용자 관리</p>
+      {heading ? <p className={headCls}>사용자 관리</p> : <div className="pt-3" />}
       <div className={groupCls}>
         {/* 줄 하나만큼 자리를 잡아둔다. 없다가 생기면 아래 묶음들이 밀린다 */}
         {isLoading && <div className="h-[58px]" aria-hidden="true" />}

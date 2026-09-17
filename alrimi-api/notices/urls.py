@@ -1,6 +1,7 @@
 from django.urls import path
 
 from .views import (
+    BulkDeleteEventsView,
     CalendarView,
     EventDetailView,
     EventListCreateView,
@@ -29,6 +30,8 @@ urlpatterns = [
     # 웹 푸시는 본문을 서버가 암호화해야 해서 크론이 대신 쏘지 못한다. 받아간 ids 를
     # 되돌려주면 이 서버가 밀어보고, 못 닿은 것만 ntfy 로 쏘라고 돌려준다.
     path("events/alerts/push", push_due_alerts, name="due-alerts-push"),
+    # 목록에서 골라 한꺼번에 지운다. 역시 `<int:event_id>` 보다 먼저 와야 한다.
+    path("events/bulk-delete", BulkDeleteEventsView.as_view(), name="event-bulk-delete"),
 
     path("events/<int:event_id>", EventDetailView.as_view(), name="event-detail"),
     # 알림은 일정에 딸린 것이라 경로도 그 아래에 둔다. 발송 단위는 EventAlert 하나다.

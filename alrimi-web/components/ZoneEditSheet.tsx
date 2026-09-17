@@ -6,6 +6,9 @@ import { BottomSheet } from "./BottomSheet";
 import { firstError } from "@/lib/api";
 import { useDeleteZone, usePalette, useUpdateZone } from "@/hooks/useZones";
 import { onColor } from "@/lib/color";
+import { ZoneMark } from "./ZoneMark";
+import { SharedSwitch } from "./SharedSwitch";
+import { useZoneMark } from "@/hooks/useZones";
 import type { Zone } from "@/types";
 
 interface Props {
@@ -13,17 +16,52 @@ interface Props {
   onClose: () => void;
 }
 
-/** 공간 이름과 색을 한자리에서 고친다 */
+/**
+ * 공간 이름과 색, 함께 보는 사람을 한자리에서 고친다.
+ *
+ * 함께 보는(공유받은) 공간이면 고칠 것이 없으므로 누구의 공간인지와 구성원 목록,
+ * 나가는 길만 보여준다.
+ */
 export function ZoneEditSheet({ zone, onClose }: Props) {
+  const member = zone?.role === "member";
   return (
     <BottomSheet
       open={zone !== null}
       onOpenChange={(next) => !next && onClose()}
-      title="공간 수정"
+      title={member ? "함께 보는 공간" : "공간 수정"}
     >
       {/* key 로 다시 마운트해 그 공간 값으로 폼을 초기화한다 (effect 로 덮어쓰지 않도록) */}
-      {zone && <Form key={zone.id} zone={zone} onClose={onClose} />}
+      {zone &&
+        (member ? (
+          <SharedZone key={zone.id} zone={zone} />
+        ) : (
+          <Form key={zone.id} zone={zone} onClose={onClose} />
+        ))}
     </BottomSheet>
+  );
+}
+
+function SharedZone({ zone }: { zone: Zone }) {
+  const markOf = useZoneMark();
+  return (
+    <div className="pb-3">
+      <div className="flex items-center gap-3 rounded-xl border border-line bg-card px-3.5 py-3">
+        <ZoneMark mark={markOf(zone.id)?.mark ?? ""} color={zone.color} />
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium">{zone.name}</p>
+          <p className="truncate text-xs text-muted">
+            {zone.owner_name}님의 공간 · {zone.writable ? "일정 함께 편집" : "보기 전용"}
+          </p>
+        </div>
+      </div>
+      {/* 그만 보는 것은 공간마다가 아니라 사람마다다 */}
+      <p className="px-1 pt-3 text-xs leading-relaxed text-muted">
+        {zone.writable
+          ? `${zone.owner_name}님이 허락해서 이 공간의 일정을 추가·수정할 수 있어요. 공간 이름·색은 ${zone.owner_name}님만 바꿔요.`
+          : `${zone.owner_name}님이 보여주는 공간이라 일정을 고칠 수 없어요.`} 그만 보려면 설정 › 함께
+        보기의 &lsquo;나에게 보여주는 사람&rsquo;에서 {zone.owner_name}님을 빼세요.
+      </p>
+    </div>
   );
 }
 
@@ -34,8 +72,14 @@ function Form({ zone, onClose }: { zone: Zone; onClose: () => void }) {
 
   const [name, setName] = useState(zone.name);
   const [color, setColor] = useState(zone.color);
+  const [shared, setShared] = useState(zone.shared);
+  const [viewersCanEdit, setViewersCanEdit] = useState(zone.viewers_can_edit);
   const trimmed = name.trim();
-  const changed = trimmed !== zone.name || color !== zone.color;
+  const changed =
+    trimmed !== zone.name ||
+    color !== zone.color ||
+    shared !== zone.shared ||
+    viewersCanEdit !== zone.viewers_can_edit;
 
   const save = () => {
     if (!trimmed) {
@@ -45,7 +89,7 @@ function Form({ zone, onClose }: { zone: Zone; onClose: () => void }) {
     if (!changed) return onClose();
 
     update.mutate(
-      { name: trimmed, color },
+      { name: trimmed, color, shared, viewers_can_edit: viewersCanEdit },
       {
         onSuccess: (saved) => {
           toast.success(`${saved.name} 공간을 고쳤어요`);
@@ -64,7 +108,8 @@ function Form({ zone, onClose }: { zone: Zone; onClose: () => void }) {
   const lost = zone.upcoming_count + zone.past_count;
 
   const onDelete = () => {
-    const detail = lost > 0 ? `일정 ${lost}개와 예약된 알림도 함께 사라집니다.` : "";
+    const others = zone.shared ? " 함께 보는 사람들도 더는 볼 수 없어요." : "";
+    const detail = (lost > 0 ? `일정 ${lost}개와 예약된 알림도 함께 사라집니다.` : "") + others;
     if (!confirm(`${zone.name} 공간을 삭제할까요? ${detail}`.trim())) return;
 
     remove.mutate(zone.id, {
@@ -131,6 +176,16 @@ function Form({ zone, onClose }: { zone: Zone; onClose: () => void }) {
         </span>
       </div>
 
+      {/* 누구와 볼지는 설정의 "함께 보는 사람" 에서 한 번 정한다. 여기서는 켜고 끄기만 */}
+      <div className="mt-3 rounded-xl border border-line bg-card">
+        <SharedSwitch
+          on={shared}
+          onToggle={() => setShared(!shared)}
+          canEdit={viewersCanEdit}
+          onToggleEdit={() => setViewersCanEdit(!viewersCanEdit)}
+        />
+      </div>
+
       <button
         onClick={save}
         disabled={busy}
@@ -138,6 +193,7 @@ function Form({ zone, onClose }: { zone: Zone; onClose: () => void }) {
       >
         {update.isPending ? "저장하는 중" : "저장하기"}
       </button>
+
 
       {/* 저장 옆이 아니라 아래에, 선 하나 건너 둔다 — 잘못 누르는 자리를 피한다 */}
       <button

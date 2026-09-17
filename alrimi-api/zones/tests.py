@@ -1,7 +1,7 @@
 import datetime as dt
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -217,3 +217,301 @@ class ZoneColorTests(TestCase):
         for color in PALETTE:
             best = max(contrast(color, "#FFFFFF"), contrast(color, "#16283C"))
             self.assertGreaterEqual(best, 4.5, msg=color)
+
+
+class SharingTests(TestCase):
+    """
+    사람마다 한 번 정하는 공유. 주인이 함께 보는 사람을 두고, 공간은 `shared` 로 켜고 끈다.
+    보는 사람은 **보기와 알림만** 함께한다 — 일정도 공간도 고치지 못한다.
+    """
+
+    def setUp(self):
+        self.owner = User.objects.create_user("mom", password="pw-strong-1234", name="엄마")
+        self.viewer = User.objects.create_user("dad", password="pw-strong-1234", name="아빠")
+        self.stranger = User.objects.create_user("nam", password="pw-strong-1234")
+        self.zone = Zone.objects.create(owner=self.owner, name="어린이집", shared=True)
+        self.work = Zone.objects.create(owner=self.owner, name="회사")
+        self.today = timezone.localdate()
+        self.event = Event.objects.create(
+            zone=self.zone, event_date=self.today + dt.timedelta(days=1), title="체육복"
+        )
+        self.private = Event.objects.create(
+            zone=self.work, event_date=self.today + dt.timedelta(days=1), title="회의"
+        )
+
+    def login(self, username):
+        res = self.client.post(
+            reverse("obtain-token"),
+            {"username": username, "password": "pw-strong-1234"},
+            content_type="application/json",
+        )
+        return {"authorization": f"Bearer {res.json()['access_token']}"}
+
+    def share(self):
+        from .models import Sharing
+
+        Sharing.objects.create(owner=self.owner, viewer=self.viewer)
+
+    def post(self, url, body, as_user):
+        return self.client.post(url, body, content_type="application/json", headers=self.login(as_user))
+
+    # ── 함께 보는 사람 ─────────────────────────────────────────
+
+    def test_찾아서_고른_사람을_더한다(self):
+        res = self.post(reverse("sharing"), {"user_id": self.viewer.id}, "mom")
+
+        self.assertEqual(res.status_code, 201)
+        self.assertEqual([row["username"] for row in res.json()], ["dad"])
+
+    def test_더할_수_없는_사람은_까닭을_말한다(self):
+        self.share()
+        for user_id, message in (
+            (999999, "그런 사람이 없어요."),
+            (self.owner.id, "나 자신은 더할 수 없어요."),
+            (self.viewer.id, "이미 함께 보고 있는 사람이에요."),
+        ):
+            with self.subTest(user_id=user_id):
+                res = self.post(reverse("sharing"), {"user_id": user_id}, "mom")
+                self.assertEqual(res.status_code, 400)
+                self.assertEqual(res.json()["user_id"], [message])
+
+    def test_받는_쪽도_누가_보여주는지_보고_그만_볼_수_있다(self):
+        self.share()
+        auth = self.login("dad")
+
+        received = self.client.get(reverse("sharing-received"), headers=auth).json()
+        self.assertEqual([row["username"] for row in received], ["mom"])
+
+        url = reverse("sharing-received-detail", args=[self.owner.id])
+        self.assertEqual(self.client.delete(url, headers=auth).status_code, 204)
+        self.assertEqual(self.client.get(reverse("zone-list"), headers=auth).json(), [])
+
+    def test_주인은_보여주기를_그만둘_수_있다(self):
+        self.share()
+        url = reverse("sharing-detail", args=[self.viewer.id])
+        self.assertEqual(self.client.delete(url, headers=self.login("mom")).status_code, 204)
+        self.assertEqual(self.client.delete(url, headers=self.login("mom")).status_code, 400)
+
+    # ── 보기 ────────────────────────────────────────────────────
+
+    def test_함께_보기를_켠_공간만_보인다(self):
+        self.share()
+        rows = self.client.get(reverse("zone-list"), headers=self.login("dad")).json()
+
+        self.assertEqual([(r["name"], r["role"], r["owner_name"]) for r in rows], [("어린이집", "member", "엄마")])
+
+    def test_함께_보기를_끄면_사라진다(self):
+        self.share()
+        res = self.client.patch(
+            reverse("zone-detail", args=[self.zone.id]), {"shared": False},
+            content_type="application/json", headers=self.login("mom"),
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(self.client.get(reverse("zone-list"), headers=self.login("dad")).json(), [])
+
+    def test_사람을_더하지_않으면_켜도_안_보인다(self):
+        self.assertEqual(self.client.get(reverse("zone-list"), headers=self.login("dad")).json(), [])
+
+    def test_보는_사람은_공유_공간_일정만_본다(self):
+        self.share()
+        auth = self.login("dad")
+        day = str(self.event.event_date)
+
+        listed = self.client.get(f"/events?from={day}&to={day}", headers=auth).json()
+        self.assertEqual([(row["title"], row["can_edit"]) for row in listed], [("체육복", False)])
+
+        calendar = self.client.get(f"/calendar?from={day}&to={day}", headers=auth).json()
+        self.assertEqual([row["id"] for row in calendar], [self.event.id])
+
+        self.assertEqual(
+            self.client.get(reverse("event-detail", args=[self.private.id]), headers=auth).status_code, 404
+        )
+
+    def test_사람으로_좁히면_그_사람의_공유_공간_일정만_나온다(self):
+        self.share()
+        other = Zone.objects.create(owner=self.viewer, name="아빠 회사")
+        Event.objects.create(zone=other, event_date=self.event.event_date, title="아빠 회의")
+        auth = self.login("dad")
+        day = str(self.event.event_date)
+
+        rows = self.client.get(f"/events?from={day}&to={day}&owner={self.owner.id}", headers=auth).json()
+        self.assertEqual([row["title"] for row in rows], ["체육복"])
+
+        calendar = self.client.get(f"/calendar?from={day}&to={day}&owner={self.owner.id}", headers=auth).json()
+        self.assertEqual([row["id"] for row in calendar], [self.event.id])
+
+    def test_보는_사람은_공간도_일정도_고치지_못한다(self):
+        self.share()
+        auth = self.login("dad")
+
+        zone_url = reverse("zone-detail", args=[self.zone.id])
+        self.assertEqual(
+            self.client.patch(zone_url, {"name": "x"}, content_type="application/json", headers=auth).status_code,
+            403,
+        )
+        event_url = reverse("event-detail", args=[self.event.id])
+        self.assertEqual(
+            self.client.patch(event_url, {"completed": True}, content_type="application/json", headers=auth).status_code,
+            403,
+        )
+        self.assertEqual(self.client.delete(event_url, headers=auth).status_code, 403)
+        res = self.post(
+            reverse("event-list"),
+            {"zone": self.zone.id, "event_date": str(self.today), "title": "몰래", "alerts": []},
+            "dad",
+        )
+        self.assertEqual(res.status_code, 400)
+
+    # ── 함께 고치기 ─────────────────────────────────────────────
+
+    def allow_edit(self):
+        Zone.objects.filter(pk=self.zone.pk).update(viewers_can_edit=True)
+
+    def test_주인이_허락하면_보는_사람도_일정을_넣고_고치고_지운다(self):
+        self.share()
+        self.allow_edit()
+        auth = self.login("dad")
+
+        zones = self.client.get(reverse("zone-list"), headers=auth).json()
+        self.assertTrue(zones[0]["writable"])
+
+        created = self.post(
+            reverse("event-list"),
+            {"zone": self.zone.id, "event_date": str(self.today), "title": "준비물", "alerts": []},
+            "dad",
+        )
+        self.assertEqual(created.status_code, 201)
+        self.assertTrue(created.json()["can_edit"])
+
+        url = reverse("event-detail", args=[self.event.id])
+        res = self.client.patch(url, {"title": "운동화"}, content_type="application/json", headers=auth)
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(self.client.delete(url, headers=auth).status_code, 204)
+
+        # 주인 목록에도 그대로 있다 — 같은 공간이다
+        mine = self.client.get(f"/events?date={self.today}", headers=self.login("mom")).json()
+        self.assertEqual([row["title"] for row in mine], ["준비물"])
+
+    def test_허락해도_공간_설정은_주인만_바꾼다(self):
+        self.share()
+        self.allow_edit()
+        res = self.client.patch(
+            reverse("zone-detail", args=[self.zone.id]), {"viewers_can_edit": False},
+            content_type="application/json", headers=self.login("dad"),
+        )
+        self.assertEqual(res.status_code, 403)
+
+    def test_허락해도_내_공간으로_빼가지는_못한다(self):
+        self.share()
+        self.allow_edit()
+        own = Zone.objects.create(owner=self.viewer, name="아빠 회사")
+        res = self.client.patch(
+            reverse("event-detail", args=[self.event.id]), {"zone": own.id},
+            content_type="application/json", headers=self.login("dad"),
+        )
+        self.assertEqual(res.status_code, 400)
+
+    def test_함께_보기를_끄면_허락도_소용없다(self):
+        self.share()
+        Zone.objects.filter(pk=self.zone.pk).update(viewers_can_edit=True, shared=False)
+        res = self.client.patch(
+            reverse("event-detail", args=[self.event.id]), {"title": "x"},
+            content_type="application/json", headers=self.login("dad"),
+        )
+        self.assertEqual(res.status_code, 404)
+
+    # ── 알림 ────────────────────────────────────────────────────
+
+    @override_settings(N8N_API_KEY="k")
+    def test_매시_알림은_공유_공간만_보는_사람에게도_간다(self):
+        from notices.models import EventAlert
+
+        self.share()
+        for event in (self.event, self.private):
+            event.sync_alerts(["D-1 20:00"])
+        EventAlert.objects.update(due_at=timezone.now() - dt.timedelta(minutes=5))
+
+        body = self.client.get("/events/alerts", headers={"x-api-key": "k"}).json()
+
+        topics = sorted((row["topic"], row["title"]) for row in body["data"])
+        self.assertEqual(
+            topics,
+            sorted([
+                (self.owner.ntfy_topic, "[어린이집] 일정 1건"),
+                (self.owner.ntfy_topic, "[회사] 일정 1건"),
+                (self.viewer.ntfy_topic, "[어린이집] 일정 1건"),
+            ]),
+        )
+        self.assertEqual(len(body["ids"]), 2)
+
+    @override_settings(N8N_API_KEY="k")
+    def test_주간_정리도_보는_사람에게_간다(self):
+        from notices.views import next_week
+
+        self.share()
+        start, _ = next_week()
+        Event.objects.filter(pk=self.event.pk).update(event_date=start, end_date=start)
+
+        rows = self.client.get("/events/weekly", headers={"x-api-key": "k"}).json()
+        self.assertEqual(
+            sorted(row["topic"] for row in rows),
+            sorted([self.owner.ntfy_topic, self.viewer.ntfy_topic]),
+        )
+
+    def test_손으로_보내기도_보는_사람에게_간다(self):
+        from unittest.mock import patch
+
+        self.share()
+        self.event.sync_alerts(["D-1 20:00"])
+        alert = self.event.alerts.get()
+
+        with patch("notices.ntfy.publish") as publish:
+            res = self.client.post(
+                reverse("alert-send", args=[self.event.id, alert.id]), headers=self.login("mom")
+            )
+
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(
+            sorted(call.args[0] for call in publish.call_args_list),
+            sorted([self.owner.ntfy_topic, self.viewer.ntfy_topic]),
+        )
+
+
+class UserSearchTests(TestCase):
+    def setUp(self):
+        self.me = User.objects.create_user("mom", password="pw-strong-1234", name="엄마")
+        User.objects.create_user("dad", password="pw-strong-1234", name="아빠")
+        User.objects.create_user("granny", password="pw-strong-1234", name="할머니")
+        User.objects.create_user("gone", password="pw-strong-1234", name="아무개", is_active=False)
+        res = self.client.post(
+            reverse("obtain-token"),
+            {"username": "mom", "password": "pw-strong-1234"},
+            content_type="application/json",
+        )
+        self.auth = {"authorization": f"Bearer {res.json()['access_token']}"}
+
+    def search(self, q):
+        from urllib.parse import quote
+
+        return self.client.get(f"/users/search?q={quote(q)}", headers=self.auth)
+
+    def test_이름이나_아이디로_찾는다(self):
+        self.assertEqual([u["username"] for u in self.search("아빠").json()], ["dad"])
+        self.assertEqual([u["username"] for u in self.search("gran").json()], ["granny"])
+
+    def test_나와_비활성_계정은_안_나오고_빈_말로는_아무도_없다(self):
+        self.assertEqual(self.search("엄마").json(), [])
+        self.assertEqual(self.search("아무").json(), [])
+        self.assertEqual(self.search("").json(), [])
+
+    def test_찾기는_이름과_아이디만_준다(self):
+        self.assertEqual(set(self.search("아빠").json()[0]), {"id", "username", "name"})
+
+    def test_만들면서_함께_보기를_켠다(self):
+        res = self.client.post(
+            reverse("zone-list"), {"name": "어린이집", "shared": True},
+            content_type="application/json", headers=self.auth,
+        )
+        self.assertEqual(res.status_code, 201)
+        self.assertTrue(res.json()["shared"])
+        self.assertIn("upcoming_count", res.json())

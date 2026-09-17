@@ -10,7 +10,7 @@ import { BottomSheet } from "./BottomSheet";
 import { EventForm } from "./EventForm";
 import { ErrorBlock, LoadingBlock } from "./Loading";
 import { ZoneMark } from "./ZoneMark";
-import type { EventListItem } from "@/types";
+import type { EventListItem, ZoneScope } from "@/types";
 
 /**
  * 보류함. 취소됐지만 다시 잡힐 수 있는 일정이 여기 모인다.
@@ -23,7 +23,7 @@ import type { EventListItem } from "@/types";
  * 것인지 알아보라는 표시일 뿐이라 줄 안에 작게 적고, 순서는 방금 치운 것부터다
  * — 미룬 약속을 다시 잡는 일은 대개 치운 지 며칠 안에 벌어진다.
  */
-export function HeldList({ zoneId }: { zoneId: number | null }) {
+export function HeldList({ zoneId }: { zoneId: ZoneScope }) {
   const { data, isLoading, isError, refetch } = useEvents("held", zoneId);
   const events = data ?? [];
 
@@ -80,8 +80,9 @@ function HeldCard({ event }: { event: EventListItem }) {
         className="flex items-center gap-3 rounded-xl border border-line bg-card py-2.5 pl-3 pr-2.5
                    transition-colors hover:border-muted/40"
       >
+
         {zone ? (
-          <ZoneMark mark={zone.mark} color={zone.color} name={zone.name} />
+          <ZoneMark mark={zone.mark} color={zone.color} name={zone.label} round={zone.received} />
         ) : (
           // 공간 목록이 아직 안 왔을 때. 자리를 비워두면 제목 줄이 흔들린다.
           <span className="h-6 w-6 shrink-0 rounded-lg" style={{ background: event.zone_color }} />
@@ -89,10 +90,15 @@ function HeldCard({ event }: { event: EventListItem }) {
 
         {/* 수정·삭제는 상세에 있다. 제목이 그리로 가는 문이다 */}
         <Link href={pageUrl.event(event.id)} className="min-w-0 flex-1">
-          <p className="truncate font-medium">{event.title}</p>
+          <p className="truncate font-medium">
+            {zone?.received && <span className="font-normal text-muted">[{zone.zoneName}] </span>}
+            {event.title}
+          </p>
           <p className="mt-0.5 truncate text-xs text-muted">{when}</p>
         </Link>
 
+        {/* 함께 보는 공간의 것은 주인만 다시 잡는다 */}
+        {event.can_edit && (
         <button
           type="button"
           onClick={() => setResuming(true)}
@@ -101,6 +107,7 @@ function HeldCard({ event }: { event: EventListItem }) {
         >
           다시 잡기
         </button>
+        )}
       </div>
 
       <BottomSheet open={resuming} onOpenChange={setResuming} title="날짜 다시 잡기">

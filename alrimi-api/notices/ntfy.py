@@ -58,7 +58,7 @@ def publish(topic: str, *, title: str, message: str, priority: int) -> None:
                 {
                     "action": "view",
                     "label": "웹에서 확인",
-                    "url": "https://alrimi.jeonghoon.dev"
+                    "url": settings.WEB_ORIGIN,
                 }
             ]
         },
@@ -98,23 +98,12 @@ def compose(event) -> tuple[str, str]:
     return title, "\n".join(lines)
 
 
-def send_alert(alert) -> None:
+def send_alert(alert, user) -> None:
     """
-    이 예약을 지금 보낸다. 결과는 EventAlert 에 남는다 — 성공이면 `sent`,
-    실패면 `fail`(보낸 적이 없으므로 `sent_at` 은 비운다).
+    이 예약을 지금 `user` 의 토픽으로 보낸다. 실패하면 NtfyError.
+
+    발송 표시는 부르는 쪽이 한다 — 공간을 함께 보는 사람이 여럿이면 한 사람에게라도
+    닿았는지를 다 보내본 뒤에야 알 수 있다(`SendEventAlertView`).
     """
-    event = alert.event
-    title, message = compose(event)
-
-    try:
-        publish(
-            event.zone.owner.ntfy_topic,
-            title=title,
-            message=message,
-            priority=Priority.NORMAL,
-        )
-    except NtfyError:
-        alert.mark_failed()
-        raise
-
-    alert.mark_sent()
+    title, message = compose(alert.event)
+    publish(user.ntfy_topic, title=title, message=message, priority=Priority.NORMAL)

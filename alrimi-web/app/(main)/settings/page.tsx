@@ -8,12 +8,11 @@ import { useGoogleCalendar } from "@/hooks/useGoogleCalendar";
 import Link from "next/link";
 import { apiUrl, pageUrl } from "@/constants/routeUrl";
 import { useAuthStore } from "@/store/auth";
-import { useZoneMark, useZones } from "@/hooks/useZones";
+import { useReceivedSharing, useSharing, useZoneMark, useZones } from "@/hooks/useZones";
 import { ZoneMark } from "@/components/ZoneMark";
 import { ZoneCreateSheet } from "@/components/ZoneCreateSheet";
 import { ZoneEditSheet } from "@/components/ZoneEditSheet";
 import { NameSheet, PasswordSheet } from "@/components/AccountSheets";
-import { UserAdminGroup } from "@/components/UserSheets";
 import { SubscribeSheet } from "@/components/SubscribeSheet";
 import { MarkStyleSheet } from "@/components/MarkStyleSheet";
 import { useMe } from "@/hooks/useMe";
@@ -35,6 +34,10 @@ export default function SettingsPage() {
   /** 색을 고르는 중인 종류. 켜고 끄기는 줄에 붙은 스위치가 맡는다 */
   const [editingMark, setEditingMark] = useState<MarkStyle | null>(null);
   const [sheet, setSheet] = useState<"zone" | "name" | "password" | "subscribe" | null>(null);
+  const sharing = useSharing();
+  const received = useReceivedSharing();
+  const push = usePush();
+  const { status: googleStatus } = useGoogleCalendar();
 
   const { data: me } = useMe();
 
@@ -122,14 +125,41 @@ export default function SettingsPage() {
     router.replace(pageUrl.login);
   };
 
+  const google = googleStatus.data;
+  const canManageUsers = Boolean(me && (me.is_staff || me.is_superuser));
+
+  // "아빠 외 1명 · 받는 중 1명". 들어가지 않고도 누구와 나누는지 보인다
+  const sharingSummary = (() => {
+    if (sharing.isLoading) return "";
+    const people = sharing.data ?? [];
+    const giving =
+      people.length === 0
+        ? "아무도 없음"
+        : people.length === 1
+          ? (people[0].name || people[0].username)
+          : `${people[0].name || people[0].username} 외 ${people.length - 1}명`;
+    const taking = received.data?.length ?? 0;
+    return taking > 0 ? `${giving} · 받는 중 ${taking}명` : giving;
+  })();
+
   return (
     <>
       <header className="sticky top-0 z-20 border-b border-line bg-card px-4 py-3">
         <h1 className="mx-auto w-full max-w-2xl text-base font-semibold">설정</h1>
       </header>
 
-      {/* 목록을 읽는 화면이라 PC 에서도 넓히지 않는다 — 한 줄이 길수록 읽기 나쁘다 */}
+      {/*
+        한 화면에 섹션으로 묶어 다 펼친다. 섹션마다 한 번 더 들어가게 했더니 알림 하나 켜는
+        데도 두 번씩 눌러야 했다. 줄 하나로 끝나는 설정은 그 자리에서 바꾼다.
+
+        **함께 보기와 사용자 관리만 안쪽 화면이다.** 둘 다 사람 목록이라 펼치면 설정을 채우고,
+        한 번 정하면 자주 열지 않는다.
+
+        목록을 읽는 화면이라 PC 에서도 넓히지 않는다 — 한 줄이 길수록 읽기 나쁘다.
+      */}
       <main className="mx-auto w-full max-w-2xl px-4 pb-4">
+        <SectionTitle>공간과 공유</SectionTitle>
+
         <p className={headCls}>공간</p>
         <div className={groupCls}>
           {zones.map((zone) => (
@@ -138,13 +168,27 @@ export default function SettingsPage() {
               onClick={() => setEditingZone(zone)}
               className={`${rowCls} w-full text-left`}
             >
-              <div className="flex items-center gap-2.5">
+              <div className="flex min-w-0 items-center gap-2.5">
                 <ZoneMark mark={markOf(zone.id)?.mark ?? ""} color={zone.color} />
-                <div>
-                  <p className="text-sm font-medium">{zone.name}</p>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">{zone.name}</p>
+                  {/* 누구와 나누는지. 혼자 쓰는 공간은 줄을 비워 조용히 둔다 */}
+                  {zone.role === "member" ? (
+                    <p className="mt-0.5 truncate text-xs text-muted">
+                      {zone.owner_name}님의 공간 · {zone.writable ? "일정 함께 편집" : "보기 전용"}
+                    </p>
+                  ) : (
+                    zone.shared && (
+                      <p className="mt-0.5 text-xs text-muted">
+                        함께 보기{zone.viewers_can_edit && " · 일정 함께 편집"}
+                      </p>
+                    )
+                  )}
                 </div>
               </div>
-              <span className="text-xs text-muted">수정 ›</span>
+              <span className="shrink-0 text-xs text-muted">
+                {zone.role === "member" ? "보기 ›" : "수정 ›"}
+              </span>
             </button>
           ))}
           <div className="px-4 py-3">
@@ -155,21 +199,26 @@ export default function SettingsPage() {
         </div>
 
         {/*
-          공휴일·절기를 무슨 색으로 볼지. 사람마다 다르다 — 빨강이 잘 안 갈리는
-          눈이 있다. 자료 자체(무슨 날인가)는 운영이 넣고 고칠 수 없다.
+          함께 보기. 두 사람 목록(보여주는 사람·나에게 보여주는 사람)과 찾기 칸을 펼쳐두면
+          설정이 사람 목록으로 차서 안쪽 화면으로 뺐다. 여기는 요약 한 줄이다.
         */}
-        <p className={headCls}>달력 표시</p>
-        <div className={groupCls}>
-          <MarkRows onPickColor={setEditingMark} />
+        <div className={`${groupCls} mt-3`}>
+          <Link href={pageUrl.settingsSharing} className={`${rowCls} w-full gap-3`}>
+            <p className="shrink-0 text-sm">함께 보기</p>
+            <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted">
+              <span className="truncate">{sharingSummary}</span>
+              <span aria-hidden="true">›</span>
+            </span>
+          </Link>
         </div>
 
-        <p className={headCls}>알림</p>
-        <div className={groupCls}>
+        <SectionTitle>알림</SectionTitle>
+        <div className={`${groupCls} mt-2`}>
           {/*
             길이 둘이다. 위는 이 브라우저로 바로 받는 것(웹 푸시), 아래는 ntfy 앱으로
             받는 것. 둘 다 켜면 둘 다 온다 — 하나가 막혀도 나머지로 닿으라고 나란히 둔다.
           */}
-          <PushRow />
+          <PushRow push={push} />
 
           {/*
             토픽이 16진수라 손으로 옮겨 적을 수 없다. 이 링크를 누르면 ntfy 앱이
@@ -189,38 +238,58 @@ export default function SettingsPage() {
           </button>
         </div>
 
-        <GoogleCalendarGroup />
+        {/* 서버에 구글 앱 설정이 없으면 묶음째 없다 */}
+        {google?.enabled && (
+          <>
+            <p className={headCls}>구글 캘린더</p>
+            <GoogleCalendarGroup />
+          </>
+        )}
+
+        <SectionTitle>화면</SectionTitle>
+        {/*
+          공휴일·절기를 무슨 색으로 볼지. 사람마다 다르다 — 빨강이 잘 안 갈리는
+          눈이 있다. 자료 자체(무슨 날인가)는 운영이 넣고 고칠 수 없다.
+        */}
+        <p className={headCls}>달력 표시</p>
+        <div className={groupCls}>
+          <MarkRows onPickColor={setEditingMark} />
+        </div>
 
         {/*
           PC 는 옆 기둥에 "지난 일정/보류" 가 있지만 모바일에는 그 자리가 없다.
           탭바를 넷으로 늘리면 가운데 등록 버튼이 가운데가 아니게 되므로 여기 둔다.
         */}
-        <p className={headCls}>기록</p>
-        <div className={groupCls}>
+        <div className={`${groupCls} mt-3`}>
           <Link href={pageUrl.past} className={`${rowCls} w-full`}>
             <div>
               <p className="text-sm">지난 일정/보류</p>
-              <p className="mt-0.5 text-xs text-muted">
-                지나간 일정과 보류해둔 일정을 여기서 봐요
-              </p>
+              <p className="mt-0.5 text-xs text-muted">지나간 일정과 보류해둔 일정을 여기서 봐요</p>
             </div>
             <span className="text-xs text-muted">›</span>
           </Link>
         </div>
 
-        {/* 관리자·최고 관리자에게만 나온다. 아니면 아무것도 그리지 않는다 */}
-        <UserAdminGroup me={me} />
-
-        <p className={headCls}>계정</p>
-        <div className={groupCls}>
+        <SectionTitle>계정</SectionTitle>
+        <div className={`${groupCls} mt-2`}>
           <button onClick={() => setSheet("name")} className={`${rowCls} w-full text-left`}>
-            <p className="text-sm">{me?.name || me?.username}</p>
-            <span className="text-xs text-muted">이름 변경 ›</span>
+            <div className="min-w-0">
+              <p className="truncate text-sm">{me?.name || me?.username}</p>
+              <p className="mt-0.5 truncate text-xs text-muted">{me?.username}</p>
+            </div>
+            <span className="shrink-0 text-xs text-muted">이름 변경 ›</span>
           </button>
           <button onClick={() => setSheet("password")} className={`${rowCls} w-full text-left`}>
             <p className="text-sm">비밀번호 변경</p>
             <span className="text-xs text-muted">›</span>
           </button>
+          {/* 관리자·최고 관리자에게만. 안쪽 화면으로 간다 */}
+          {canManageUsers && (
+            <Link href={pageUrl.settingsUsers} className={`${rowCls} w-full`}>
+              <p className="text-sm">사용자 관리</p>
+              <span className="text-xs text-muted">›</span>
+            </Link>
+          )}
           <Link href={pageUrl.privacy} className={`${rowCls} w-full`}>
             <p className="text-sm">개인정보처리방침</p>
             <span className="text-xs text-muted">›</span>
@@ -254,6 +323,15 @@ export default function SettingsPage() {
   );
 }
 
+/**
+ * 섹션 제목. 그 아래 묶음 이름(`headCls`)보다 한 단계 크게 — 섹션과 묶음이 같은 크기면
+ * "공간과 공유" 와 그 안의 "공간" 이 같은 층으로 읽힌다. 첫 섹션 위에는 여백을 덜 준다.
+ */
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return (
+    <h2 className="px-1 pt-7 text-sm font-semibold text-ink first:pt-4">{children}</h2>
+  );
+}
 
 /**
  * 이 브라우저로 알림 받기 (웹 푸시).
@@ -266,8 +344,8 @@ export default function SettingsPage() {
  * 못 쓰는 자리에서는 버튼 대신 까닭을 적는다. 눌러도 아무 일 없는 버튼은
  * 고장으로 읽히고, iOS 처럼 사람이 할 수 있는 일이 있는 경우도 있다.
  */
-function PushRow() {
-  const { state, busy, enable, disable, test } = usePush();
+function PushRow({ push }: { push: ReturnType<typeof usePush> }) {
+  const { state, busy, enable, disable, test } = push;
   const [notice, setNotice] = useState<string | null>(null);
 
   // 서버에 VAPID 키가 없으면 이 기능 자체가 꺼진 것이다. 켤 수 없는 줄을 보여주지 않는다.
@@ -406,7 +484,6 @@ function GoogleCalendarGroup() {
 
   return (
     <>
-      <p className={headCls}>연동</p>
       <div className={groupCls}>
         <div className="px-4 py-3">
           <div className="flex items-center justify-between gap-3">
