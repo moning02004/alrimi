@@ -69,6 +69,10 @@ function Home() {
             if (eventId) next.set("event", String(eventId));
             else next.delete("event");
             const query = next.toString();
+            // 바뀌는 것이 없으면 주소를 건드리지 않는다. 같은 주소로 replace 해도 라우터는
+            // 이동으로 치고 페이지를 새로 받는데, 처음 한 번은 받아둔 것이 없어 서버를 다녀온다 —
+            // 그 사이에 누른 날짜가 반영되지 않아 "한 번 더 눌러야 고르는" 것처럼 보였다.
+            if (query === searchParams.toString()) return;
             const url = query ? `${pageUrl.home}?${query}` : pageUrl.home;
 
             // 열 때는 쌓고(뒤로가기로 닫히도록), 닫을 때는 덮어쓴다(빈 칸이 쌓이지 않게)

@@ -26,6 +26,12 @@ interface Props {
 const SWIPE_THRESHOLD = 28;
 
 /**
+ * 스와이프가 끝나고 이 시간 안에 오는 클릭만 삼킨다. 스와이프 끝에 브라우저가 클릭을 붙여
+ * 보내는 것은 손을 뗀 직후다. 그보다 늦은 클릭은 사람이 새로 누른 것이다.
+ */
+const SWIPE_CLICK_WINDOW_MS = 400;
+
+/**
  * 평소에는 주간, 펼치면 월간.
  *
  * 여는 방법이 셋이다 — 달 이름 탭, 손잡이 탭, 아래로 스와이프.
@@ -45,7 +51,12 @@ export function CalendarHeader({
   jumpFrom,
 }: Props) {
   const start = useRef<{ x: number; y: number } | null>(null);
-  const swiped = useRef(false);
+  /**
+   * 마지막 스와이프가 끝난 시각. "다음 클릭을 삼킨다" 는 켜짐/꺼짐 표시로 두지 않는다 —
+   * 폰에서는 스와이프 끝에 클릭이 안 오는 일이 많아 표시가 켜진 채 남고, 펼친 뒤 처음 누른
+   * 날짜가 그 표시에 먹혀 두 번 눌러야 골라졌다. 시각으로 두면 늦게 온 클릭은 절대 안 삼킨다.
+   */
+  const swipedAt = useRef(0);
 
   /**
    * 좌우로 넘기는 폭. 펼쳤으면 한 달, 접었으면 한 주.
@@ -77,7 +88,7 @@ export function CalendarHeader({
       const [absX, absY] = [Math.abs(dx), Math.abs(dy)];
       if (Math.max(absX, absY) < SWIPE_THRESHOLD) return; // 그냥 탭이다
 
-      swiped.current = true;
+      swipedAt.current = performance.now();
       if (absY > absX) {
         onToggle(dy > 0);
         return;
@@ -103,12 +114,11 @@ export function CalendarHeader({
       // 제스처는 달력 안에서만 시작한다
       onPointerDown={(e) => {
         start.current = { x: e.clientX, y: e.clientY };
-        swiped.current = false;
       }}
-      // 스와이프로 끝난 제스처가 날짜 버튼 클릭까지 발동시키지 않도록 삼킨다
+      // 스와이프로 끝난 제스처가 날짜 버튼 클릭까지 발동시키지 않도록, 손을 뗀 직후의 클릭만 삼킨다
       onClickCapture={(e) => {
-        if (!swiped.current) return;
-        swiped.current = false;
+        if (performance.now() - swipedAt.current > SWIPE_CLICK_WINDOW_MS) return;
+        swipedAt.current = 0;
         e.preventDefault();
         e.stopPropagation();
       }}
