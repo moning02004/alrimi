@@ -35,3 +35,33 @@ describe("응답 본문", () => {
     await expect(api.post("/push/test")).rejects.toMatchObject({ status: 502 });
   });
 });
+
+describe("오프라인은 읽기 전용이다", () => {
+  afterEach(async () => {
+    const { useAuthStore } = await import("@/store/auth");
+    useAuthStore.setState({ token: null, offline: false });
+  });
+
+  it("고치는 요청은 보내지 않고 까닭을 돌려준다", async () => {
+    const { useAuthStore } = await import("@/store/auth");
+    useAuthStore.setState({ token: "t", offline: true });
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    await expect(api.patch("/events/1", { completed: true })).rejects.toMatchObject({
+      status: 0,
+      detail: { detail: expect.stringContaining("오프라인") },
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("재발급이 서버에 닿지 못하면 로그아웃시키지 않는다", async () => {
+    const { useAuthStore } = await import("@/store/auth");
+    useAuthStore.setState({ token: "expired", offline: false });
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(null, { status: 401 }))
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"));
+
+    await expect(api.get("/zones")).rejects.toMatchObject({ status: 0 });
+    expect(useAuthStore.getState().token).toBe("expired");
+  });
+});

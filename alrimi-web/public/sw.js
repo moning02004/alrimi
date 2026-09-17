@@ -13,10 +13,119 @@
   옛 워커를 그대로 쓴다(`skipWaiting`).
 */
 
+/*
+  ── 오프라인 보기: 앱 껍데기 ─────────────────────────────────────────────
+
+  연결이 없어도 앱이 열리게 HTML·JS·CSS·아이콘을 받아둔다. **일정 자료는 여기서 받아두지
+  않는다** — 그것은 앱이 기기에 남긴다(`lib/offlineCache.ts`). API 는 다른 주소에 있고
+  로그인 토큰을 실어 보내므로, 워커가 응답을 주소로만 쌓아두면 한 기기를 쓰는 다음
+  사람에게 앞사람 일정이 그대로 나간다.
+
+  - `/_next/static/…` 은 파일 이름에 내용 해시가 붙어 바뀌지 않는다 → 받아둔 것부터 쓴다.
+  - 화면(HTML)은 늘 새로 받고, 못 받을 때만 받아둔 것을 쓴다. 새 배포를 옛 화면으로
+    가리지 않기 위해서다.
+  - 한 번도 연 적 없는 화면(예: 처음 보는 일정 상세)은 받아둔 것이 없다. 그때는 홈으로
+    가는 안내 한 장을 준다.
+
+  **localhost 에서는 아무것도 받아두지 않는다.** 개발 서버의 번들은 해시 없이 저장할
+  때마다 바뀌어서, 붙잡고 있으면 고친 것이 화면에 안 나온다. (알림을 시험하느라 개발
+  중에도 이 워커가 등록될 수 있다.)
+*/
+var SHELL_CACHE = "alrimi-shell-v1";
+var CACHING = self.location.hostname !== "localhost" && self.location.hostname !== "127.0.0.1";
+
+// 글꼴 CSS 는 다른 주소(jsDelivr)에서 온다. 이것까지 받아둬야 오프라인에서도 글꼴이 같다.
+var FONT_HOST = "cdn.jsdelivr.net";
+
+function isShellAsset(url) {
+  if (url.origin === self.location.origin) {
+    return (
+      url.pathname.indexOf("/_next/static/") === 0 ||
+      /\.(png|svg|ico|json|woff2?)$/.test(url.pathname)
+    );
+  }
+  return url.hostname === FONT_HOST;
+}
+
+function offlinePage() {
+  var html =
+    '<!doctype html><html lang="ko"><meta charset="utf-8">' +
+    '<meta name="viewport" content="width=device-width,initial-scale=1">' +
+    "<title>오프라인 · 일정 알리미</title>" +
+    '<body style="font-family:system-ui,sans-serif;background:#f2f4f3;color:#16283c;' +
+    'display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0;padding:24px">' +
+    '<div style="max-width:320px;text-align:center">' +
+    '<p style="font-weight:600;margin:0 0 8px">오프라인이라 이 화면을 열 수 없어요</p>' +
+    '<p style="font-size:14px;color:#6b7b87;margin:0 0 16px">받아둔 일정은 홈에서 볼 수 있어요.</p>' +
+    '<a href="/home" style="color:#2f7a63">홈으로</a></div></body></html>';
+  return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
+}
+
+self.addEventListener("fetch", function (event) {
+  var request = event.request;
+  if (!CACHING || request.method !== "GET") return;
+
+  var url = new URL(request.url);
+
+  if (request.mode === "navigate" && url.origin === self.location.origin) {
+    event.respondWith(
+      fetch(request)
+        .then(function (response) {
+          if (response.ok) {
+            var copy = response.clone();
+            // 같은 화면은 쿼리(?event=3)가 달라도 한 장만 둔다
+            caches.open(SHELL_CACHE).then(function (cache) {
+              cache.put(url.origin + url.pathname, copy);
+            });
+          }
+          return response;
+        })
+        .catch(function () {
+          return caches.match(url.origin + url.pathname).then(function (cached) {
+            return cached || offlinePage();
+          });
+        }),
+    );
+    return;
+  }
+
+  if (isShellAsset(url)) {
+    event.respondWith(
+      caches.match(request).then(function (cached) {
+        if (cached) return cached;
+        return fetch(request).then(function (response) {
+          // 다른 주소의 no-cors 응답은 ok 를 읽을 수 없다(opaque). 그것도 받아둔다.
+          if (response.ok || response.type === "opaque") {
+            var copy = response.clone();
+            caches.open(SHELL_CACHE).then(function (cache) {
+              cache.put(request, copy);
+            });
+          }
+          return response;
+        });
+      }),
+    );
+  }
+});
+
 // 새 워커를 기다리게 두지 않는다. 알림 문구나 동작을 고쳤을 때 사람들이 모든 탭을
 // 닫을 때까지 옛 워커가 남아 있으면, 고친 것이 언제 반영되는지 알 수 없다.
 self.addEventListener("install", () => self.skipWaiting());
-self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));
+self.addEventListener("activate", (event) =>
+  event.waitUntil(
+    // 이름이 바뀐 옛 껍데기는 지운다. 배포마다 해시가 바뀌어 옛 파일이 쌓이기만 한다.
+    caches
+      .keys()
+      .then((names) =>
+        Promise.all(
+          names
+            .filter((name) => name.indexOf("alrimi-shell-") === 0 && name !== SHELL_CACHE)
+            .map((name) => caches.delete(name)),
+        ),
+      )
+      .then(() => self.clients.claim()),
+  ),
+);
 
 self.addEventListener("push", function (event) {
   // 본문 없는 푸시도 규격상 올 수 있다(구독을 되살릴 때 등). 그때는 조용히 넘긴다 —
@@ -71,10 +180,25 @@ self.addEventListener("notificationclick", function (event) {
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(function (list) {
       for (var i = 0; i < list.length; i++) {
         var client = list[i];
-        // 같은 출처의 창이면 어느 화면이든 그것을 쓴다 — 알림을 눌렀다고 보던
-        // 화면을 빼앗지 않는다.
+        /*
+          같은 출처의 창이면 새로 열지 않고 그 창을 알림이 가리키는 화면으로 옮긴다.
+          앞으로 가져오기만 하면 보던 화면이 그대로라, 알림 내용을 보려고 누른 사람이
+          다시 찾아가야 한다.
+
+          `navigate` 는 이 워커가 제어하는 창에서만 된다(설치 직후의 창은 아닐 수 있다).
+          안 되면 앞으로 가져오는 것까지만 한다.
+        */
         if (client.url.indexOf(self.registration.scope) === 0 && "focus" in client) {
-          return client.focus();
+          return client.focus().then(function (focused) {
+            var win = focused || client;
+            if (win.url === new URL(target, self.location.origin).href) return win;
+            if ("navigate" in win) {
+              return win.navigate(target).catch(function () {
+                return win;
+              });
+            }
+            return win;
+          });
         }
       }
       if (self.clients.openWindow) return self.clients.openWindow(target);

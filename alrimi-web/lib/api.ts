@@ -20,10 +20,18 @@ export function firstError(error: unknown, fallback: string) {
   return fallback;
 }
 
-/** 동시에 401이 여러 개 떠도 재발급은 한 번만 나가도록 진행 중 요청을 공유 */
-let refreshing: Promise<string | null> | null = null;
+/** 오프라인에서 고치려 할 때. 폼들이 `firstError` 로 이 말을 그대로 보여준다 */
+export const OFFLINE_MESSAGE = "오프라인이라 저장하지 않았어요. 연결되면 다시 해주세요.";
 
-async function refreshAccessToken(): Promise<string | null> {
+/** 지금 연결이 없는가. 브라우저가 모르면(서버 렌더 등) 연결된 것으로 본다 */
+export const isOffline = () =>
+  useAuthStore.getState().offline || (typeof navigator !== "undefined" && navigator.onLine === false);
+
+/** 동시에 401이 여러 개 떠도 재발급은 한 번만 나가도록 진행 중 요청을 공유 */
+let refreshing: Promise<string | null | "unreachable"> | null = null;
+
+/** 새 access 토큰. 거절당하면 null, 서버에 닿지 못했으면 "unreachable" */
+async function refreshAccessToken(): Promise<string | null | "unreachable"> {
   if (!refreshing) {
     refreshing = (async () => {
       try {
@@ -36,7 +44,8 @@ async function refreshAccessToken(): Promise<string | null> {
         useAuthStore.getState().setToken(data.access_token);
         return data.access_token;
       } catch {
-        return null;
+        // 닿지 못한 것은 거절이 아니다. 여기서 로그아웃시키면 지하철에서 앱이 로그인 화면으로 튄다.
+        return "unreachable";
       } finally {
         refreshing = null;
       }
@@ -52,6 +61,21 @@ interface RequestOptions extends Omit<RequestInit, "body"> {
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { body, skipAuth, headers, ...rest } = options;
+  const method = (rest.method ?? "GET").toUpperCase();
+
+  /*
+    오프라인은 읽기 전용이다(`lib/offlineCache.ts`). 고치는 요청은 보내지 않고 바로
+    돌려준다 — 모아뒀다가 나중에 보내면 그 사이 바뀐 것과 부딪힌다.
+
+    오프라인 보기 중(토큰 없음)에는 읽기도 보내지 않는다. 토큰 없이 나간 요청이 401 을
+    받으면 아래에서 로그인이 풀린 것으로 처리된다.
+  */
+  if (method !== "GET" && isOffline()) {
+    throw new ApiError(0, { detail: OFFLINE_MESSAGE });
+  }
+  if (useAuthStore.getState().offline && !skipAuth) {
+    throw new ApiError(0, { detail: OFFLINE_MESSAGE });
+  }
 
   const send = (token: string | null) =>
     fetch(API_HOST + path, {
@@ -71,6 +95,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   // 만료가 화면에 드러나지 않도록 재발급 후 원래 요청을 그대로 재시도
   if (res.status === 401 && !skipAuth) {
     const next = await refreshAccessToken();
+    if (next === "unreachable") throw new ApiError(0, { detail: OFFLINE_MESSAGE });
     if (!next) {
       useAuthStore.getState().clear();
       throw new ApiError(401);

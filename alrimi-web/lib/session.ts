@@ -1,6 +1,7 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@/store/auth";
 import { useZoneStore } from "@/store/zone";
+import { forgetOfflineCache } from "./offlineCache";
 
 /**
  * 로그인이 풀리면 받아둔 것을 전부 버린다. 돌려주는 함수로 구독을 푼다.
@@ -17,9 +18,14 @@ import { useZoneStore } from "@/store/zone";
  */
 export function clearOnLogout(client: QueryClient) {
   return useAuthStore.subscribe((state, prev) => {
-    if (!prev.token || state.token) return;
+    // 오프라인 보기(토큰 없이 남겨둔 것으로 보는 중)에서 풀린 것도 로그아웃이다
+    const wasIn = Boolean(prev.token) || prev.offline;
+    const isIn = Boolean(state.token) || state.offline;
+    if (!wasIn || isIn) return;
     client.clear();
+    // 기기에 남겨둔 일정도 앞사람 것이다(`lib/offlineCache.ts`)
+    forgetOfflineCache();
     // 고른 공간도 앞사람 것이다. localStorage 에 남아 다음 사람의 첫 화면을 좁힌다.
-    useZoneStore.getState().selectZone(null);
+    useZoneStore.getState().setScope(null);
   });
 }

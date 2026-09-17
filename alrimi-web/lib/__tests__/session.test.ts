@@ -15,7 +15,7 @@ describe("clearOnLogout — 로그인이 풀리면 앞사람 것을 버린다", 
   beforeEach(() => {
     client = new QueryClient();
     useAuthStore.setState({ token: "a-token" });
-    useZoneStore.setState({ selectedZoneId: 3 });
+    useZoneStore.setState({ scope: "zone:3" });
     client.setQueryData(["me"], { username: "앞사람" });
     stop = clearOnLogout(client);
   });
@@ -29,7 +29,7 @@ describe("clearOnLogout — 로그인이 풀리면 앞사람 것을 버린다", 
     useAuthStore.getState().clear();
 
     expect(client.getQueryData(["me"])).toBeUndefined();
-    expect(useZoneStore.getState().selectedZoneId).toBeNull();
+    expect(useZoneStore.getState().scope).toBeNull();
   });
 
   it("토큰이 새것으로 바뀌는 것은 같은 사람이라 그대로 둔다", () => {
@@ -37,7 +37,7 @@ describe("clearOnLogout — 로그인이 풀리면 앞사람 것을 버린다", 
     useAuthStore.getState().setToken("b-token");
 
     expect(client.getQueryData(["me"])).toEqual({ username: "앞사람" });
-    expect(useZoneStore.getState().selectedZoneId).toBe(3);
+    expect(useZoneStore.getState().scope).toBe("zone:3");
   });
 
   it("처음 로그인하는 것(없던 토큰이 생기는 것)으로는 비우지 않는다", () => {
@@ -47,5 +47,19 @@ describe("clearOnLogout — 로그인이 풀리면 앞사람 것을 버린다", 
     useAuthStore.getState().setToken("c-token");
 
     expect(client.getQueryData(["me"])).toEqual({ username: "받은 것" });
+  });
+});
+
+describe("clearOnLogout — 오프라인 보기에서 풀려도 비운다", () => {
+  it("연결이 돌아와 로그인이 거절되면 남겨둔 것까지 버린다", () => {
+    const client = new QueryClient();
+    useAuthStore.setState({ token: null, offline: true });
+    client.setQueryData(["me"], { username: "앞사람" });
+    const stop = clearOnLogout(client);
+
+    useAuthStore.getState().clear();
+
+    expect(client.getQueryData(["me"])).toBeUndefined();
+    stop();
   });
 });
