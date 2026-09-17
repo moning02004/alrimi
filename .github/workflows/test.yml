@@ -1,0 +1,51 @@
+# main 에 올리거나 PR 을 열 때마다 앞뒤 테스트를 돌린다.
+#
+# 릴리스 워크플로는 이미지만 굽고 테스트는 돌리지 않는다. 그래서 테스트가 깨진 채
+# main 에 들어가도 아무도 모른다 — 크론 엔드포인트의 열쇠 검사가 빠졌을 때 그걸
+# 잡으려고 만든 테스트가 실패하고 있었는데도 그대로 배포될 뻔했다.
+
+name: 테스트
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  api:
+    name: API (Django)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: alrimi-api
+    env:
+      DJANGO_ENV: local
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: alrimi-api/requirements.txt
+      - run: pip install -r requirements.txt
+      # 마이그레이션 파일을 빠뜨리고 모델만 고친 것을 잡는다
+      - run: python manage.py makemigrations --check --dry-run
+      - run: python manage.py test
+
+  web:
+    name: 웹 (Next.js)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: alrimi-web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: alrimi-web/package-lock.json
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm run lint
+      - run: npm test
