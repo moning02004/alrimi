@@ -6,15 +6,12 @@ import {useMarks} from "@/hooks/useSpecialDays";
 import {useZones} from "@/hooks/useZones";
 import {useIsDesktop} from "@/hooks/useMediaQuery";
 import {
-    addDays,
     groupByDate,
     monthGridDays,
     monthLabel,
     rangeLabel,
     shiftMonth,
     startOfDay,
-    startOfMonth,
-    toDate,
     toISO,
     windowDays,
 } from "@/lib/date";
@@ -27,7 +24,7 @@ import {ErrorBlock, LoadingBlock} from "@/components/Loading";
 import Link from "next/link";
 import {useRouter, useSearchParams} from "next/navigation";
 import {pageUrl} from "@/constants/routeUrl";
-import {ZoneChips} from "@/components/ZoneChips";
+import {ZoneFilter} from "@/components/ZoneFilter";
 import {UpcomingList} from "@/components/UpcomingList";
 import {DeleteSelected, SelectToggle} from "@/components/SelectionActions";
 import {useAddSheet, useSelection} from "@/store/ui";
@@ -45,10 +42,10 @@ export default function HomePage() {
 }
 
 function Home() {
-    const {selectedZoneId} = useZones();
+    const {scope} = useZones();
     const router = useRouter();
     const searchParams = useSearchParams();
-    const {open: addOpen, openAdd} = useAddSheet();
+    const openAdd = useAddSheet((s) => s.openAdd);
     const stopSelecting = useSelection((s) => s.stop);
     const selecting = useSelection((s) => s.active);
     const isDesktop = useIsDesktop();
@@ -103,7 +100,7 @@ function Home() {
     const grid = monthMode ? monthGridDays(anchor) : windowDays(anchor);
     const from = toISO(grid[0]);
     const to = toISO(grid[grid.length - 1]);
-    const calendar = useCalendar(from, to, selectedZoneId);
+    const calendar = useCalendar(from, to, scope);
     /*
       특일(공휴일·절기·기념일). 일정과 따로 받는다 — 한 해에 한 번 바뀔까 말까인
       자료라 오래 들고 있을 수 있는데(`useSpecialDays`), 일정 응답에 얹으면 일정
@@ -113,8 +110,8 @@ function Home() {
     const marks = useMarks(from, to);
 
     // 스트립과 목록이 같은 기간만 본다. 그 밖은 ‹ › 로 넘겨서 본다.
-    const list = useEventsInRange(from, to, selectedZoneId, !monthMode);
-    const day = useEventsByDate(selectedDate, selectedZoneId, monthMode);
+    const list = useEventsInRange(from, to, scope, !monthMode);
+    const day = useEventsByDate(selectedDate, scope, monthMode);
 
     const events = list.data ?? [];
     const dayItems = day.data ?? [];
@@ -154,7 +151,6 @@ function Home() {
         if (monthMode) setSelectedDate(toISO(startOfDay(next)));
     };
 
-    // useEffect 의존성에 들어가므로 매 렌더 새로 만들지 않는다
     const goToday = useCallback(() => {
         const today = startOfDay(new Date());
         setAnchor(today);
@@ -185,58 +181,6 @@ function Home() {
         }
         document.getElementById(`date-${iso}`)?.scrollIntoView({behavior: "smooth", block: "start"});
     };
-
-    /**
-     * PC 에서 달력을 키보드로 넘긴다. 화살표로 하루씩·한 주씩, T 로 오늘.
-     *
-     * 마우스로 칸을 하나씩 겨냥하는 것보다 빠르고, 달을 넘어가면 달력도 따라간다.
-     * 입력 중이거나 시트가 열려 있으면 받지 않는다 — 그쪽이 먼저다.
-     */
-    useEffect(() => {
-        if (!isDesktop) return;
-
-        const STEP: Record<string, number> = {
-            ArrowLeft: -1,
-            ArrowRight: 1,
-            ArrowUp: -7,
-            ArrowDown: 7,
-        };
-
-        const onKeyDown = (e: KeyboardEvent) => {
-            if (addOpen || e.metaKey || e.ctrlKey || e.altKey) return;
-            const el = e.target as HTMLElement | null;
-            if (el?.isContentEditable || /^(input|textarea|select)$/i.test(el?.tagName ?? "")) return;
-
-            // 옆 칸에 상세가 열려 있으면 화살표는 그 화면 몫이다. Esc 로 먼저 닫는다.
-            if (e.key === "Escape" && openEventId !== null) {
-                e.preventDefault();
-                setOpenEventId(null);
-                return;
-            }
-            if (openEventId !== null) return;
-
-            if (e.key === "t" || e.key === "T") {
-                e.preventDefault();
-                goToday();
-                return;
-            }
-
-            const step = STEP[e.key];
-            if (step === undefined) return;
-            e.preventDefault();
-
-            const next = addDays(toDate(selectedDate), step);
-            setSelectedDate(toISO(next));
-            setOpenEventId(null);
-            // 달을 벗어나면 달력도 그 달로 넘긴다. 안 그러면 고른 날이 화면 밖이다.
-            if (next.getMonth() !== anchor.getMonth() || next.getFullYear() !== anchor.getFullYear()) {
-                setAnchor(startOfMonth(next));
-            }
-        };
-
-        window.addEventListener("keydown", onKeyDown);
-        return () => window.removeEventListener("keydown", onKeyDown);
-    }, [isDesktop, addOpen, selectedDate, anchor, goToday, openEventId, setOpenEventId]);
 
     /**
      * 화면 위에 붙어 서는 것들의 높이를 재서 내보낸다.
@@ -306,7 +250,7 @@ function Home() {
                                 </button>
                                 <button
                                     onClick={goToday}
-                                    title="오늘로 (T)"
+                                    title="오늘로"
                                     className="rounded-md px-1.5 py-0.5 text-xs hover:bg-paper hover:text-ink"
                                 >
                                     오늘
@@ -333,7 +277,7 @@ function Home() {
 
                     {/* 달력은 "있다"만 말한다. 무엇인지는 여기서 눌러보지 않고 읽는다 */}
                     <UpcomingList
-                        zoneId={selectedZoneId}
+                        zoneId={scope}
                         selected={selectedDate}
                         onPick={setSelectedDate}
                     />
@@ -341,7 +285,7 @@ function Home() {
 
                 <section className="flex min-w-0 flex-1 flex-col">
                     <div className="pb-4">
-                        <ZoneChips/>
+                        <ZoneFilter/>
                     </div>
                     <div className="min-h-0 flex-1 overflow-y-auto pr-1">
                         {openEventId !== null ? (
@@ -391,7 +335,7 @@ function Home() {
                 />
 
                 <div className="mt-2 px-1">
-                    <ZoneChips/>
+                    <ZoneFilter/>
                 </div>
             </header>
 
@@ -459,7 +403,7 @@ function Home() {
                                     href={pageUrl.past}
                                     className="shrink-0 text-xs text-muted hover:text-pine"
                                 >
-                                    지난 일정/보류 보기 ›
+                                    지난 일정 / 보류 ›
                                 </Link>
                             )}
                         </div>

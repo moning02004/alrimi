@@ -4,6 +4,7 @@ import { useEvents } from "@/hooks/useEvents";
 import { useZoneMark } from "@/hooks/useZones";
 import { ZoneMark } from "./ZoneMark";
 import { hourLabel, sectionLabel, spanDays, toDate, toISO } from "@/lib/date";
+import type { ZoneScope } from "@/types";
 
 /** 좁은 칸이라 짧게. 가까운 날은 "오늘"·"내일", 나머지는 9/12 꼴 */
 function when(iso: string) {
@@ -39,7 +40,7 @@ export function UpcomingList({
   onPick,
   selected,
 }: {
-  zoneId: number | null;
+  zoneId: ZoneScope;
   onPick: (iso: string) => void;
   selected: string;
 }) {
@@ -79,10 +80,14 @@ export function UpcomingList({
                   <ZoneMark
                     mark={zone?.mark ?? ""}
                     color={zone?.color ?? event.zone_color}
-                    name={zone?.name}
+                    name={zone?.label}
                     size="sm"
+                    round={zone?.received}
                   />
-                  <span className="min-w-0 flex-1 truncate text-sm">{event.title}</span>
+                  <span className="min-w-0 flex-1 truncate text-sm">
+                    {zone?.received && <span className="text-muted">[{zone.zoneName}] </span>}
+                    {event.title}
+                  </span>
                   <span className="shrink-0 text-[11px] tabular-nums text-muted">
                     {whenSpan(event.event_date, event.end_date)}
                     {event.event_hour !== null && ` ${hourLabel(event.event_hour)}`}

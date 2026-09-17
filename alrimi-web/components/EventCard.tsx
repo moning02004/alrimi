@@ -3,6 +3,7 @@
 import Link from "next/link";
 import toast from "react-hot-toast";
 import { HiCheckCircle, HiOutlineCheckCircle } from "react-icons/hi2";
+import { LuRepeat } from "react-icons/lu";
 import { pageUrl } from "@/constants/routeUrl";
 import { dayIndex, hourLabel, spanDays } from "@/lib/date";
 import { useToggleComplete } from "@/hooks/useEvents";
@@ -53,6 +54,11 @@ export function EventCard({
   const picked = useSelection((s) => s.ids.includes(event.id));
   const pick = useSelection((s) => s.toggle);
   const openZoneSheet = useZoneSheet((s) => s.openFor);
+  /*
+    함께 보는(공유받은) 공간의 일정은 보기만 한다. 완료 동그라미·공간 바꾸기가 없고
+    고르는 중에도 골라지지 않는다 — 서버가 지우기를 건너뛰어 "못 지웠어요" 만 남는다.
+  */
+  const editable = event.can_edit;
 
   /*
     며칠째인지. 여행 둘째 날 카드가 첫날 카드와 똑같이 생기면 목록을 훑다가
@@ -70,8 +76,13 @@ export function EventCard({
   const dayMark = span < 2 ? null : nth ? `${nth}/${span}` : `${span}일간`;
   const zoneColor = zone?.color ?? event.zone_color;
 
+  /*
+    누구의 무슨 공간인지는 딱지가 말하고, 필터 목록(`ZoneFilter`)이 범례다. 내 일정은 공간
+    딱지(네모), 받은 일정은 사람 딱지(동그라미) — 필터가 받은 공간을 사람마다 하나로 묶기 때문이다. 받은 일정은 대신
+    제목 앞에 `[공간 이름]` 을 적는다(아래 `body`).
+  */
   const mark = zone ? (
-    <ZoneMark mark={zone.mark} color={zone.color} name={zone.name} />
+    <ZoneMark mark={zone.mark} color={zone.color} name={zone.label} round={zone.received} />
   ) : (
     // 공간 목록이 아직 안 왔을 때. 자리를 비워두면 제목 줄이 흔들린다.
     <span className="h-6 w-6 shrink-0 rounded-lg" style={{ background: zoneColor }} />
@@ -89,12 +100,23 @@ export function EventCard({
           {hourLabel(event.event_hour)}
         </span>
       )}
-      <span className={`truncate font-medium ${done ? "line-through" : ""}`}>{event.title}</span>
+      {/*
+        받은 공간의 일정은 딱지가 사람이라, 그 사람의 어느 공간인지를 제목 앞에 적는다.
+        내 공간은 딱지가 곧 공간이라 적지 않는다.
+      */}
+      <span className={`truncate font-medium ${done ? "line-through" : ""}`}>
+        {zone?.received && <span className="font-normal text-muted">[{zone.zoneName}] </span>}
+        {event.title}
+      </span>
     </>
   );
 
   const tail = (
     <>
+      {/* 반복 일정. 이름을 읽기 전에 "매주 오는 것" 인 줄 알게 한다 */}
+      {event.series_id !== null && (
+        <LuRepeat className="h-3.5 w-3.5 shrink-0 text-muted/70" aria-label="반복 일정" role="img" />
+      )}
       {dayMark && (
         <span className="shrink-0 rounded-full bg-paper px-2 py-0.5 text-xs tabular-nums text-muted">
           {dayMark}
@@ -132,7 +154,10 @@ export function EventCard({
         type="button"
         onClick={() => pick(event.id)}
         aria-pressed={picked}
-        className={`${cardCls} w-full gap-3 py-3 pl-3 pr-3 text-left ${
+        // 남의 공간 것은 고를 수 없다. 자리는 지켜 목록이 흔들리지 않게 한다
+        disabled={!editable}
+        title={editable ? undefined : "함께 보는 공간의 일정은 지울 수 없어요"}
+        className={`${cardCls} w-full gap-3 py-3 pl-3 pr-3 text-left disabled:opacity-50 ${
           picked ? "border-pine bg-pinelt/40" : "border-line"
         }`}
       >
@@ -152,16 +177,27 @@ export function EventCard({
     <div className={`${cardCls} border-line hover:border-muted/40 hover:bg-paper`}>
       {band}
 
-      {/* 딱지는 링크 밖이다. 누르면 공간을 바꾼다 */}
-      <button
-        type="button"
-        onClick={() => openZoneSheet(event)}
-        title="공간 바꾸기"
-        aria-label={`공간 바꾸기${zone ? ` · 지금 ${zone.name}` : ""}`}
-        className="relative shrink-0 rounded-lg py-3 pl-3 pr-1 transition-transform hover:scale-110"
-      >
-        {mark}
-      </button>
+      {/*
+        딱지는 링크 밖이다. 누르면 공간을 바꾼다(내 일정만) — 등록할 때 공간을 잘못 고르는 일이
+        흔한데, 고치러 상세 → 수정까지 가지 않게. 링크 안에 버튼을 넣을 수는 없어 나란히 둔다.
+      */}
+      {/*
+        받은 공간의 딱지는 사람이라 누를 자리가 아니다 — 공간을 바꾸는 것은 내 일정만이다
+        (함께 편집하는 공간이라도 다른 사람의 공간으로는 옮길 수 없다).
+      */}
+      {editable && !zone?.received ? (
+        <button
+          type="button"
+          onClick={() => openZoneSheet(event)}
+          title="공간 바꾸기"
+          aria-label={`공간 바꾸기${zone ? ` · 지금 ${zone.label}` : ""}`}
+          className="relative shrink-0 rounded-lg py-3 pl-3 pr-1 transition-transform hover:scale-110"
+        >
+          {mark}
+        </button>
+      ) : (
+        <span className="relative shrink-0 py-3 pl-3 pr-1">{mark}</span>
+      )}
 
       {onSelect ? (
         <button type="button" onClick={() => onSelect(event.id)} className={openCls}>
@@ -179,6 +215,7 @@ export function EventCard({
         44px 과녁. 보이는 동그라미는 20px 이지만 손가락으로 겨냥하는 자리는 그보다
         커야 한다 — 옆 칸(카드 열기)을 잘못 누르면 화면이 통째로 바뀐다.
       */}
+      {editable ? (
       <button
         type="button"
         onClick={() =>
@@ -200,6 +237,11 @@ export function EventCard({
           <HiOutlineCheckCircle className="h-5 w-5 text-muted/60" aria-hidden="true" />
         )}
       </button>
+      ) : (
+        // 동그라미 자리만큼 비워둔다. 없애면 공유 일정의 발송 점만 오른쪽 끝으로 밀려
+        // 위아래 카드와 줄이 어긋난다.
+        <span aria-hidden="true" className="mr-1.5 h-11 w-11 shrink-0" />
+      )}
     </div>
   );
 }

@@ -9,7 +9,7 @@ import { groupByDate } from "@/lib/date";
 import { EventGroups } from "@/components/EventGroups";
 import { HeldList } from "@/components/HeldList";
 import { ErrorBlock, LoadingBlock } from "@/components/Loading";
-import { ZoneChips } from "@/components/ZoneChips";
+import { ZoneFilter } from "@/components/ZoneFilter";
 
 type Tab = "past" | "held";
 
@@ -28,7 +28,7 @@ type Tab = "past" | "held";
  * 늘 보이는 자리는 홈·등록·설정 셋이면 충분하다.
  */
 export default function PastPage() {
-  const { selectedZoneId } = useZones();
+  const { scope } = useZones();
   const [tab, setTab] = useState<Tab>("past");
   const stopSelecting = useSelection((s) => s.stop);
   const selecting = useSelection((s) => s.active);
@@ -40,13 +40,13 @@ export default function PastPage() {
   */
   useEffect(() => stopSelecting, [tab, stopSelecting]);
 
-  const past = useEvents("past", selectedZoneId);
+  const past = useEvents("past", scope);
   /*
     보류함은 탭을 누르기 전에도 받아둔다 — 탭에 개수를 적어야 해서다.
     치워둔 것이 있다는 사실 자체가 여기 올 이유인데, 그 숫자가 탭을 눌러야만
     보이면 보류함이 비어 있는 사람과 구별되지 않는다. 한 줌짜리 목록이다.
   */
-  const held = useEvents("held", selectedZoneId);
+  const held = useEvents("held", scope);
   const heldCount = held.data?.length ?? 0;
 
   const events = past.data ?? [];
@@ -92,14 +92,14 @@ export default function PastPage() {
           </div>
 
           <div className="mt-2">
-            <ZoneChips />
+            <ZoneFilter />
           </div>
         </div>
       </header>
 
       <main className="mx-auto w-full max-w-2xl px-4 pb-4">
         {tab === "held" ? (
-          <HeldList zoneId={selectedZoneId} />
+          <HeldList zoneId={scope} />
         ) : (
           <>
             {past.isLoading && <LoadingBlock />}

@@ -22,12 +22,15 @@ export function ZoneMark({
                              color,
                              name,
                              size = "md",
+                             round = false,
                          }: {
     mark: string;
     color: string;
     /** 화면에는 안 보이고 읽어주는 이름. 딱지만으로는 무슨 공간인지 못 듣는다 */
     name?: string;
     size?: keyof typeof SIZES;
+    /** 사람 딱지. 동그라미라 색이 비슷해도 공간 딱지(네모)와 모양으로 갈린다 */
+    round?: boolean;
 }) {
     return (
         // `relative` 는 장식이 아니라 필수다. 아래 `.sr-only` 가 position:absolute 라,
@@ -35,8 +38,10 @@ export function ZoneMark({
         // 스크롤 안쪽 깊은 곳에 있을 때 그 1px 짜리 span 이 바깥 스크롤 범위를
         // 늘려서, 스크롤할 것이 없는 화면에 유령 스크롤이 생긴다.
         <span
-            className={`relative inline-flex shrink-0 items-center justify-center font-semibold leading-none ${SIZES[size]}`}
+            className={`relative inline-flex shrink-0 items-center justify-center font-semibold leading-none ${SIZES[size]} ${round ? "!rounded-full" : ""}`}
             style={{background: color, color: onColor(color)}}
+            // 마우스를 올리면 무슨 공간(사람)인지 뜬다 — 늘 보이던 칩 범례가 드롭다운 안으로 들어가서
+            title={name}
         >
       <span aria-hidden>{mark}</span>
       {name && <span className="sr-only">{name}</span>}
