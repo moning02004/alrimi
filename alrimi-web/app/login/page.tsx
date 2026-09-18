@@ -107,10 +107,7 @@ export default function LoginPage() {
 
         <div className="mt-6 flex justify-center gap-4 text-xs text-muted">
           <Link href={pageUrl.intro} className="hover:text-pine">
-            어떤 앱인가요? →
-          </Link>
-          <Link href={pageUrl.privacy} className="underline hover:text-pine">
-            개인정보처리방침
+            어떤 서비스인가요? →
           </Link>
         </div>
       </div>
