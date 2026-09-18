@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { LuSearch, LuX } from "react-icons/lu";
+import { useRouter } from "next/navigation";
+import { LuArrowLeft, LuSearch, LuX } from "react-icons/lu";
+import { pageUrl } from "@/constants/routeUrl";
 import { useSearchEvents } from "@/hooks/useEvents";
 import { useZones } from "@/hooks/useZones";
 import { sectionLabel, startOfDay, toDate, toISO } from "@/lib/date";
@@ -24,6 +26,7 @@ const DEBOUNCE_MS = 250;
  * 보류한 것은 날짜가 없는 것이라 따로 맨 아래에 모은다.
  */
 export default function SearchPage() {
+  const router = useRouter();
   const { scope } = useZones();
   const [input, setInput] = useState("");
   const [query, setQuery] = useState("");
@@ -48,39 +51,55 @@ export default function SearchPage() {
       <header className="sticky top-0 z-20 border-b border-line bg-card px-4 py-3">
         <div className="mx-auto w-full max-w-2xl">
           <h1 className="sr-only">일정 검색</h1>
-          <div className="relative">
-            <LuSearch
-              aria-hidden="true"
-              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted"
-            />
-            <label htmlFor="search-input" className="sr-only">
-              찾을 말
-            </label>
-            <input
-              id="search-input"
-              type="search"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              // 이 화면에 온 까닭이 곧 적는 것이라 바로 적을 수 있게 둔다
-              autoFocus
-              maxLength={50}
-              enterKeyHint="search"
-              placeholder="제목이나 내용 (예: 소풍 도시락)"
-              className="w-full rounded-xl border border-line bg-paper py-2.5 pl-9 pr-10 text-base
-                         placeholder:text-muted/50 focus:border-pine focus:outline-none
-                         [&::-webkit-search-cancel-button]:hidden"
-            />
-            {input && (
-              <button
-                type="button"
-                onClick={() => setInput("")}
-                aria-label="지우기"
-                className="absolute right-1.5 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center
-                           justify-center rounded-full text-muted hover:bg-line/60 hover:text-ink"
-              >
-                <LuX className="h-4 w-4" aria-hidden="true" />
-              </button>
-            )}
+          <div className="flex items-center gap-2">
+            {/*
+              찾기는 잠깐 들렀다 나가는 화면이다. 폰에는 돌아갈 길이 시스템 제스처뿐이라 버튼을
+              왼쪽에 둔다. 앞 화면이 없으면(주소로 바로 들어왔으면) 홈으로 간다.
+            */}
+            <button
+              type="button"
+              onClick={() => (window.history.length > 1 ? router.back() : router.replace(pageUrl.home))}
+              aria-label="뒤로"
+              className="-ml-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-full
+                         text-muted transition-colors hover:bg-paper hover:text-ink"
+            >
+              <LuArrowLeft className="h-5 w-5" aria-hidden="true" />
+            </button>
+
+            <div className="relative min-w-0 flex-1">
+              <LuSearch
+                aria-hidden="true"
+                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted"
+              />
+              <label htmlFor="search-input" className="sr-only">
+                찾을 말
+              </label>
+              <input
+                id="search-input"
+                type="search"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                // 이 화면에 온 까닭이 곧 적는 것이라 바로 적을 수 있게 둔다
+                autoFocus
+                maxLength={50}
+                enterKeyHint="search"
+                placeholder="제목이나 내용 (예: 소풍 도시락)"
+                className="w-full rounded-xl border border-line bg-paper py-2.5 pl-9 pr-10 text-base
+                           placeholder:text-muted/50 focus:border-pine focus:outline-none
+                           [&::-webkit-search-cancel-button]:hidden"
+              />
+              {input && (
+                <button
+                  type="button"
+                  onClick={() => setInput("")}
+                  aria-label="지우기"
+                  className="absolute right-1.5 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center
+                             justify-center rounded-full text-muted hover:bg-line/60 hover:text-ink"
+                >
+                  <LuX className="h-4 w-4" aria-hidden="true" />
+                </button>
+              )}
+            </div>
           </div>
 
           {/* 공간으로 좁혀 둔 채 찾으면 결과가 적게 나온다. 무엇으로 좁혔는지 보이게 둔다 */}

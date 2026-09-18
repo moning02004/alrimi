@@ -259,20 +259,6 @@ export default function SettingsPage() {
           <MarkRows onPickColor={setEditingMark} />
         </div>
 
-        {/*
-          PC 는 옆 기둥에 "지난 일정/보류" 가 있지만 모바일에는 그 자리가 없다.
-          탭바를 넷으로 늘리면 가운데 등록 버튼이 가운데가 아니게 되므로 여기 둔다.
-        */}
-        <div className={`${groupCls} mt-3`}>
-          <Link href={pageUrl.past} className={`${rowCls} w-full`}>
-            <div>
-              <p className="text-sm">지난 일정/보류</p>
-              <p className="mt-0.5 text-xs text-muted">지나간 일정과 보류해둔 일정을 여기서 봐요</p>
-            </div>
-            <span className="text-xs text-muted">›</span>
-          </Link>
-        </div>
-
         <SectionTitle>계정</SectionTitle>
         <div className={`${groupCls} mt-2`}>
           <button onClick={() => setSheet("name")} className={`${rowCls} w-full text-left`}>

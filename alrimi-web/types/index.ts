@@ -32,10 +32,12 @@ export interface Zone {
 }
 
 /**
- * 목록·달력을 좁히는 필터. 내 공간은 하나씩(`zone:3`), 받은 공간은 **사람마다**(`owner:11`)
- * 고른다 — 한 사람이 공간을 여럿 보여줘도 칩은 그 사람 하나다. null 이면 전체.
+ * 목록·달력을 좁히는 필터 — 지금 켜져 있는 공간 id 들.
+ *
+ * `null` 은 **전부**다(끈 것이 없다). 서버에 아무 조건도 보내지 않으므로, 나중에 공간이
+ * 늘어도 저절로 함께 보인다. 빈 배열은 "하나도 안 봄" 이라 결과도 비어 있다.
  */
-export type ZoneScope = `zone:${number}` | `owner:${number}` | null;
+export type ZoneScope = number[] | null;
 
 /** 사람 한 명 — 함께 볼 사람 찾기, 함께 보는 사람 목록. 이름과 아이디뿐이다 */
 export interface UserSummary {

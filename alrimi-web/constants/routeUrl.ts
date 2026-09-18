@@ -4,12 +4,9 @@ export const API_HOST = process.env.NEXT_PUBLIC_API_HOST ?? "http://localhost:80
 
 export type EventFilter = "upcoming" | "later" | "past" | "held";
 
-/** 필터를 쿼리로. 공간 하나는 `&zone=`, 사람 한 명(그 사람이 보여주는 공간 전부)은 `&owner=` */
-const withZone = (path: string, scope: ZoneScope) => {
-  if (!scope) return path;
-  const [kind, id] = scope.split(":");
-  return `${path}&${kind === "owner" ? "owner" : "zone"}=${id}`;
-};
+/** 켜둔 공간들을 쿼리로. 전부(null)면 조건을 안 보낸다 — 나중에 늘어난 공간도 함께 보인다 */
+const withZone = (path: string, scope: ZoneScope) =>
+  scope === null ? path : `${path}&zones=${scope.join(",")}`;
 
 /** DRF 쪽은 APPEND_SLASH = False — 끝에 슬래시 붙이지 않음 */
 export const apiUrl = {

@@ -65,13 +65,25 @@ def zone_filter(request) -> Q:
     """
     목록을 좁히는 선택 필터. 없으면 전체 공간.
 
+    - `?zones=1,2` — 고른 공간들. 웹의 기본 필터다(처음에는 전부 켜져 있고 하나씩 끈다).
+      빈 값(`?zones=`)은 "아무것도 안 봄" 이라 결과도 비어 있다.
     - `?zone={id}`  — 공간 하나
-    - `?owner={id}` — 그 사람의 공간 전부(내가 볼 수 있는 것만). 받은 공간은 웹이 사람마다
-      칩 하나로 묶어 보여주므로, 그 칩을 누르면 이 필터로 온다.
+    - `?owner={id}` — 그 사람의 공간 전부(내가 볼 수 있는 것만)
 
-    둘이 함께 오면 zone 이 이긴다 — 더 좁은 쪽이다.
+    셋이 겹치면 zones 가 이긴다 — 웹이 쓰는 길이다.
     """
     params = request.query_params
+
+    # 여러 개를 고른 필터. 웹은 공간을 체크로 켜고 끄므로 보통 이쪽으로 온다.
+    if "zones" in params:
+        raw = params["zones"]
+        try:
+            ids = [int(one) for one in raw.split(",") if one]
+        except ValueError:
+            raise ValidationError({"zones": "id 목록은 쉼표로 이은 정수여야 합니다."}) from None
+        # 하나도 안 고른 상태도 뜻이 있다 — 아무것도 보지 않겠다는 것이다
+        return Q(zone_id__in=ids)
+
     for key, field in (("zone", "zone_id"), ("owner", "zone__owner_id")):
         raw = params.get(key)
         if not raw:

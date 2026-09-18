@@ -25,7 +25,7 @@ export function clearOnLogout(client: QueryClient) {
     client.clear();
     // 기기에 남겨둔 일정도 앞사람 것이다(`lib/offlineCache.ts`)
     forgetOfflineCache();
-    // 고른 공간도 앞사람 것이다. localStorage 에 남아 다음 사람의 첫 화면을 좁힌다.
-    useZoneStore.getState().setScope(null);
+    // 꺼둔 공간도 앞사람 것이다. localStorage 에 남아 다음 사람의 첫 화면을 좁힌다.
+    useZoneStore.getState().showAll();
   });
 }

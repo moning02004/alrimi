@@ -7,6 +7,7 @@ import logging
 import threading
 
 from django.conf import settings
+from django.db import close_old_connections
 
 from zones.models import recipients
 
@@ -72,14 +73,30 @@ def _send_later(people, title: str, message: str, tag: str, path: str) -> None:
 
 
 def _send(people, title: str, message: str, tag: str, path: str) -> None:
-    """사람마다 웹 푸시 → 못 닿으면 ntfy. 예약 알림과 같은 순서다(둘 다 보내면 두 번 온다)."""
-    for person in people:
-        try:
-            if send_to_user(person, title=title, message=message, priority=Priority.NORMAL, tag=tag, path=path):
-                continue
-            publish(person.ntfy_topic, title=title, message=message, priority=Priority.NORMAL)
-        except NtfyError as exc:
-            # 알림 하나 못 간 것으로 일정 저장을 되돌리지 않는다. 까닭만 남긴다.
-            logger.warning("new event notice failed: user=%s %s", person.pk, exc)
-        except Exception:
-            logger.exception("new event notice error: user=%s", person.pk)
+    """
+    사람마다 웹 푸시 → 못 닿으면 ntfy. 예약 알림과 같은 순서다(둘 다 보내면 두 번 온다).
+
+    **어디까지 갔는지 남긴다.** 이 길은 화면이 없어서, 안 왔을 때 웹 푸시가 0 이었는지 ntfy 가
+    거절했는지를 로그 말고는 알 방법이 없다(`manage.py notice_check` 가 같은 길을 밟아본다).
+
+    다른 스레드에서 도는 동안 DB 연결이 끊겨 있을 수 있다(CONN_MAX_AGE·재시작). 앞뒤로 정리한다.
+    """
+    close_old_connections()
+    try:
+        for person in people:
+            try:
+                reached = send_to_user(
+                    person, title=title, message=message, priority=Priority.NORMAL, tag=tag, path=path
+                )
+                if reached:
+                    logger.info("new event notice: user=%s webpush=%d", person.pk, reached)
+                    continue
+                publish(person.ntfy_topic, title=title, message=message, priority=Priority.NORMAL)
+                logger.info("new event notice: user=%s ntfy=ok", person.pk)
+            except NtfyError as exc:
+                # 알림 하나 못 간 것으로 일정 저장을 되돌리지 않는다. 까닭만 남긴다.
+                logger.warning("new event notice failed: user=%s %s", person.pk, exc)
+            except Exception:
+                logger.exception("new event notice error: user=%s", person.pk)
+    finally:
+        close_old_connections()

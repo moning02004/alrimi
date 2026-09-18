@@ -245,9 +245,11 @@ function Home() {
             <div className="flex h-full min-h-0 gap-5 p-5">
                 <aside className="flex w-[340px] shrink-0 flex-col gap-3">
                     {/* 달력 위다 — 달력의 점·띠도 이 필터를 따른다(모바일도 같은 자리) */}
-                    <ZoneFilter/>
 
                     <div className="rounded-2xl border border-line bg-card p-3">
+                        <div className="mb-2 border-b pb-2 border-line">
+                            <ZoneFilter/>
+                        </div>
                         <div className="flex items-center justify-between px-1">
                             <h1 className="text-base font-semibold">{monthLabel(anchor)}</h1>
                             <div className="flex items-center gap-0.5 text-sm text-muted">
@@ -333,7 +335,7 @@ function Home() {
                   필터가 달력 위에 선다. 달력의 점·띠도 이 필터를 따르므로, 아래에 두면 달력을
                   본 뒤에야 "무엇으로 걸러진 것인지" 를 알게 된다.
                 */}
-                <div className="mb-2 px-1">
+                <div className="mb-2 px-1 border-b pb-2 border-line">
                     <ZoneFilter/>
                 </div>
 

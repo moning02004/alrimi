@@ -15,7 +15,7 @@ describe("clearOnLogout — 로그인이 풀리면 앞사람 것을 버린다", 
   beforeEach(() => {
     client = new QueryClient();
     useAuthStore.setState({ token: "a-token" });
-    useZoneStore.setState({ scope: "zone:3" });
+    useZoneStore.setState({ hiddenZoneIds: [3] });
     client.setQueryData(["me"], { username: "앞사람" });
     stop = clearOnLogout(client);
   });
@@ -29,7 +29,7 @@ describe("clearOnLogout — 로그인이 풀리면 앞사람 것을 버린다", 
     useAuthStore.getState().clear();
 
     expect(client.getQueryData(["me"])).toBeUndefined();
-    expect(useZoneStore.getState().scope).toBeNull();
+    expect(useZoneStore.getState().hiddenZoneIds).toEqual([]);
   });
 
   it("토큰이 새것으로 바뀌는 것은 같은 사람이라 그대로 둔다", () => {
@@ -37,7 +37,7 @@ describe("clearOnLogout — 로그인이 풀리면 앞사람 것을 버린다", 
     useAuthStore.getState().setToken("b-token");
 
     expect(client.getQueryData(["me"])).toEqual({ username: "앞사람" });
-    expect(useZoneStore.getState().scope).toBe("zone:3");
+    expect(useZoneStore.getState().hiddenZoneIds).toEqual([3]);
   });
 
   it("처음 로그인하는 것(없던 토큰이 생기는 것)으로는 비우지 않는다", () => {

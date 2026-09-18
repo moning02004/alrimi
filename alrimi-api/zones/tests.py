@@ -340,6 +340,22 @@ class SharingTests(TestCase):
         calendar = self.client.get(f"/calendar?from={day}&to={day}&owner={self.owner.id}", headers=auth).json()
         self.assertEqual([row["id"] for row in calendar], [self.event.id])
 
+    def test_공간_여러_개로_좁힌다(self):
+        self.share()
+        day = str(self.event.event_date)
+        other = Event.objects.create(zone=self.work, event_date=self.event.event_date, title="분기 보고")
+        auth = self.login("mom")
+
+        both = self.client.get(f"/events?from={day}&to={day}&zones={self.zone.id},{self.work.id}", headers=auth).json()
+        self.assertEqual(sorted(row["title"] for row in both), ["분기 보고", "체육복", "회의"])
+
+        one = self.client.get(f"/events?from={day}&to={day}&zones={self.work.id}", headers=auth).json()
+        self.assertEqual(sorted(row["title"] for row in one), sorted([other.title, "회의"]))
+
+        # 하나도 안 고르면 아무것도 안 나온다 — "전부" 와 뜻이 다르다
+        none = self.client.get(f"/events?from={day}&to={day}&zones=", headers=auth).json()
+        self.assertEqual(none, [])
+
     def test_보는_사람은_공간도_일정도_고치지_못한다(self):
         self.share()
         auth = self.login("dad")

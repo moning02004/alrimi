@@ -1,48 +1,53 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { apiUrl } from "@/constants/routeUrl";
 import { useZoneStore } from "@/store/zone";
 import { listLabel, sharersOf, zoneMarks, type Sharer } from "@/lib/zone";
-import type { UserSummary, Zone } from "@/types";
+import type { UserSummary, Zone, ZoneScope } from "@/types";
 
 export function useZones() {
-  const { scope, setScope } = useZoneStore();
+  const { hiddenZoneIds, toggleZone, toggleZones, showAll, hideAll } = useZoneStore();
 
   const query = useQuery({
     queryKey: ["zones"],
     queryFn: () => api.get<Zone[]>(apiUrl.zones),
   });
 
-  // query.data가 없을 때 매 렌더 새 배열을 만들면 아래 useEffect가 계속 돈다
+  // query.data가 없을 때 매 렌더 새 배열을 만들면 아래 useMemo 들이 계속 돈다
   const zones = useMemo(() => query.data ?? [], [query.data]);
   const sharers = useMemo(() => sharersOf(zones), [zones]);
 
-  const [kind, rawId] = scope ? scope.split(":") : [null, null];
-  const scopeId = rawId ? Number(rawId) : null;
-  /** 공간 하나로 좁혔을 때 그 공간 */
-  const selected = kind === "zone" ? (zones.find((z) => z.id === scopeId) ?? null) : null;
-  /** 사람 한 명으로 좁혔을 때 그 사람(받은 공간의 주인) */
-  const selectedSharer = kind === "owner" ? (sharers.find((s) => s.id === scopeId) ?? null) : null;
-
-  // 고른 공간이 지워졌거나 그 사람이 더는 보여주지 않으면 전체로 되돌린다
-  useEffect(() => {
-    if (!query.data || scope === null) return;
-    if (!selected && !selectedSharer) setScope(null);
-  }, [query.data, scope, selected, selectedSharer, setScope]);
+  /*
+    지금 켜둔 공간들. 끈 것만 저장하므로(`store/zone.ts`) 새로 만든 공간은 저절로 켜져 있다.
+    지워진 공간이 끈 목록에 남아 있어도 여기서 걸러져 셈에 끼지 않는다.
+  */
+  const hidden = useMemo(
+    () => hiddenZoneIds.filter((id) => zones.some((zone) => zone.id === id)),
+    [hiddenZoneIds, zones],
+  );
+  const selectedIds = useMemo(
+    () => zones.filter((zone) => !hidden.includes(zone.id)).map((zone) => zone.id),
+    [zones, hidden],
+  );
+  const allOn = hidden.length === 0;
+  /** 하나라도 껐을 때만 조건을 보낸다 — 전부일 때 보내면 나중에 늘어난 공간이 빠진다 */
+  const scope: ZoneScope = allOn ? null : selectedIds;
 
   /*
     일정을 넣을 수 있는 공간 — 내 공간과, 받았는데 주인이 "함께 보는 사람도 일정 추가·수정" 을
     켜둔 공간. 등록 폼에는 이것만 나온다. 서버도 그 밖의 공간에 넣는 것을 막는다.
   */
   const writableZones = useMemo(() => zones.filter((zone) => zone.writable), [zones]);
-  // 등록 폼의 기본 공간. 필터로 좁혀 둔 공간이 있으면 보고 있던 그대로 이어서 쓰고,
-  // 사람으로 좁혔으면 그 사람의 고칠 수 있는 공간, 아니면 내 공간 맨 앞이다.
+  /*
+    등록 폼의 기본 공간. 하나만 켜두고 보는 중이면 그 공간을 이어서 쓰고, 아니면 내 공간
+    맨 앞이다(받은 공간보다 내 것이 먼저다).
+  */
+  const onlyOne = selectedIds.length === 1 ? zones.find((zone) => zone.id === selectedIds[0]) : null;
   const defaultZone =
-    (selected?.writable ? selected : null) ??
-    (selectedSharer ? writableZones.find((zone) => zone.owner_id === selectedSharer.id) : null) ??
+    (onlyOne?.writable ? onlyOne : null) ??
     writableZones.find((zone) => zone.role === "owner") ??
     writableZones[0] ??
     null;
@@ -52,10 +57,15 @@ export function useZones() {
     zones,
     sharers,
     writableZones,
+    /** 서버에 보낼 필터. `null` 이면 전부다 */
     scope,
-    setScope,
-    selected,
-    selectedSharer,
+    hidden,
+    selectedIds,
+    allOn,
+    toggleZone,
+    toggleZones,
+    showAll,
+    hideAll,
     defaultZone,
   };
 }
