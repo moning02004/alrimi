@@ -80,6 +80,8 @@ export const apiUrl = {
 } as const;
 
 export const pageUrl = {
+  // 소개. 로그인 없이 열린다 — 설치한 앱은 /home 으로 열려 이 화면을 지나치지 않는다
+  intro: "/",
   login: "/login",
   home: "/home",
   past: "/past",

@@ -38,6 +38,11 @@ body {
   color: var(--color-ink);
   -webkit-font-smoothing: antialiased;
   overscroll-behavior-y: none;
+  /*
+    한글은 글자마다 끊어도 되는 글이라, 브라우저가 "마세요" 를 "마세 / 요" 로 자른다.
+    낱말 단위로 끊게 해두면 제목과 안내 문구가 읽히는 대로 접힌다.
+  */
+  word-break: keep-all;
 }
 
 /* 하단 탭바가 홈 인디케이터에 물리지 않도록 */
