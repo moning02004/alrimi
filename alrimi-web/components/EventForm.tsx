@@ -33,10 +33,9 @@ import {
     serverWeekday,
 } from "@/lib/repeat";
 import {useCreateEvent, useUpdateEvent} from "@/hooks/useEvents";
-import {onColor} from "@/lib/color";
 import {useZoneMark, useZones} from "@/hooks/useZones";
-import {Picker} from "./Picker";
 import {ZoneMark} from "./ZoneMark";
+import {Picker} from "./Picker";
 import type {EditScope, EventDetail, RepeatFreq} from "@/types";
 import {LuCalendar} from "react-icons/lu";
 
@@ -461,42 +460,52 @@ export function EventForm({event, initialDate, resume = false, onDone}: Props) {
                 <div className="flex items-center gap-3 px-4 py-2.5">
                     <span className="w-14 shrink-0 text-sm text-muted">공간</span>
                     {/*
-                      함께 보는 공간만 있는 사람. 거기에는 일정을 넣을 수 없으므로 빈 칩 줄 대신
-                      무엇을 해야 하는지 적는다.
+                      넣을 수 있는 공간만 나온다. 함께 보는 공간만 있는 사람은 넣을 데가 없으므로
+                      빈 칸 대신 무엇을 해야 하는지 적는다.
                     */}
-                    {!zonesLoading && zones.length === 0 && (
+                    {!zonesLoading && zones.length === 0 ? (
                         <span className="text-sm text-muted">
                             내 공간이 없어요. 설정에서 공간을 먼저 만들어 주세요.
                         </span>
+                    ) : (
+                        <>
+                            {/*
+                              칩을 늘어놓지 않고 고르는 칸 하나다. 공간이 늘면 칩 줄이 옆으로
+                              길어져 밀어서 찾아야 했고, 다른 칸(날짜·시간)과 생김새도 달랐다.
+                              필터(`ZoneFilter`)·시간 칸과 같은 고르기다.
+                            */}
+                            <Picker
+                                ariaLabel="공간"
+                                value={zoneId}
+                                options={zones.map((zone) => {
+                                    const info = markOf(zone.id);
+                                    return {
+                                        value: zone.id,
+                                        // 받은 공간은 누구의 것인지까지 — 목록 카드와 같은 이름이다
+                                        label: info?.label ?? zone.name,
+                                        /*
+                                          딱지를 칸 **안**에 둔다. 목록 카드가 쓰는 것과 같은 딱지라,
+                                          저장하면 어떤 표시로 보일지가 고르는 자리에서 드러난다.
+                                        */
+                                        leading: (
+                                            <ZoneMark
+                                                mark={info?.mark ?? ""}
+                                                color={info?.color ?? zone.color}
+                                                round={info?.received}
+                                                size="sm"
+                                            />
+                                        ),
+                                    };
+                                })}
+                                onPick={(picked) => {
+                                    setPicked(picked);
+                                    setError(null);
+                                }}
+                                placeholder="공간 선택"
+                                className={`${fieldCls} ${rowFieldCls} -mx-1 min-w-0 flex-1 text-base`}
+                            />
+                        </>
                     )}
-                    <div className="flex flex-1 gap-1.5 overflow-x-auto">
-                        {zones.map((zone) => {
-                            const on = zone.id === zoneId;
-                            return (
-                                <button
-                                    key={zone.id}
-                                    type="button"
-                                    aria-pressed={on}
-                                    onClick={() => {
-                                        setPicked(zone.id);
-                                        setError(null);
-                                    }}
-                                    style={on ? {background: zone.color, color: onColor(zone.color)} : undefined}
-                                    className={`flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm ${
-                                        on ? "font-medium" : "border border-line text-muted"
-                                    }`}
-                                >
-                                    <ZoneMark
-                                        mark={markOf(zone.id)?.mark ?? ""}
-                                        // 고른 칩은 그 색으로 차 있어서 같은 색 딱지가 묻는다. 뒤집어 얹는다.
-                                        color={on ? onColor(zone.color) : zone.color}
-                                        size="sm"
-                                    />
-                                    {zone.name}
-                                </button>
-                            );
-                        })}
-                    </div>
                 </div>
 
                 {/*

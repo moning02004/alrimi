@@ -173,17 +173,20 @@ export default function SettingsPage() {
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium">{zone.name}</p>
                   {/* 누구와 나누는지. 혼자 쓰는 공간은 줄을 비워 조용히 둔다 */}
-                  {zone.role === "member" ? (
-                    <p className="mt-0.5 truncate text-xs text-muted">
-                      {zone.owner_name}님의 공간 · {zone.writable ? "일정 함께 편집" : "보기 전용"}
-                    </p>
-                  ) : (
-                    zone.shared && (
-                      <p className="mt-0.5 text-xs text-muted">
-                        함께 보기{zone.viewers_can_edit && " · 일정 함께 편집"}
-                      </p>
-                    )
-                  )}
+                  {/* 무엇이 다른 줄만 적는다 — 혼자 쓰고 알림도 받는 공간은 아무 말이 없다 */}
+                  {(() => {
+                    const notes = [
+                      zone.role === "member"
+                        ? `${zone.owner_name}님의 공간 · ${zone.writable ? "일정 함께 편집" : "보기 전용"}`
+                        : zone.shared
+                          ? `함께 보기${zone.viewers_can_edit ? " · 일정 함께 편집" : ""}`
+                          : "",
+                      zone.muted ? "알림 꺼짐" : "",
+                    ].filter(Boolean);
+                    return notes.length > 0 ? (
+                      <p className="mt-0.5 truncate text-xs text-muted">{notes.join(" · ")}</p>
+                    ) : null;
+                  })()}
                 </div>
               </div>
               <span className="shrink-0 text-xs text-muted">

@@ -22,6 +22,7 @@ from zones.models import editable_zones, recipients, visible_zones
 
 from .filters import FILTERS, filter_q, ordering_for
 from .models import EventAlert, Event, Priority
+from .notify import new_event as notify_new_event
 from .ntfy import NtfyError, send_alert
 from .webpush import send_alert as push_alert, send_to_user
 from .serializers import (
@@ -146,6 +147,14 @@ class EventListCreateView(generics.ListCreateAPIView):
 
     def get_serializer_class(self):
         return EventWriteSerializer if self.request.method == "POST" else EventListSerializer
+
+    def perform_create(self, serializer):
+        """
+        만든 뒤 **함께 보는 사람에게** 알린다. 반복으로 여러 건이 생겨도 알림은 한 통이다 —
+        매주 체육복을 넣었다고 알림이 아홉 번 오면 그게 더 성가시다.
+        """
+        event = serializer.save()
+        notify_new_event(event, self.request.user)
 
     def rows(self, condition, ordering, *, hide_completed: bool = True, held: bool = False):
         """
@@ -415,7 +424,9 @@ class SendEventAlertView(APIView):
 
     def post(self, request, event_id, event_alert_id):
         alert = get_object_or_404(
-            EventAlert.objects.select_related("event__zone__owner"),
+            EventAlert.objects.select_related("event__zone__owner").prefetch_related(
+                "event__zone__owner__viewers__viewer", "event__zone__mutes"
+            ),
             pk=event_alert_id,
             event_id=event_id,
             event__zone__in=editable_zones(request.user),
@@ -483,7 +494,7 @@ def list_weekly(request):
     start_date, end_date = next_week()
     rows = (
         Event.objects.select_related("zone", "zone__owner")
-        .prefetch_related("alerts", "zone__owner__viewers__viewer")
+        .prefetch_related("alerts", "zone__owner__viewers__viewer", "zone__mutes")
         # 이 주에 걸치기만 하면 담는다. 지난주에 떠나 이번 주에 돌아오는 여행도
         # 이번 주에 있는 일이다.
         .filter(event_date__lte=end_date,
@@ -643,7 +654,9 @@ def due_alerts(*, ids: list[int] | None = None):
         "event", "event__zone", "event__zone__owner"
     ).prefetch_related(
         # 받는 사람을 고를 때(`recipients`) 공간마다 쿼리를 다시 내지 않도록
-        "event__zone__owner__viewers__viewer"
+        "event__zone__owner__viewers__viewer",
+        # 알림을 꺼둔 사람은 받는 사람에서 빠진다(`recipients`)
+        "event__zone__mutes",
         # 보류한 일정의 예약은 나가지 않는다. 다시 잡을 때 `revive_alerts` 가
         # 새 날짜로 되살리므로, 여기서 빼도 알림이 영영 사라지지는 않는다.
     ).filter(event__completed_at__isnull=True, event__held_at__isnull=True)

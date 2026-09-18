@@ -38,6 +38,8 @@ export const apiUrl = {
   zones: "/zones",
   palette: "/zones/palette",
   zone: (zoneId: number) => `/zones/${zoneId}`,
+  // 이 공간의 알림 끄기(POST)·다시 받기(DELETE). 받는 사람마다 따로다
+  zoneMute: (zoneId: number) => `/zones/${zoneId}/mute`,
   // 함께 보는 사람. 사람마다 한 번 정하고, 공간은 `shared` 로 켜고 끈다
   sharing: "/sharing",
   sharingPerson: (userId: number) => `/sharing/${userId}`,

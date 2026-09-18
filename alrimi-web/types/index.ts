@@ -16,6 +16,11 @@ export interface Zone {
   viewers_can_edit: boolean;
   /** 이 사람이 이 공간에 일정을 넣을 수 있나 — 내 공간이거나, 받았는데 주인이 허락했거나 */
   writable: boolean;
+  /**
+   * 이 사람이 이 공간의 알림을 꺼뒀나. **받는 사람마다 따로다** — 함께 보는 공간을 달력에서는
+   * 보되 알림은 안 받을 수 있다. 주인이 꺼도 함께 보는 사람은 그대로 받는다.
+   */
+  muted: boolean;
   owner_id: number;
   /**
    * `member` 는 남이 보여주는(받은) 공간이다. **보기와 알림만** 함께한다 — 그 공간에 일정을

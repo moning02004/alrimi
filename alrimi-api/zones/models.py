@@ -89,6 +89,33 @@ class Sharing(models.Model):
         return f"{self.owner} → {self.viewer}"
 
 
+class ZoneMute(models.Model):
+    """
+    이 사람이 이 공간의 알림을 꺼뒀다. **보는 것과 받는 것은 다르다** — 함께 보는 공간의
+    일정을 달력에서는 보고 싶지만 알림까지 받고 싶지는 않을 수 있다(아빠 회사 공간처럼).
+
+    끄는 것은 받는 사람마다다. 주인이 껐다고 함께 보는 사람까지 조용해지지 않는다. 주인도
+    자기 공간을 끌 수 있다 — 일정을 넣어두되 알림은 다른 가족만 받는 자리가 있다.
+
+    "켜둠" 은 줄이 없는 상태다. 사람이 늘 때마다 공간 수만큼 줄을 미리 만들지 않는다.
+    """
+
+    zone = models.ForeignKey(Zone, on_delete=models.CASCADE, related_name="mutes")
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="muted_zones"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["id"]
+        constraints = [
+            models.UniqueConstraint(fields=["zone", "user"], name="uniq_zone_mute"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user} ✕ {self.zone}"
+
+
 def visible_zones(user):
     """
     이 사람이 볼 수 있는 공간 — 자기 것과, 자기를 함께 보는 사람으로 둔 주인의 공유 공간.
@@ -114,14 +141,20 @@ def editable_zones(user):
     )
 
 
-def recipients(zone) -> list:
+def recipients(zone, *, exclude=None) -> list:
     """
     이 공간의 알림을 받을 사람들. 주인이 맨 앞이고, 함께 보기를 켠 공간이면 주인이 정해둔
-    사람들이 뒤따른다.
+    사람들이 뒤따른다. **알림을 꺼둔 사람은 빠진다**(`ZoneMute`).
 
-    `owner__viewers__viewer` 를 미리 불러왔으면(prefetch) 그것을 쓴다 — 크론이 예약 수십 개를
-    훑을 때 공간마다 쿼리를 다시 내지 않도록.
+    `exclude` 로 한 사람을 뺀다 — 새 일정 알림을 만든 사람 자신에게는 보내지 않는다.
+
+    `owner__viewers__viewer` 와 `mutes` 를 미리 불러왔으면(prefetch) 그것을 쓴다 — 크론이
+    예약 수십 개를 훑을 때 공간마다 쿼리를 다시 내지 않도록.
     """
-    if not zone.shared:
-        return [zone.owner]
-    return [zone.owner, *(sharing.viewer for sharing in zone.owner.viewers.all())]
+    people = [zone.owner]
+    if zone.shared:
+        people += [sharing.viewer for sharing in zone.owner.viewers.all()]
+
+    muted = {mute.user_id for mute in zone.mutes.all()}
+    skip = getattr(exclude, "pk", exclude)
+    return [person for person in people if person.pk not in muted and person.pk != skip]

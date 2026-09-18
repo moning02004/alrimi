@@ -11,6 +11,7 @@ const zone = (id: number, name: string, over: Partial<Zone> = {}): Zone => ({
   shared: false,
   viewers_can_edit: false,
   writable: true,
+  muted: false,
   owner_id: 1,
   role: "owner",
   owner_name: "엄마",

@@ -170,6 +170,9 @@ VAPID_CLAIM_EMAIL = env("VAPID_CLAIM_EMAIL", "admin@alrimi.jeonghoon.dev")
 # 알림을 눌렀을 때 열 곳. 서비스 워커가 이 주소로 창을 띄운다.
 WEB_ORIGIN = env("WEB_ORIGIN", "https://alrimi.jeonghoon.dev").rstrip("/")
 
+#  새 일정 알림(`notices.notify`)을 그 자리에서 보낼지. 테스트만 켠다 — 평소에는 저장을
+#  기다리게 하지 않으려고 뒤에서 보낸다.
+EVENT_NOTICE_INLINE = env_bool("EVENT_NOTICE_INLINE", False)
 WEBPUSH_TIMEOUT_SECONDS = env_int("WEBPUSH_TIMEOUT_SECONDS", 10)
 
 # 기기가 꺼져 있으면 푸시 서비스가 이 시간만큼 들고 있다가 버린다. 하루를 넘겨

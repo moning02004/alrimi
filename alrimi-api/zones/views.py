@@ -1,19 +1,20 @@
 from django.db.models import Count, Q
 from django.utils import timezone
+from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import Sharing, visible_zones
+from .models import Sharing, ZoneMute, visible_zones
 from .palette import PALETTE
 from .serializers import AddSharingSerializer, PersonSerializer, ZoneSerializer
 
 OWNER_ONLY = "공간 주인만 바꿀 수 있어요."
 
 
-def with_counts(queryset, today=None):
+def with_counts(queryset, user, today=None):
     """
     upcoming_count 는 'later'까지 포함한 앞으로의 전체 개수다.
     웹이 '이후 일정 N개'를 이 값에서 목록 길이를 빼서 구한다.
@@ -32,7 +33,34 @@ def with_counts(queryset, today=None):
         past_count=Count(
             "events", filter=scheduled & Q(events__event_date__lt=today), distinct=True
         ),
+        # 이 사람이 이 공간의 알림을 꺼뒀나. 0 아니면 1 이다(`ZoneMute` 는 사람마다 한 줄)
+        muted_count=Count("mutes", filter=Q(mutes__user=user), distinct=True),
     )
+
+
+class ZoneMuteView(APIView):
+    """
+    POST   /zones/{id}/mute → 이 공간의 알림을 끈다
+    DELETE /zones/{id}/mute → 다시 받는다
+
+    **끄는 것은 받는 사람마다다.** 그래서 주인이 아니어도 된다 — 함께 보는 공간의 일정은
+    달력에서 보되 알림은 안 받고 싶을 수 있다. 주인도 자기 공간을 끌 수 있다.
+
+    켜둠은 줄이 없는 상태라, 다시 받는 것은 줄을 지우는 것이다.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def zone(self, request, zone_id):
+        return get_object_or_404(visible_zones(request.user), pk=zone_id)
+
+    def post(self, request, zone_id):
+        ZoneMute.objects.get_or_create(zone=self.zone(request, zone_id), user=request.user)
+        return Response({"muted": True})
+
+    def delete(self, request, zone_id):
+        ZoneMute.objects.filter(zone=self.zone(request, zone_id), user=request.user).delete()
+        return Response({"muted": False})
 
 
 class IsZoneOwnerOrReadOnly(BasePermission):
@@ -66,7 +94,7 @@ class ZoneListCreateView(generics.ListCreateAPIView):
     pagination_class = None
 
     def get_queryset(self):
-        return with_counts(visible_zones(self.request.user))
+        return with_counts(visible_zones(self.request.user), self.request.user)
 
     def create(self, request, *args, **kwargs):
         """
@@ -89,7 +117,7 @@ class ZoneDetailView(generics.RetrieveUpdateDestroyAPIView):
     http_method_names = ["get", "patch", "delete", "head", "options"]
 
     def get_queryset(self):
-        return with_counts(visible_zones(self.request.user))
+        return with_counts(visible_zones(self.request.user), self.request.user)
 
 
 def person(user) -> dict:

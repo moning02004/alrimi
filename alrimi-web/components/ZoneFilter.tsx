@@ -68,8 +68,8 @@ export function ZoneFilter() {
         padding: 8,
         apply({ rects, availableHeight, availableWidth, elements }) {
           Object.assign(elements.floating.style, {
-            // 버튼과 같은 폭이 기본이고, 버튼이 좁으면 이름이 잘리지 않을 만큼(240px)은 연다
-            width: `${Math.min(availableWidth, Math.max(rects.reference.width, 240))}px`,
+            // 버튼과 같은 폭으로 연다. 버튼이 좁은 자리에서도 이름이 잘리지 않을 만큼(260px)은 연다
+            width: `${Math.min(availableWidth, Math.max(rects.reference.width, 260))}px`,
             maxHeight: `${Math.min(availableHeight, 360)}px`,
           });
         },
@@ -161,9 +161,8 @@ export function ZoneFilter() {
   return (
     <>
       {/*
-        필터 버튼은 줄을 넓게 쓰고, 공간 추가는 오른쪽 끝의 + 하나다. 버튼이 글자만큼만 좁으면
-        누를 자리로 안 읽히고, "전체" 두 글자짜리 알약이 머리글 한구석에 떠 보였다.
-        PC 에서는 옆 칸이 넓어 끝까지 늘이면 줄이 텅 비어 보이므로 적당한 폭에서 멈춘다.
+        필터 버튼은 + 자리만 빼고 줄을 통째로 쓴다. 글자만큼만 좁으면 누를 자리로 안 읽히고,
+        "전체" 두 글자짜리 알약이 머리글 한구석에 떠 보였다. 펼치는 목록도 이 폭을 따라간다.
       */}
       <div className="flex items-center gap-2">
         <button
@@ -172,7 +171,7 @@ export function ZoneFilter() {
           aria-label={`공간 필터 · 지금 ${current.label}`}
           // 걸러 둔 동안은 테두리를 진하게 — "지금 전부가 아니다" 가 목록을 읽기 전에 보이게
           className={`flex min-w-0 flex-1 items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-sm
-                      transition-colors sm:max-w-xs ${
+                      transition-colors ${
                         filtered
                           ? "border-ink font-medium text-ink"
                           : "border-line text-muted hover:border-muted/50"
@@ -194,7 +193,11 @@ export function ZoneFilter() {
           onClick={() => setAdding(true)}
           aria-label="공간 추가"
           title="공간 추가"
-          className="ml-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line
+          /*
+            필터 버튼 바로 옆이다. 줄 오른쪽 끝으로 밀면(ml-auto) PC 에서는 필터가 최대 폭에서
+            멈추므로 둘 사이가 화면 절반만큼 벌어져, 서로 상관없는 버튼 둘처럼 보인다.
+          */
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line
                      text-muted transition-colors hover:border-pine/50 hover:text-pine"
         >
           <LuPlus className="h-4 w-4" aria-hidden="true" />

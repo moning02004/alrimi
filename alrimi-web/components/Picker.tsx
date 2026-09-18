@@ -20,6 +20,8 @@ import { HiCheck, HiChevronDown } from "react-icons/hi2";
 export interface PickerOption<T> {
   value: T;
   label: string;
+  /** 이름 앞에 서는 표시(공간 딱지 등). 고른 것은 칸 안에도 함께 선다 */
+  leading?: React.ReactNode;
 }
 
 interface Props<T> {
@@ -108,7 +110,10 @@ export function Picker<T extends string | number | null>({
         className={`flex items-center justify-between gap-1 text-left ${className}`}
         {...getReferenceProps()}
       >
-        <span className="truncate">{picked ? picked.label : placeholder}</span>
+        <span className="flex min-w-0 items-center gap-1.5">
+          {picked?.leading}
+          <span className="truncate">{picked ? picked.label : placeholder}</span>
+        </span>
         <HiChevronDown
           className={`h-4 w-4 shrink-0 opacity-60 transition-transform ${open ? "rotate-180" : ""}`}
           aria-hidden="true"
@@ -151,7 +156,10 @@ export function Picker<T extends string | number | null>({
                     },
                   })}
                 >
-                  <span className="truncate">{option.label}</span>
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    {option.leading}
+                    <span className="truncate">{option.label}</span>
+                  </span>
                   {on && <HiCheck className="h-4 w-4 shrink-0" aria-hidden="true" />}
                 </button>
               );

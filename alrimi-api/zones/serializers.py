@@ -1,7 +1,7 @@
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
-from .models import Sharing, Zone
+from .models import Sharing, Zone, ZoneMute
 from .palette import PALETTE
 
 
@@ -15,6 +15,8 @@ class ZoneSerializer(serializers.ModelSerializer):
     owner_name = serializers.SerializerMethodField()
     # 이 사람이 이 공간에 일정을 넣을 수 있나. 내 공간이거나, 받았는데 주인이 허락했거나
     writable = serializers.SerializerMethodField()
+    # 이 사람이 이 공간의 알림을 꺼뒀나. 받는 사람마다 따로다(`ZoneMute`)
+    muted = serializers.SerializerMethodField()
 
     class Meta:
         model = Zone
@@ -32,6 +34,7 @@ class ZoneSerializer(serializers.ModelSerializer):
             "owner_id",
             "owner_name",
             "writable",
+            "muted",
         ]
         read_only_fields = ["id", "owner_id"]
         extra_kwargs = {
@@ -46,6 +49,12 @@ class ZoneSerializer(serializers.ModelSerializer):
     def get_writable(self, zone) -> bool:
         user = self.context["request"].user
         return zone.owner_id == user.id or (zone.shared and zone.viewers_can_edit)
+
+    def get_muted(self, zone) -> bool:
+        user = self.context["request"].user
+        # 목록은 한 번에 세어 붙인다(`with_counts`). 낱개로 받은 공간은 그때만 물어본다
+        count = getattr(zone, "muted_count", None)
+        return bool(count) if count is not None else zone.mutes.filter(user=user).exists()
 
     def get_owner_name(self, zone) -> str:
         return zone.owner.name or zone.owner.username

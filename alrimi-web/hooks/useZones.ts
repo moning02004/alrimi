@@ -147,6 +147,22 @@ export function useDeleteZone() {
 }
 
 /** 공간을 만든다. 함께 보기를 켜고 만들면 처음부터 함께 보는 사람들에게 보인다 */
+/**
+ * 이 공간의 알림을 끄고 켠다. 보는 것과 받는 것은 다르다 — 목록·달력에는 그대로 남는다.
+ *
+ * 공간 목록에만 영향이 있으므로 일정·달력은 다시 받지 않는다.
+ */
+export function useMuteZone(zoneId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (muted: boolean) =>
+      muted
+        ? api.post<{ muted: boolean }>(apiUrl.zoneMute(zoneId))
+        : api.delete<{ muted: boolean }>(apiUrl.zoneMute(zoneId)),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["zones"] }),
+  });
+}
+
 export function useCreateZone() {
   const qc = useQueryClient();
   return useMutation({

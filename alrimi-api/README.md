@@ -139,9 +139,17 @@ createsuperuser·관리자 사이트로 만든 계정은 비밀번호를 직접 
 | GET | `/zones/palette` | 고를 수 있는 색 목록 |
 | GET · POST | `/sharing` | 내 공간을 함께 보는 사람 목록 · 추가(`{user_id}`) |
 | DELETE | `/sharing/{user_id}` | 그 사람에게 그만 보여주기 |
+| POST · DELETE | `/zones/{id}/mute` | 이 공간 알림 끄기 · 다시 받기 (받는 사람마다) |
 | GET | `/sharing/received` | 나에게 공간을 보여주는 사람 목록 |
 | DELETE | `/sharing/received/{owner_id}` | 그 사람의 공간 그만 보기 |
 | GET | `/users/search?q=` | 함께 볼 사람 찾기. 로그인한 누구나, 이름·아이디만, 10명까지 |
+
+**알림은 받는 사람마다 끌 수 있다**(`ZoneMute`). 꺼도 목록·달력에는 그대로 남고 알림만 빠진다 —
+`recipients` 가 꺼둔 사람을 걸러낸다. 주인도 자기 공간을 끌 수 있다.
+
+**함께 보는 공간에 일정을 만들면 그 자리에서 알린다**(`notices/notify.py`). 만든 사람과 알림을
+꺼둔 사람은 빼고, 웹 푸시 → 못 닿으면 ntfy 순서다. 반복으로 여러 건이 생겨도 한 통이고, 저장을
+기다리게 하지 않으려고 뒤에서 보낸다(`EVENT_NOTICE_INLINE` 은 테스트에서만 켠다).
 
 **공유는 사람마다 한 번, 공간은 켜고 끄기만.** 주인이 함께 보는 사람(`Sharing`)을 정해두고,
 공간의 `shared` 를 켜면 그 사람들 모두가 그 공간을 본다 — `/zones` 에 `role: "member"` 로

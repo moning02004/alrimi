@@ -420,6 +420,104 @@ class SharingTests(TestCase):
         )
         self.assertEqual(res.status_code, 404)
 
+    # ── 알림 끄기 ───────────────────────────────────────────────
+
+    def test_받는_사람마다_공간_알림을_끌_수_있다(self):
+        from notices.models import EventAlert
+
+        self.share()
+        self.event.sync_alerts(["D-1 20:00"])
+        EventAlert.objects.update(due_at=timezone.now() - dt.timedelta(minutes=5))
+        url = reverse("zone-mute", args=[self.zone.id])
+
+        # 함께 보는 사람이 끈다 — 주인은 그대로 받는다
+        self.assertEqual(self.client.post(url, headers=self.login("dad")).status_code, 200)
+        with override_settings(N8N_API_KEY="k"):
+            body = self.client.get("/events/alerts", headers={"x-api-key": "k"}).json()
+        self.assertEqual([row["topic"] for row in body["data"]], [self.owner.ntfy_topic])
+
+        rows = self.client.get(reverse("zone-list"), headers=self.login("dad")).json()
+        self.assertTrue(rows[0]["muted"])
+        self.assertFalse(
+            self.client.get(reverse("zone-list"), headers=self.login("mom")).json()[0]["muted"]
+        )
+
+        # 다시 받는다
+        self.assertEqual(self.client.delete(url, headers=self.login("dad")).status_code, 200)
+        with override_settings(N8N_API_KEY="k"):
+            body = self.client.get("/events/alerts", headers={"x-api-key": "k"}).json()
+        self.assertEqual(len(body["data"]), 2)
+
+    def test_주인도_자기_공간_알림을_끌_수_있다(self):
+        self.client.post(reverse("zone-mute", args=[self.zone.id]), headers=self.login("mom"))
+        from zones.models import recipients
+
+        self.assertEqual(recipients(Zone.objects.get(pk=self.zone.pk)), [])
+
+    def test_안_보이는_공간은_끄지도_못한다(self):
+        res = self.client.post(reverse("zone-mute", args=[self.zone.id]), headers=self.login("nam"))
+        self.assertEqual(res.status_code, 404)
+
+    # ── 새 일정 알림 ────────────────────────────────────────────
+
+    @override_settings(EVENT_NOTICE_INLINE=True)
+    def test_공유_공간에_일정을_넣으면_다른_사람에게_알린다(self):
+        from unittest.mock import patch
+
+        self.share()
+        with patch("notices.notify.publish") as publish:
+            res = self.post(
+                reverse("event-list"),
+                {"zone": self.zone.id, "event_date": str(self.today), "title": "가을 소풍", "alerts": []},
+                "mom",
+            )
+
+        self.assertEqual(res.status_code, 201)
+        # 만든 사람(엄마)에게는 안 가고, 함께 보는 아빠에게만 간다
+        self.assertEqual([call.args[0] for call in publish.call_args_list], [self.viewer.ntfy_topic])
+        self.assertEqual(publish.call_args.kwargs["title"], "[어린이집] 새 일정")
+        self.assertEqual(
+            publish.call_args.kwargs["message"], "엄마님이 어린이집에 일정을 추가했어요\n가을 소풍"
+        )
+
+    @override_settings(EVENT_NOTICE_INLINE=True)
+    def test_반복_일정도_알림은_한_통이다(self):
+        from unittest.mock import patch
+
+        self.share()
+        start = self.today + dt.timedelta(days=1)
+        with patch("notices.notify.publish") as publish:
+            self.post(
+                reverse("event-list"),
+                {
+                    "zone": self.zone.id,
+                    "event_date": str(start),
+                    "title": "체육복",
+                    "alerts": [],
+                    "repeat": {"freq": "weekly", "weekdays": [start.weekday()], "until": str(start + dt.timedelta(days=21))},
+                },
+                "mom",
+            )
+
+        self.assertEqual(publish.call_count, 1)
+
+    @override_settings(EVENT_NOTICE_INLINE=True)
+    def test_혼자_쓰는_공간과_알림을_끈_사람에게는_안_간다(self):
+        from unittest.mock import patch
+        from zones.models import ZoneMute
+
+        self.share()
+        ZoneMute.objects.create(zone=self.zone, user=self.viewer)
+        with patch("notices.notify.publish") as publish:
+            for zone in (self.zone, self.work):
+                self.post(
+                    reverse("event-list"),
+                    {"zone": zone.id, "event_date": str(self.today), "title": "조용히", "alerts": []},
+                    "mom",
+                )
+
+        publish.assert_not_called()
+
     # ── 알림 ────────────────────────────────────────────────────
 
     @override_settings(N8N_API_KEY="k")

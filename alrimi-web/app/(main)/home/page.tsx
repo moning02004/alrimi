@@ -244,6 +244,9 @@ function Home() {
         return (
             <div className="flex h-full min-h-0 gap-5 p-5">
                 <aside className="flex w-[340px] shrink-0 flex-col gap-3">
+                    {/* 달력 위다 — 달력의 점·띠도 이 필터를 따른다(모바일도 같은 자리) */}
+                    <ZoneFilter/>
+
                     <div className="rounded-2xl border border-line bg-card p-3">
                         <div className="flex items-center justify-between px-1">
                             <h1 className="text-base font-semibold">{monthLabel(anchor)}</h1>
@@ -291,9 +294,6 @@ function Home() {
                 </aside>
 
                 <section className="flex min-w-0 flex-1 flex-col">
-                    <div className="pb-4">
-                        <ZoneFilter/>
-                    </div>
                     <div className="min-h-0 flex-1 overflow-y-auto pr-1">
                         {openEventId !== null ? (
                             <EventDetail
@@ -329,6 +329,14 @@ function Home() {
                 ref={headerRef}
                 className="sticky top-0 z-20 border-b border-line bg-card px-3 pb-2 pt-3"
             >
+                {/*
+                  필터가 달력 위에 선다. 달력의 점·띠도 이 필터를 따르므로, 아래에 두면 달력을
+                  본 뒤에야 "무엇으로 걸러진 것인지" 를 알게 된다.
+                */}
+                <div className="mb-2 px-1">
+                    <ZoneFilter/>
+                </div>
+
                 <CalendarHeader
                     expanded={expanded}
                     onToggle={toggleExpanded}
@@ -340,10 +348,6 @@ function Home() {
                     onPickDay={pickDay}
                     jumpFrom={listFrom}
                 />
-
-                <div className="mt-2 px-1">
-                    <ZoneFilter/>
-                </div>
             </header>
 
             <main className="px-4 pb-4">

@@ -35,7 +35,7 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
   const [editing, setEditing] = useState(false);
   /** 보류함에서 꺼내는 중. 같은 폼이지만 날짜를 새로 고르게 열린다 */
   const [resuming, setResuming] = useState(false);
-  /** 발송 기록 모달. 이미 나간 알림은 예정된 것과 섞지 않고 여기서 본다 */
+  /** 발송 기록을 펼쳤나. 이미 나간 알림은 예정된 것과 섞지 않고 이 아래에서 본다 */
   const [history, setHistory] = useState(false);
   /** 반복 일정을 지울 때 어디까지 지울지 묻는 시트 */
   const [deleting, setDeleting] = useState(false);
@@ -231,8 +231,11 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
           {held && (
             <span className="rounded-full bg-amberlt px-2.5 py-1 text-xs text-amber">보류 중</span>
           )}
+          {/* 언제 끝냈는지까지 적는다. "완료" 만으로는 오늘 찍은 것과 지난달에 찍은 것이 같아 보인다 */}
           {done && (
-            <span className="rounded-full bg-pinelt px-2.5 py-1 text-xs text-pine">완료</span>
+            <span className="rounded-full bg-pinelt px-2.5 py-1 text-xs text-pine">
+              {event.completed_at ? `${monthDayLabel(event.completed_at)} 완료` : "완료"}
+            </span>
           )}
           <span className="flex items-center gap-1.5 rounded-full border border-line py-1 pl-1 pr-2.5 text-xs text-muted">
             <ZoneMark mark={zoneMark} color={zoneInfo?.color ?? event.zone_color} size="sm" round={zoneInfo?.received} />
@@ -301,43 +304,59 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
         </ul>
 
         {/*
-          나간 알림은 접어둔다. 늘 펼쳐두면 오래된 일정일수록 기록이 목록을 채워
-          정작 앞으로 올 알림이 아래로 밀린다.
+          나간 알림은 접어둔다. 늘 펼쳐두면 오래된 일정일수록 기록이 목록을 채워 정작 앞으로 올
+          알림이 아래로 밀린다.
+
+          **시트가 아니라 이 자리에서 펼친다.** 기록은 위의 예정 목록과 나란히 읽는 것이라,
+          화면을 덮는 시트로 띄우면 무엇과 견주는 중이었는지가 가려진다. 펼쳐도 자리를 옮기지
+          않으므로 접었다 폈다 하며 둘을 오갈 수 있다.
         */}
         {sent.length > 0 && (
-          <button onClick={() => setHistory(true)} className="mt-2 px-1 text-xs text-pine">
-            발송 기록 {sent.length}건 보기
-          </button>
+          <section className="mt-2">
+            <button
+              onClick={() => setHistory(!history)}
+              aria-expanded={history}
+              className="flex w-full items-center gap-1 px-1 py-1 text-xs text-pine"
+            >
+              발송 기록 {sent.length}건
+              <span
+                aria-hidden="true"
+                className={`transition-transform ${history ? "rotate-180" : ""}`}
+              >
+                ▾
+              </span>
+            </button>
+
+            {history && (
+              <ul className="mt-1 divide-y divide-line rounded-2xl border border-line bg-card">
+                {sent.map((alert) => (
+                  <li key={alert.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium">{codeLabel(alert.code)}</p>
+                      {/* 언제 나갔는지가 이 목록의 알맹이다. 예약 시각이 아니라 실제 발송 시각이다 */}
+                      <p className="mt-0.5 text-xs text-muted">
+                        {alert.sent_at
+                          ? `${monthDayLabel(alert.sent_at)} ${timeLabel(alert.sent_at)} 발송`
+                          : "발송"}
+                      </p>
+                    </div>
+
+                    {!readOnly && (
+                      <button
+                        onClick={() => onSend(alert.id)}
+                        disabled={send.isPending}
+                        className="shrink-0 rounded-full border border-pine px-2.5 py-1 text-xs
+                                   font-medium text-pine disabled:opacity-60"
+                      >
+                        {send.isPending && send.variables === alert.id ? "보내는 중" : "다시 보내기"}
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
         )}
-
-        <BottomSheet open={history} onOpenChange={setHistory} title="발송 기록">
-          <ul className="mb-3 divide-y divide-line rounded-2xl border border-line bg-card">
-            {sent.map((alert) => (
-              <li key={alert.id} className="flex items-center justify-between gap-3 px-4 py-3">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium">{codeLabel(alert.code)}</p>
-                  {/* 언제 나갔는지가 이 목록의 알맹이다. 예약 시각이 아니라 실제 발송 시각이다 */}
-                  <p className="mt-0.5 text-xs text-muted">
-                    {alert.sent_at
-                      ? `${monthDayLabel(alert.sent_at)} ${timeLabel(alert.sent_at)} 발송`
-                      : "발송"}
-                  </p>
-                </div>
-
-                {!readOnly && (
-                  <button
-                    onClick={() => onSend(alert.id)}
-                    disabled={send.isPending}
-                    className="shrink-0 rounded-full border border-pine px-2.5 py-1 text-xs
-                               font-medium text-pine disabled:opacity-60"
-                  >
-                    {send.isPending && send.variables === alert.id ? "보내는 중" : "다시 보내기"}
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
-        </BottomSheet>
 
         {/*
           바닥에 남는 큰 버튼은 이것 하나뿐이다. 보류함에서 꺼내는 일은 이 화면에

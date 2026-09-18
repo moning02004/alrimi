@@ -4,10 +4,10 @@ import { useState } from "react";
 import toast from "react-hot-toast";
 import { BottomSheet } from "./BottomSheet";
 import { firstError } from "@/lib/api";
-import { useDeleteZone, usePalette, useUpdateZone } from "@/hooks/useZones";
+import { useDeleteZone, useMuteZone, usePalette, useUpdateZone, useZones } from "@/hooks/useZones";
 import { onColor } from "@/lib/color";
 import { ZoneMark } from "./ZoneMark";
-import { SharedSwitch } from "./SharedSwitch";
+import { SharedSwitch, SwitchRow } from "./SharedSwitch";
 import { useZoneMark } from "@/hooks/useZones";
 import type { Zone } from "@/types";
 
@@ -54,6 +54,11 @@ function SharedZone({ zone }: { zone: Zone }) {
           </p>
         </div>
       </div>
+      {/* 알림은 공간마다, 받는 사람마다 끈다 — 보기는 그대로 두고 소리만 줄이는 자리다 */}
+      <div className="mt-3 rounded-xl border border-line bg-card">
+        <MuteRow zone={zone} />
+      </div>
+
       {/* 그만 보는 것은 공간마다가 아니라 사람마다다 */}
       <p className="px-1 pt-3 text-xs leading-relaxed text-muted">
         {zone.writable
@@ -177,7 +182,8 @@ function Form({ zone, onClose }: { zone: Zone; onClose: () => void }) {
       </div>
 
       {/* 누구와 볼지는 설정의 "함께 보는 사람" 에서 한 번 정한다. 여기서는 켜고 끄기만 */}
-      <div className="mt-3 rounded-xl border border-line bg-card">
+      <div className="mt-3 divide-y divide-line rounded-xl border border-line bg-card">
+        <MuteRow zone={zone} />
         <SharedSwitch
           on={shared}
           onToggle={() => setShared(!shared)}
@@ -204,5 +210,41 @@ function Form({ zone, onClose }: { zone: Zone; onClose: () => void }) {
         {remove.isPending ? "지우는 중" : "공간 삭제"}
       </button>
     </>
+  );
+}
+
+/**
+ * 이 공간의 알림을 받을지. **나만의 설정이다** — 함께 보는 사람이 꺼도 주인은 그대로 받고,
+ * 주인이 꺼도 함께 보는 사람은 받는다.
+ *
+ * 저장 버튼을 거치지 않고 누르는 즉시 바뀐다. 이름·색과 달리 되돌리기 쉬운 값이고, 받은 공간
+ * 시트에는 저장 버튼 자체가 없다.
+ */
+function MuteRow({ zone }: { zone: Zone }) {
+  const mute = useMuteZone(zone.id);
+  /*
+    스위치는 **지금 목록에 있는 값**을 본다. 시트를 열 때 받은 `zone` 은 그때의 사진이라,
+    껐다 켜도 그 값이 그대로여서 스위치가 도로 켜진 것처럼 보였다(서버는 꺼져 있었다).
+  */
+  const { zones } = useZones();
+  const current = zones.find((z) => z.id === zone.id) ?? zone;
+  const on = !current.muted;
+
+  return (
+    <SwitchRow
+      label="알림 받기"
+      hint={
+        on
+          ? "이 공간 일정의 알림을 받아요."
+          : "알림을 꺼뒀어요. 일정은 목록·달력에 그대로 보여요."
+      }
+      on={on}
+      onToggle={() =>
+        mute.mutate(on, {
+          onSuccess: () => toast.success(on ? "이 공간 알림을 껐어요" : "이 공간 알림을 켰어요"),
+          onError: () => toast.error("바꾸지 못했어요"),
+        })
+      }
+    />
   );
 }
