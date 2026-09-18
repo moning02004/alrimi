@@ -21,7 +21,6 @@ import {DayPanel} from "@/components/DayPanel";
 import {EventDetail} from "@/components/EventDetail";
 import {EventGroups} from "@/components/EventGroups";
 import {ErrorBlock, LoadingBlock} from "@/components/Loading";
-import Link from "next/link";
 import {useRouter, useSearchParams} from "next/navigation";
 import {pageUrl} from "@/constants/routeUrl";
 import {ZoneFilter} from "@/components/ZoneFilter";
@@ -409,16 +408,8 @@ function Home() {
                                 </p>
                             </div>
 
-                            {selecting ? (
-                                <DeleteSelected/>
-                            ) : (
-                                <Link
-                                    href={pageUrl.past}
-                                    className="shrink-0 text-xs text-muted hover:text-pine"
-                                >
-                                    지난 일정 / 보류 ›
-                                </Link>
-                            )}
+                            {/* 지난 일정·보류로 가는 길은 아래 탭바("기록")가 맡는다 */}
+                            {selecting && <DeleteSelected/>}
                         </div>
 
                         {list.isLoading && <LoadingBlock/>}

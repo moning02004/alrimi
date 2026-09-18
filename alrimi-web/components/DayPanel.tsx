@@ -93,11 +93,6 @@ export function DayPanel({
         */}
         <div className="flex shrink-0 items-center gap-2">
           {selecting && <DeleteSelected />}
-          {canAdd && items.length > 0 && !selecting && (
-            <button onClick={onAdd} className="text-xs text-pine hover:underline">
-              + 추가
-            </button>
-          )}
         </div>
       </div>
 
