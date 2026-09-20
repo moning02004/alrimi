@@ -179,7 +179,7 @@ class GoogleCalendarCallbackView(APIView):
         link.save()
 
         # 이미 있는 일정을 옮겨 담는다. 수십 건이면 몇 초 걸리므로 기다리게 하지 않는다.
-        sync.schedule(sync.resync, user.pk)
+        sync.schedule(sync.SyncJob.Kind.RESYNC, user.pk)
         return back("connected")
 
 
@@ -197,5 +197,5 @@ class GoogleCalendarSyncView(APIView):
         link = GoogleCalendarLink.objects.filter(user=request.user, broken_at__isnull=True).first()
         if link is None:
             return Response({"detail": "연결된 구글 캘린더가 없어요."}, status=status.HTTP_400_BAD_REQUEST)
-        sync.schedule(sync.resync, request.user.pk)
+        sync.schedule(sync.SyncJob.Kind.RESYNC, request.user.pk)
         return Response(status=status.HTTP_202_ACCEPTED)

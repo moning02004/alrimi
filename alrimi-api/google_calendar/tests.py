@@ -349,3 +349,66 @@ class ConnectFlowTests(GoogleCalendarTestCase):
         self.assertNotIn("cal0", self.google.calendars)
         self.assertEqual(self.google.revoked, ["refresh"])
         self.assertFalse(GoogleCalendarLink.objects.exists())
+
+
+class SyncQueueTests(TestCase):
+    """
+    줄이 DB 에 남는다. 재시작으로 프로세스가 바뀌어도 보낼 일이 사라지지 않아야 한다.
+    """
+
+    def setUp(self):
+        from accounts.models import User
+        from zones.models import Zone
+
+        self.user = User.objects.create_user("hoon", password="pw-strong-1234")
+        self.zone = Zone.objects.create(owner=self.user, name="우리집")
+        GoogleCalendarLink.objects.create(
+            user=self.user, calendar_id="cal-1", refresh_token="r", email="a@b.c"
+        )
+
+    def test_같은_대상을_연달아_고쳐도_줄은_하나다(self):
+        """보낼 것은 마지막 모습 하나뿐이라, 연달아 고쳐도 구글로 나가는 요청은 늘지 않는다."""
+        from google_calendar.models import SyncJob
+
+        for target in (7, 7, 8):
+            SyncJob.objects.get_or_create(
+                user=self.user, kind=SyncJob.Kind.EVENT, target_pk=target
+            )
+
+        self.assertEqual(SyncJob.objects.count(), 2)
+
+    def test_집어_든_일은_지우고_한_번씩만_보낸다(self):
+        from unittest.mock import patch
+
+        from google_calendar import sync
+        from google_calendar.models import SyncJob
+
+        SyncJob.objects.create(user=self.user, kind=SyncJob.Kind.EVENT, target_pk=7)
+        SyncJob.objects.create(user=self.user, kind=SyncJob.Kind.ZONE, target_pk=self.zone.pk)
+
+        with patch.object(sync, "HANDLERS", {"event": lambda *a: None, "zone": lambda *a: None}):
+            self.assertTrue(sync.drain())
+
+        self.assertEqual(SyncJob.objects.count(), 0)
+        # 비었으면 더 할 일이 없다고 말한다 — 일꾼이 그 값을 보고 다시 잠든다
+        self.assertFalse(sync.drain())
+
+    def test_보내다_실패해도_다음_일은_계속_간다(self):
+        from unittest.mock import patch
+
+        from google_calendar import sync
+        from google_calendar.models import SyncJob
+
+        SyncJob.objects.create(user=self.user, kind=SyncJob.Kind.EVENT, target_pk=7)
+        SyncJob.objects.create(user=self.user, kind=SyncJob.Kind.EVENT, target_pk=8)
+        seen = []
+
+        def handler(user_id, target_pk):
+            seen.append(target_pk)
+            if target_pk == 7:
+                raise client.GoogleError(500, "boom")
+
+        with patch.object(sync, "HANDLERS", {"event": handler}):
+            sync.drain()
+
+        self.assertEqual(seen, [7, 8])

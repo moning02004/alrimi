@@ -14,7 +14,7 @@ def event_saved(sender, instance, raw=False, **kwargs):
         return
     owner_id = instance.zone.owner_id
     if sync.linked(owner_id):
-        sync.schedule(sync.push_event, owner_id, instance.pk)
+        sync.schedule(sync.SyncJob.Kind.EVENT, owner_id, instance.pk)
 
 
 @receiver(pre_delete, sender=Event)
@@ -25,7 +25,7 @@ def event_deleting(sender, instance, **kwargs):
     """
     owner_id = instance.zone.owner_id
     if sync.linked(owner_id):
-        sync.schedule(sync.push_event, owner_id, instance.pk)
+        sync.schedule(sync.SyncJob.Kind.EVENT, owner_id, instance.pk)
 
 
 @receiver(pre_save, sender=Zone)
@@ -43,4 +43,4 @@ def zone_saved(sender, instance, created=False, raw=False, **kwargs):
     if created or raw or getattr(instance, "_previous_name", None) == instance.name:
         return
     if sync.linked(instance.owner_id):
-        sync.schedule(sync.push_zone, instance.owner_id, instance.pk)
+        sync.schedule(sync.SyncJob.Kind.ZONE, instance.owner_id, instance.pk)

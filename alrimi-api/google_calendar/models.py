@@ -41,3 +41,39 @@ class GoogleCalendarLink(models.Model):
 
     def __str__(self) -> str:
         return f"{self.user_id} {self.email}"
+
+
+class SyncJob(models.Model):
+    """
+    구글에 보낼 일 하나. 줄은 **DB 에 남는다** — 프로세스 안의 큐에만 두면 배포나 재시작 때
+    줄 서 있던 일이 통째로 사라졌고, 그러면 설정 화면에서 "다시 맞추기" 를 누를 때까지
+    구글 쪽이 어긋난 채로 남았다.
+
+    같은 대상이 여러 번 밀려도 줄은 하나다(`uniq_sync_job`). 한 일정을 연달아 고치면
+    보낼 것은 결국 마지막 모습 하나뿐이고, 보낼 때 DB 를 다시 읽으므로 중간 상태를 굳이
+    한 번씩 보낼 까닭이 없다. 저장이 잦아도 구글로 나가는 요청은 늘지 않는다.
+    """
+
+    class Kind(models.TextChoices):
+        EVENT = "event", "일정 하나"
+        ZONE = "zone", "공간 이름"
+        RESYNC = "resync", "전체 다시 맞추기"
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="google_sync_jobs"
+    )
+    kind = models.CharField(max_length=8, choices=Kind.choices)
+    # 무엇을 보낼지. 전체 다시 맞추기는 대상이 없어 0 이다.
+    target_pk = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "kind", "target_pk"], name="uniq_sync_job"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user_id} {self.kind} {self.target_pk}"

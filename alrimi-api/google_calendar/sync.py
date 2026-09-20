@@ -27,17 +27,16 @@
 
 import datetime as dt
 import logging
-import queue
 import threading
 
 from django.conf import settings
-from django.db import close_old_connections, transaction
+from django.db import close_old_connections, connection, transaction
 from django.utils import timezone
 
 from notices.models import Event
 
 from . import client
-from .models import GoogleCalendarLink
+from .models import GoogleCalendarLink, SyncJob
 
 logger = logging.getLogger(__name__)
 
@@ -103,41 +102,95 @@ def linked(user_id: int) -> bool:
     return GoogleCalendarLink.objects.filter(user_id=user_id, broken_at__isnull=True).exists()
 
 
-def schedule(fn, user_id: int, *args) -> None:
-    """커밋된 뒤에 일꾼에게 넘긴다. 저장이 되돌려지면 아무것도 나가지 않는다."""
-    transaction.on_commit(lambda: _enqueue(fn, user_id, *args))
+def schedule(kind: str, user_id: int, target_pk: int = 0) -> None:
+    """
+    커밋된 뒤에 줄에 넣는다. 저장이 되돌려지면 아무것도 나가지 않는다.
+
+    같은 대상이 이미 줄에 있으면 더 넣지 않는다 — 보낼 것은 마지막 모습 하나뿐이다.
+    """
+    transaction.on_commit(lambda: _enqueue(kind, user_id, target_pk))
 
 
 # ── 일꾼 ──────────────────────────────────────────────────────────────
+#
+#  줄은 DB 에 남고(`SyncJob`), 프로세스 안의 스레드 하나가 그것을 비운다. 스레드는 깨우는
+#  신호(`_wake`)를 기다리다 일이 들어오면 돌고, 비면 다시 잔다 — 폴링이 아니라서 아무 일도
+#  없는 동안에는 쿼리가 나가지 않는다. 그래도 30초마다 한 번은 깨어 **남의 워커가 남기고 간
+#  일**(재시작·배포)을 집어 든다.
 
-_jobs: "queue.Queue[tuple]" = queue.Queue()
 _worker: threading.Thread | None = None
 _worker_lock = threading.Lock()
+_wake = threading.Event()
+
+#  한 번에 집어 드는 일의 수. 크게 잡으면 트랜잭션이 길어지고, 작으면 왕복이 는다.
+BATCH = 20
+#  아무 일도 없을 때 다시 둘러보는 간격
+IDLE_SECONDS = 30
 
 
-def _enqueue(fn, user_id: int, *args) -> None:
-    # 테스트는 스레드 없이 그 자리에서 돌린다. 끝났는지 기다릴 방법을 따로 만들지 않으려는 것이다.
+def _enqueue(kind: str, user_id: int, target_pk: int) -> None:
+    SyncJob.objects.get_or_create(user_id=user_id, kind=kind, target_pk=target_pk)
+
+    # 테스트는 스레드 없이 그 자리에서 비운다. 끝났는지 기다릴 방법을 따로 만들지 않으려는 것이다.
     if settings.GOOGLE_CALENDAR_SYNC_INLINE:
-        _run(fn, user_id, *args)
+        drain()
         return
 
+    start_worker()
+    _wake.set()
+
+
+def start_worker() -> None:
+    """일꾼이 없으면 세운다. 여러 요청이 동시에 불러도 하나만 선다."""
     global _worker
+    if settings.GOOGLE_CALENDAR_SYNC_INLINE:
+        return
     with _worker_lock:
         if _worker is None or not _worker.is_alive():
             _worker = threading.Thread(target=_work, name="google-calendar", daemon=True)
             _worker.start()
-    _jobs.put((fn, user_id, args))
 
 
 def _work() -> None:
     while True:
-        fn, user_id, args = _jobs.get()
         # 오래 사는 스레드라 DB 연결이 끊겨 있을 수 있다(CONN_MAX_AGE·재시작)
         close_old_connections()
         try:
-            _run(fn, user_id, *args)
+            worked = drain()
+        except Exception:  # noqa: BLE001 — 일꾼이 죽으면 그 뒤로 줄 선 일이 전부 멈춘다
+            logger.exception("google calendar worker error")
+            worked = False
         finally:
             close_old_connections()
+
+        if worked:
+            continue
+        _wake.wait(IDLE_SECONDS)
+        _wake.clear()
+
+
+def drain() -> bool:
+    """
+    줄에서 한 묶음을 집어 비운다. 하나라도 처리했으면 True.
+
+    **집으면서 잠근다**(`select_for_update(skip_locked=True)`). 워커가 여럿이어도 같은 일을
+    둘이 잡지 않고, 잡힌 것은 건너뛰어 서로 기다리지 않는다.
+    """
+    with transaction.atomic():
+        rows = SyncJob.objects.order_by("id")
+        # sqlite 는 줄 잠금이 없다(개발·테스트). 거기서는 워커도 하나뿐이라 잠글 것이 없다.
+        if connection.features.has_select_for_update_skip_locked:
+            rows = rows.select_for_update(skip_locked=True)
+        jobs = list(rows[:BATCH])
+        if not jobs:
+            return False
+        # 집어 든 것은 먼저 지운다. 보내는 동안 또 바뀌면 그때 새 줄이 생긴다 —
+        # 보내고 나서 지우면 그 사이의 변경을 덮어쓴 채로 줄이 사라진다.
+        SyncJob.objects.filter(pk__in=[job.pk for job in jobs]).delete()
+
+    for job in jobs:
+        _run(HANDLERS[job.kind], job.user_id, *(() if job.kind == SyncJob.Kind.RESYNC else (job.target_pk,)))
+    return True
 
 
 def _run(fn, user_id: int, *args) -> None:
@@ -300,3 +353,11 @@ def disconnect(link: GoogleCalendarLink) -> None:
     except client.GoogleError:
         pass
     link.delete()
+
+
+#  줄에 적힌 이름과 실제로 부를 함수. 이름으로 남겨야 재시작 뒤에도 무엇을 보낼지 알 수 있다.
+HANDLERS = {
+    SyncJob.Kind.EVENT: push_event,
+    SyncJob.Kind.ZONE: push_zone,
+    SyncJob.Kind.RESYNC: resync,
+}
