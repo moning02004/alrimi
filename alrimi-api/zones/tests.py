@@ -567,8 +567,11 @@ class SharingTests(TestCase):
         Event.objects.filter(pk=self.event.pk).update(event_date=start, end_date=start)
 
         rows = self.client.get("/events/weekly", headers={"x-api-key": "k"}).json()
+        # 통은 공간마다 하나다. 오늘이 무슨 요일이냐에 따라 회사 일정도 다음 주에 들 수 있으므로
+        # 여기서는 어린이집 통만 본다 — 그 공간을 주인과 보는 사람이 함께 받는지가 이 시험이다.
+        shared = [row for row in rows if row["title"].startswith("[어린이집]")]
         self.assertEqual(
-            sorted(row["topic"] for row in rows),
+            sorted(row["topic"] for row in shared),
             sorted([self.owner.ntfy_topic, self.viewer.ntfy_topic]),
         )
 
