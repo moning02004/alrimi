@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { apiUrl } from "@/constants/routeUrl";
-import type { ManagedUser, TemporaryPassword } from "@/types";
+import type { Invite, ManagedUser } from "@/types";
 
 const key = ["users"];
 
@@ -17,23 +17,26 @@ export function useUsers(enabled: boolean) {
 }
 
 /**
- * 비밀번호는 보내지 않는다. 서버가 임시 비밀번호를 만들어 **이 응답에만** 실어 준다 —
- * 저장되는 것은 해시라, 여기서 못 보여주면 아무도 알 수 없다.
+ * 비밀번호는 아무도 정하지 않는다. 서버가 초대 링크의 열쇠를 만들어 **이 응답에만** 실어
+ * 준다 — 링크를 쓰는 사람이 자기 비밀번호를 정한다.
  */
 export function useCreateUser() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: { username: string; name: string }) =>
-      api.post<ManagedUser & TemporaryPassword>(apiUrl.users, body),
+      api.post<ManagedUser & { invite: Invite }>(apiUrl.users, body),
     onSuccess: () => qc.invalidateQueries({ queryKey: key }),
   });
 }
 
-/** 비밀번호를 잊은 사람에게 새 임시 비밀번호를 준다. 그 사람의 로그인은 모두 끊긴다 */
-export function useResetUserPassword() {
+/**
+ * 비밀번호를 잊었거나 링크가 만료된 사람에게 새 링크를 준다. 앞의 링크는 그 자리에서
+ * 죽지만, 쓰던 비밀번호는 링크를 실제로 쓰기 전까지 그대로 산다.
+ */
+export function useReissueInvite() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: number) => api.post<TemporaryPassword>(apiUrl.resetUserPassword(id)),
+    mutationFn: (id: number) => api.post<Invite>(apiUrl.userInvite(id)),
     onSuccess: () => qc.invalidateQueries({ queryKey: key }),
   });
 }

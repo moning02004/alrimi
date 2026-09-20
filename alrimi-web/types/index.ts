@@ -176,13 +176,20 @@ export interface Me {
    * 처음 받은 비밀번호(0000)를 아직 안 바꿨다. 켜져 있으면 다른 화면으로 못 간다 —
    * 서버도 내 정보·비밀번호 변경 말고는 403 으로 막는다.
    */
-  must_change_password: boolean;
   version: string;
 }
 
-/** 사용자를 추가하거나 비밀번호를 새로 발급했을 때만 오는 값 — **이때 한 번만** 볼 수 있다 */
-export interface TemporaryPassword {
-  temporary_password: string;
+/** 사용자를 추가하거나 링크를 새로 만들었을 때만 오는 값 — **이때 한 번만** 볼 수 있다 */
+export interface Invite {
+  /** 링크 주소는 웹이 자기 origin 으로 만든다(`pageUrl.join`). 서버는 열쇠만 준다 */
+  token: string;
+  expires_at: string;
+}
+
+/** 초대 링크를 연 사람에게 "누구를 맞이하는지" 만 알려주는 값 */
+export interface InviteGreeting {
+  name: string | null;
+  username: string;
 }
 
 /** 사용자 관리 목록의 한 사람 */
@@ -193,7 +200,10 @@ export interface ManagedUser {
   is_staff: boolean;
   is_superuser: boolean;
   /** 추가만 해두고 아직 처음 비밀번호를 안 바꿨다 */
-  must_change_password: boolean;
+  /** 한 번이라도 들어와 비밀번호를 정했다. 아니면 링크를 받기 전까지 로그인할 수 없다 */
+  has_password: boolean;
+  /** 아직 안 쓴 초대 링크가 살아 있다 */
+  invite_pending: boolean;
   date_joined: string;
   last_login: string | null;
 }

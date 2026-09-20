@@ -13,14 +13,16 @@ export const apiUrl = {
   obtainToken: "/auth/obtain-token",
   refreshToken: "/auth/refresh-token",
   revokeToken: "/auth/token",
+  // 초대 링크. 로그인 없이 부른다 — GET 은 누구를 맞이하는지, POST 는 비밀번호를 정한다
+  invite: (token: string) => `/auth/invite/${encodeURIComponent(token)}`,
 
   me: "/users/me",
   changePassword: "/users/me/password",
   // 사용자 관리. 추가는 관리자부터, 권한 변경·삭제는 최고 관리자만
   users: "/users",
   user: (userId: number) => `/users/${userId}`,
-  // 비밀번호를 잊은 사람에게 임시 비밀번호를 새로 발급한다(최고 관리자)
-  resetUserPassword: (userId: number) => `/users/${userId}/password/reset`,
+  // 비밀번호를 잊었거나 링크가 만료된 사람에게 새 초대 링크를 준다(최고 관리자)
+  userInvite: (userId: number) => `/users/${userId}/invite`,
   // 알림장을 함께 볼 사람 찾기. 로그인한 누구나 부른다
   userSearch: (q: string) => `/users/search?q=${encodeURIComponent(q)}`,
 
@@ -85,6 +87,8 @@ export const pageUrl = {
   // 소개. 로그인 없이 열린다 — 설치한 앱은 /home 으로 열려 이 화면을 지나치지 않는다
   intro: "/",
   login: "/login",
+  // 초대 링크가 열리는 자리. 로그인 없이 열린다
+  join: (token: string) => `/join/${encodeURIComponent(token)}`,
   home: "/home",
   past: "/past",
   settings: "/settings",

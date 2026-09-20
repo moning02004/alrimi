@@ -32,8 +32,9 @@ app/
   layout.tsx            루트 레이아웃 · PWA 메타 · Pretendard
   providers.tsx         react-query · toast
   globals.css           Tailwind v4 @theme 색 토큰
-  page.tsx              / → /home
+  page.tsx              소개 (로그인 없이 열린다)
   login/page.tsx        로그인 (회원가입 없음)
+  join/[token]/page.tsx 초대 링크 — 쓸 비밀번호를 정하면 그대로 로그인된다
   (main)/
     layout.tsx          인증 가드 + 탭바 + 등록 시트
     home/page.tsx       주간 스트립 · 존 칩 · 날짜별 목록
@@ -321,6 +322,11 @@ localStorage 에 남겨(`lib/offlineCache.ts`, 14일) 연결 없이 열어도 �
 
 **글꼴은 앱과 함께 나간다**(`app/fonts`, `next/font/local`). CDN 에서 받아오던 때는 그쪽이
 느리면 첫 화면 글꼴이 한 번 바뀌었고, 연결이 없으면 아예 다른 글꼴이었다.
+
+**새 계정은 초대 링크로 들어온다.** 관리자가 사용자를 추가하면 링크가 하나 나오고
+(설정 › 사용자 관리), 그것을 받은 사람이 `/join/{token}` 에서 **쓸 비밀번호를 정하면서 곧장
+로그인한다**. 임시 비밀번호를 옮겨 적고 들어와서 또 바꾸던 세 걸음이 한 걸음이 됐다. 링크
+주소는 서버가 모르므로 웹이 지금 창의 origin 으로 조립한다.
 
 **설정은 한 화면이다.** 공간과 공유 · 알림 · 화면 · 계정 섹션으로 묶어 다 펼치고, 줄 하나로
 끝나는 설정은 그 자리에서 바꾼다. 사람 목록인 둘만 안쪽 화면이다 — 함께 보기

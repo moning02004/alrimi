@@ -2,17 +2,18 @@
 
 import { useState } from "react";
 import toast from "react-hot-toast";
-import { LuCopy, LuKeyRound } from "react-icons/lu";
+import { LuCopy, LuLink } from "react-icons/lu";
 import { BottomSheet } from "./BottomSheet";
 import { firstError } from "@/lib/api";
 import {
   useCreateUser,
   useDeleteUser,
-  useResetUserPassword,
+  useReissueInvite,
   useUpdateUserRole,
   useUsers,
 } from "@/hooks/useUsers";
-import type { ManagedUser, Me } from "@/types";
+import { pageUrl } from "@/constants/routeUrl";
+import type { Invite, ManagedUser, Me } from "@/types";
 
 // 설정 화면의 줄·묶음과 같은 모양이다(`app/(main)/settings/page.tsx`)
 const rowCls = "flex items-center justify-between px-4 py-3 transition-colors hover:bg-paper";
@@ -60,8 +61,11 @@ export function UserAdminGroup({ me, heading = true }: { me?: Me; heading?: bool
                 </p>
                 <p className="mt-0.5 truncate text-xs text-muted">
                   {user.username}
-                  {/* 추가만 해두고 아직 안 들어온 사람. 0000 을 전해줬는지 되짚게 한다 */}
-                  {user.must_change_password && " · 비밀번호 변경 전"}
+                  {/*
+                    아직 안 들어온 사람. 링크를 보냈는지까지 말해준다 — "초대 필요" 는
+                    링크가 만료됐거나 아직 안 만든 것이라, 관리자가 할 일이 다르다.
+                  */}
+                  {!user.has_password && (user.invite_pending ? " · 초대 보냄" : " · 초대 필요")}
                 </p>
               </div>
               <span className="flex shrink-0 items-center gap-2">
@@ -127,49 +131,55 @@ function UserCreateSheet({ open, onClose }: { open: boolean; onClose: () => void
 }
 
 /**
- * 한 번만 보여주는 임시 비밀번호.
+ * 한 번만 보여주는 초대 링크.
  *
- * 서버에는 해시만 남아서 이 화면을 닫으면 아무도 알 수 없다 — 그래서 닫기 전에 옮겨 적게
- * 하고, 복사 버튼을 눌러 메시지로 보낼 수 있게 둔다. 잊었으면 새로 발급하면 된다.
+ * 열쇠는 이 응답에만 실려 오므로 이 화면을 닫으면 다시 볼 수 없다 — 대신 잊어도 새로 만들면
+ * 그만이라, 예전 임시 비밀번호처럼 "적어두지 않으면 큰일" 이 아니다.
+ *
+ * **주소는 여기서 조립한다.** 서버는 이 앱이 어느 주소로 열려 있는지(도메인·개발 서버·설치한
+ * 앱) 모른다. 지금 보고 있는 창의 origin 이 곧 받는 사람이 열 주소다.
  */
-function IssuedPassword({
-  label,
-  username,
-  password,
-}: {
-  label: string;
-  username: string;
-  password: string;
-}) {
+function InviteLink({ label, invite }: { label: string; invite: Invite }) {
+  const url =
+    (typeof window === "undefined" ? "" : window.location.origin) + pageUrl.join(invite.token);
+
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(password);
-      toast.success("복사했어요");
+      await navigator.clipboard.writeText(url);
+      toast.success("링크를 복사했어요");
     } catch {
-      // 클립보드를 막아둔 브라우저도 있다. 화면의 값을 직접 옮겨 적으면 된다.
-      toast.error("복사하지 못했어요. 화면의 값을 적어주세요");
+      // 클립보드를 막아둔 브라우저도 있다. 화면의 주소를 길게 눌러 복사하면 된다.
+      toast.error("복사하지 못했어요. 주소를 길게 눌러 복사해주세요");
     }
   };
 
+  const until = new Date(invite.expires_at).toLocaleDateString("ko-KR", {
+    month: "long",
+    day: "numeric",
+  });
+
   return (
     <div className="rounded-2xl border border-pine/40 bg-pinelt/50 px-4 py-4">
-      <p className="text-sm font-medium">{label} 님의 임시 비밀번호</p>
+      <p className="text-sm font-medium">{label} 님의 초대 링크</p>
       <p className="mt-1 text-xs leading-relaxed text-muted">
-        이 화면을 닫으면 다시 볼 수 없어요. 아이디(<b className="text-ink">{username}</b>)와 함께
-        전해주세요.
+        이 링크를 보내주세요. 받은 사람이 링크에서 쓸 비밀번호를 정하면 바로 시작해요.
       </p>
 
       <div className="mt-3 flex items-center gap-2">
+        {/*
+          주소는 한 줄에 다 들어가지 않는다. 줄여서 보여주고 복사로 넘긴다 — 눈으로 옮겨
+          적을 값이 아니라서, 다 보여주는 것보다 복사 버튼이 가까운 편이 낫다.
+        */}
         <code
           className="min-w-0 flex-1 truncate rounded-xl border border-line bg-card px-3.5 py-3
-                     text-base tracking-wider"
+                     text-sm text-muted"
         >
-          {password}
+          {url}
         </code>
         <button
           type="button"
           onClick={copy}
-          aria-label="임시 비밀번호 복사"
+          aria-label="초대 링크 복사"
           title="복사"
           className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border
                      border-line bg-card text-muted transition-colors hover:border-pine/50 hover:text-pine"
@@ -179,7 +189,7 @@ function IssuedPassword({
       </div>
 
       <p className="mt-3 text-xs leading-relaxed text-muted">
-        받은 사람은 처음 로그인할 때 다른 화면으로 가기 전에 새 비밀번호로 바꾸게 돼요.
+        {until}까지, 한 번만 쓸 수 있어요. 지나면 새로 만들어 주세요.
       </p>
     </div>
   );
@@ -190,9 +200,7 @@ function CreateForm({ onClose }: { onClose: () => void }) {
   const [username, setUsername] = useState("");
   const [error, setError] = useState<string | null>(null);
   /** 만들고 난 뒤 보여줄 값. 이것이 있으면 폼 대신 이 값만 보인다 */
-  const [issued, setIssued] = useState<{ label: string; username: string; password: string } | null>(
-    null,
-  );
+  const [issued, setIssued] = useState<{ label: string; invite: Invite } | null>(null);
   const create = useCreateUser();
 
   const submit = () => {
@@ -208,12 +216,8 @@ function CreateForm({ onClose }: { onClose: () => void }) {
       {
         onSuccess: (user) => {
           toast.success(`${user.name} 님을 추가했어요`);
-          // 닫지 않는다 — 임시 비밀번호는 지금 이 화면에서만 볼 수 있다
-          setIssued({
-            label: user.name || user.username,
-            username: user.username,
-            password: user.temporary_password,
-          });
+          // 닫지 않는다 — 초대 링크는 지금 이 화면에서만 볼 수 있다
+          setIssued({ label: user.name || user.username, invite: user.invite });
         },
         // 이미 있는 아이디 등. 어느 칸이 문제인지 서버가 말해준다
         onError: (err) => setError(firstError(err, "추가하지 못했어요")),
@@ -224,7 +228,7 @@ function CreateForm({ onClose }: { onClose: () => void }) {
   if (issued) {
     return (
       <div className="pb-3">
-        <IssuedPassword {...issued} />
+        <InviteLink {...issued} />
         <button onClick={onClose} className={submitCls}>
           확인했어요
         </button>
@@ -267,10 +271,10 @@ function CreateForm({ onClose }: { onClose: () => void }) {
 
       <div className="mt-3 space-y-1.5 rounded-xl border border-line bg-card px-3.5 py-3 text-xs leading-relaxed text-muted">
         <p>
-          임시 비밀번호는 추가하고 나면 <b className="text-ink">한 번만</b> 보여요. 그 화면에서
-          아이디와 함께 전해주세요.
+          추가하면 <b className="text-ink">초대 링크</b>가 나와요. 그 링크를 보내주시면 받은
+          사람이 쓸 비밀번호를 직접 정해요.
         </p>
-        <p>받은 사람은 처음 로그인할 때 반드시 새 비밀번호로 바꾸게 돼요.</p>
+        <p>링크를 쓰기 전까지는 아무도 이 계정으로 들어올 수 없어요.</p>
         <p>추가한 사람은 일반 사용자로 시작해요. 권한은 최고 관리자가 줄 수 있어요.</p>
       </div>
 
@@ -305,9 +309,9 @@ function UserManageSheet({ userId, onClose }: { userId: number | null; onClose: 
 function ManageForm({ user, onClose }: { user: ManagedUser; onClose: () => void }) {
   const update = useUpdateUserRole();
   const remove = useDeleteUser();
-  const reset = useResetUserPassword();
+  const reissue = useReissueInvite();
   const [confirming, setConfirming] = useState(false);
-  const [issued, setIssued] = useState<string | null>(null);
+  const [issued, setIssued] = useState<Invite | null>(null);
   const label = user.name || user.username;
 
   const setRole = (roles: { is_staff?: boolean; is_superuser?: boolean }) =>
@@ -341,26 +345,30 @@ function ManageForm({ user, onClose }: { user: ManagedUser; onClose: () => void 
       </div>
 
       {/*
-        비밀번호를 잊은 사람에게 새 임시 비밀번호를 준다. 이 사람의 로그인은 모두 끊긴다 —
-        잊었다는 것은 누가 쓰고 있는지 모른다는 뜻일 수도 있다.
+        비밀번호를 잊었거나 링크가 만료된 사람에게 새 링크를 준다. 쓰던 비밀번호는 링크를
+        실제로 쓰는 순간에야 바뀌므로, 보내고 보니 필요 없었어도 계정이 잠기지 않는다.
       */}
       <div className="mt-3">
         {issued ? (
-          <IssuedPassword label={label} username={user.username} password={issued} />
+          <InviteLink label={label} invite={issued} />
         ) : (
           <button
             onClick={() =>
-              reset.mutate(user.id, {
-                onSuccess: ({ temporary_password }) => setIssued(temporary_password),
-                onError: (err) => toast.error(firstError(err, "발급하지 못했어요")),
+              reissue.mutate(user.id, {
+                onSuccess: (invite) => setIssued(invite),
+                onError: (err) => toast.error(firstError(err, "만들지 못했어요")),
               })
             }
-            disabled={reset.isPending}
+            disabled={reissue.isPending}
             className="flex w-full items-center justify-center gap-2 rounded-xl border border-line
                        bg-card py-3 text-sm disabled:opacity-60"
           >
-            <LuKeyRound className="h-4 w-4 text-muted" aria-hidden="true" />
-            {reset.isPending ? "발급하는 중" : "비밀번호 새로 발급"}
+            <LuLink className="h-4 w-4 text-muted" aria-hidden="true" />
+            {reissue.isPending
+              ? "만드는 중"
+              : user.has_password
+                ? "초대 링크 새로 만들기"
+                : "초대 링크 다시 보내기"}
           </button>
         )}
       </div>

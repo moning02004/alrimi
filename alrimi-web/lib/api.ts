@@ -133,7 +133,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 }
 
 export const api = {
-  get: <T>(path: string) => request<T>(path),
+  get: <T>(path: string, opts?: RequestOptions) => request<T>(path, opts),
   post: <T>(path: string, body?: unknown, opts?: RequestOptions) =>
     request<T>(path, { ...opts, method: "POST", body }),
   patch: <T>(path: string, body?: unknown) => request<T>(path, { method: "PATCH", body }),

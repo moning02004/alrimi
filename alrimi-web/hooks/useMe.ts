@@ -25,20 +25,13 @@ export function useUpdateMe() {
 
 /**
  * 비밀번호 바꾸기. **로그인은 이어진다** — 서버가 새 토큰을 주고 refresh 쿠키도 새로 심는다.
- *
- * 들고 있던 내 정보의 "비밀번호를 바꿔주세요" 표시도 여기서 내린다. 그러면 첫 로그인의
- * 강제 변경 화면(`PasswordChangeRequired`)이 저절로 앱으로 바뀐다 — 다시 불러와 확인할
- * 것 없이, 방금 성공한 요청이 곧 그 사실이다.
+ * 다른 기기의 로그인만 끊긴다.
  */
 export function useChangePassword() {
-  const qc = useQueryClient();
   const setToken = useAuthStore((s) => s.setToken);
   return useMutation({
     mutationFn: (body: { current_password: string; new_password: string }) =>
       api.post<{ access_token: string }>(apiUrl.changePassword, body),
-    onSuccess: ({ access_token }) => {
-      setToken(access_token);
-      qc.setQueryData<Me>(["me"], (me) => (me ? { ...me, must_change_password: false } : me));
-    },
+    onSuccess: ({ access_token }) => setToken(access_token),
   });
 }
