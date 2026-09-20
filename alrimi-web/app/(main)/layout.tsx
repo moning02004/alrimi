@@ -45,7 +45,7 @@ export default function MainLayout({children}: { children: React.ReactNode }) {
     return (
         <div className="app-shell flex w-full overflow-hidden">
             {/*
-              PC 에서만 나온다(`hidden lg:flex`). 모바일에서는 자리도 차지하지 않는다.
+              `md`(768px)부터 나온다(`hidden md:flex`). 폰에서는 자리도 차지하지 않는다.
 
               일정 상세에서도 그대로 둔다 — 탭바를 감추는 까닭은 좁은 화면에서
               나가는 문이 둘이 되면 헷갈려서인데, 여기는 본문 옆에 따로 선 기둥이라
@@ -67,7 +67,7 @@ export default function MainLayout({children}: { children: React.ReactNode }) {
                             sm:max-w-2xl lg:max-w-6xl">
                 <OfflineBanner/>
                 <div className="app-scroll">{children}</div>
-                {/* 아래 탭바는 모바일 전용 — PC 에서는 옆 기둥이 대신한다 */}
+                {/* 아래 탭바는 폰 전용 — 태블릿·PC 에서는 옆 기둥이 대신한다 */}
                 {!bare && <TabBar/>}
             </div>
 

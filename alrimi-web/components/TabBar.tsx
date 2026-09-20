@@ -25,7 +25,7 @@ import { useAddSheet } from "@/store/ui";
  * 있는데, 달력 머리글이나 필터 줄에 끼워 넣으면 그 화면의 조작처럼 읽혔다. 양옆을 둘씩 두면
  * 등록 버튼도 가운데에 그대로 선다.
  *
- * 모바일 전용이다 — PC(lg 이상)에서는 왼쪽 `SideNav` 가 대신한다. 그래서
+ * 폰 전용이다 — `md`(768px) 이상에서는 왼쪽 `SideNav` 가 대신한다. 그래서
  * hover 나 툴팁은 두지 않는다(마우스가 닿는 자리가 아니다).
  */
 export function TabBar() {
@@ -37,7 +37,7 @@ export function TabBar() {
       아래 여백은 홈 인디케이터 높이와 12px 중 큰 쪽이다. 안전영역만 두면 인디케이터가
       없는 기기에서 아이콘이 바닥에 붙고, 12px 만 두면 아이폰에서 스와이프 자리에 물린다.
     */
-    <div className="mt-auto flex flex-row justify-between border-t border-line bg-card pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] lg:hidden">
+    <div className="mt-auto flex flex-row justify-between border-t border-line bg-card pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:hidden">
       <Tab
         href={pageUrl.home}
         label="홈"

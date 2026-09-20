@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useId, useRef } from "react";
 import { Drawer } from "vaul";
+import { LuX } from "react-icons/lu";
+import { useIsDesktop } from "@/hooks/useMediaQuery";
 
 interface Props {
   open: boolean;
@@ -73,7 +75,97 @@ function fitToKeyboard(vv: VisualViewport, sheet: HTMLElement) {
   sheet.style.paddingBottom = "0px";
 }
 
-export function BottomSheet({ open, onOpenChange, title, description, children }: Props) {
+/**
+ * PC 에서 쓰는 가운데 창.
+ *
+ * 폰의 시트는 엄지가 닿는 아래에서 올라오는 것이 맞지만, 마우스로 쓰는 넓은 화면에서 같은
+ * 것이 바닥에서 올라오면 눈과 손이 화면 아래 끝까지 내려갔다 온다. 등록 폼처럼 긴 것은 특히
+ * 그렇다. 가운데 창은 그 왕복이 없고, 폼이 길어도 창 안에서만 스크롤된다.
+ *
+ * 안에 들어가는 내용은 시트와 **같다** — 부르는 쪽은 `BottomSheet` 하나만 쓰고, 어디서 열릴지는
+ * 화면 폭이 정한다.
+ */
+function CenteredDialog({
+  open,
+  onOpenChange,
+  title,
+  description,
+  children,
+}: Props) {
+  const titleId = useId();
+  const descriptionId = useId();
+  const closeRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const previous = document.activeElement as HTMLElement | null;
+    closeRef.current?.focus();
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onOpenChange(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      // 닫으면 창을 연 자리로 초점을 돌려준다. 키보드로 쓰는 사람이 제자리를 잃지 않게
+      previous?.focus?.();
+    };
+  }, [open, onOpenChange]);
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
+      <div
+        aria-hidden="true"
+        onClick={() => onOpenChange(false)}
+        className="absolute inset-0 bg-ink/25"
+      />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={descriptionId}
+        className="relative flex max-h-[85dvh] w-full max-w-lg flex-col rounded-2xl border
+                   border-line bg-paper shadow-xl"
+      >
+        <header className="flex shrink-0 items-center justify-between gap-3 px-5 pb-3 pt-4">
+          <h2 id={titleId} className="text-base font-semibold">
+            {title}
+          </h2>
+          <button
+            ref={closeRef}
+            type="button"
+            onClick={() => onOpenChange(false)}
+            aria-label="닫기"
+            className="-mr-2 flex h-9 w-9 items-center justify-center rounded-full text-muted
+                       transition-colors hover:bg-card hover:text-ink"
+          >
+            <LuX className="h-4 w-4" aria-hidden="true" />
+          </button>
+        </header>
+        {/* 화면에는 안 보이고 낭독기만 읽는다 — 시트 쪽과 같은 말이다 */}
+        <p id={descriptionId} className="sr-only">
+          {description ?? title}
+        </p>
+        {/* `min-h-0` 이 있어야 이 칸이 창보다 작아져서 안에서 스크롤된다 */}
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+export function BottomSheet(props: Props) {
+  /*
+    **같은 내용을 화면 폭에 따라 다른 자리에서 연다.** 폰은 아래에서 올라오는 시트, PC 는
+    가운데 창이다(`CenteredDialog`). 부르는 쪽은 이 하나만 쓴다 — 화면마다 둘을 갈라 쓰면
+    한쪽만 고쳐지는 일이 생긴다.
+  */
+  const isDesktop = useIsDesktop();
+  return isDesktop ? <CenteredDialog {...props} /> : <Sheet {...props} />;
+}
+
+function Sheet({ open, onOpenChange, title, description, children }: Props) {
   const sheet = useRef<HTMLDivElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
 

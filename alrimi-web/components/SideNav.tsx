@@ -18,7 +18,8 @@ import { pageUrl } from "@/constants/routeUrl";
 import { useAddSheet, useSideNav } from "@/store/ui";
 
 /**
- * PC 에서 탭바 대신 쓰는 왼쪽 기둥. `lg`(1024px) 아래에서는 아예 없다.
+ * 탭바 대신 쓰는 왼쪽 기둥. `md`(768px)부터 — 태블릿 세로에서도 아래 탭바보다 여기가 낫다.
+ * 그 폭에서는 화면이 위아래로 길어서 손이 아래 끝까지 내려가고, 옆에는 자리가 남는다.
  *
  * 아래 탭바는 엄지로 닿는 자리라서 아래에 있는 것이지, 마우스에는 그 이유가
  * 없다. 오히려 화면 아래 끝까지 커서를 내렸다 올리는 왕복이 생기고, 좁은 칸에
@@ -36,7 +37,7 @@ export function SideNav() {
 
   return (
     <aside
-      className={`hidden shrink-0 flex-col border-r border-line bg-card py-4 transition-[width] lg:flex ${
+      className={`hidden shrink-0 flex-col border-r border-line bg-card py-4 transition-[width] md:flex ${
         collapsed ? "w-16 px-2" : "w-56 px-3"
       }`}
     >
