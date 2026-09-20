@@ -299,6 +299,23 @@ class HousekeepingTests(TestCase):
         housekeeping._last_run = None
         self.user = User.objects.create_user("hoon", password="pw-strong-1234")
 
+    def test_기한이_지난_초대를_지운다(self):
+        import datetime as dt
+
+        from django.utils import timezone
+
+        from alrimi_api import housekeeping
+        from accounts.models import Invite
+
+        now = timezone.now()
+        gone = User.objects.create_user("gone")
+        Invite.objects.create(user=gone, expires_at=now - dt.timedelta(seconds=1))
+        Invite.objects.create(user=self.user, expires_at=now + dt.timedelta(days=1))
+
+        housekeeping.sweep(now)
+
+        self.assertEqual(list(Invite.objects.values_list("user_id", flat=True)), [self.user.pk])
+
     def test_수명이_지난_토큰과_오래된_실패_기록을_지운다(self):
         import datetime as dt
 

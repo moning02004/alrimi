@@ -44,8 +44,10 @@ def sweep(now=None) -> None:
       지난 것은 이미 아무 힘이 없으므로 남길 까닭이 없다. `manage.py flushexpiredtokens` 와
       같은 일이다.
     - **로그인 실패 기록**: 창(10분)이 한참 지난 줄은 세는 데 쓰이지 않는다.
+    - **만료된 초대**: 사흘이 지난 링크는 열리지 않는다. 대개는 쓰이면서 사라지지만,
+      보내놓고 아무도 누르지 않은 것이 남는다.
     """
-    from accounts.models import LoginThrottle
+    from accounts.models import Invite, LoginThrottle
     from rest_framework_simplejwt.token_blacklist.models import OutstandingToken
 
     now = now or timezone.now()
@@ -55,7 +57,10 @@ def sweep(now=None) -> None:
         throttles, _ = LoginThrottle.objects.filter(
             first_failed_at__lt=now - LoginThrottle.WINDOW * 6
         ).delete()
-        if tokens or throttles:
-            logger.info("housekeeping: tokens=%d throttles=%d", tokens, throttles)
+        invites, _ = Invite.objects.filter(expires_at__lt=now).delete()
+        if tokens or throttles or invites:
+            logger.info(
+                "housekeeping: tokens=%d throttles=%d invites=%d", tokens, throttles, invites
+            )
     except Exception:  # noqa: BLE001 — 청소가 실패해도 보낼 일은 계속 가야 한다
         logger.exception("housekeeping failed")

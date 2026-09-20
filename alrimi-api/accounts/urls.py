@@ -2,14 +2,15 @@ from django.urls import path
 
 from .views import (
     ChangePasswordView,
+    InviteView,
     MeView,
     ObtainTokenView,
     PushKeyView,
     PushSubscriptionView,
     PushTestView,
     RefreshTokenView,
+    ReissueInviteView,
     RevokeTokenView,
-    ResetPasswordView,
     UserDetailView,
     UserListCreateView,
     UserSearchView,
@@ -20,10 +21,10 @@ auth_patterns = [
     path("auth/obtain-token", ObtainTokenView.as_view(), name="obtain-token"),
     path("auth/refresh-token", RefreshTokenView.as_view(), name="refresh-token"),
     path("auth/token", RevokeTokenView.as_view(), name="revoke-token"),
+    # 초대 링크. 로그인 없이 열리고, 여기서 비밀번호를 정하면 곧장 로그인된다
+    path("auth/invite/<str:token>", InviteView.as_view(), name="invite"),
 ]
 
-#  "me"·"change-password" 이름은 비밀번호를 안 바꾼 사람에게도 열리는 자리라
-#  `accounts.authentication.ALLOWED_URL_NAMES` 가 이름으로 짚는다. 바꾸면 거기도 고친다.
 user_patterns = [
     path("users/me", MeView.as_view(), name="me"),
     path("users/me/password", ChangePasswordView.as_view(), name="change-password"),
@@ -32,8 +33,8 @@ user_patterns = [
     # 공간을 함께 볼 사람 찾기. 로그인한 누구나. `<int:user_id>` 보다 먼저 와야 한다
     path("users/search", UserSearchView.as_view(), name="user-search"),
     path("users/<int:user_id>", UserDetailView.as_view(), name="user-detail"),
-    # 비밀번호를 잊은 사람에게 임시 비밀번호를 새로 발급한다(최고 관리자)
-    path("users/<int:user_id>/password/reset", ResetPasswordView.as_view(), name="user-password-reset"),
+    # 비밀번호를 잊었거나 링크가 만료된 사람에게 새 초대 링크를 준다(최고 관리자)
+    path("users/<int:user_id>/invite", ReissueInviteView.as_view(), name="user-invite"),
 ]
 
 #  웹 푸시. ntfy 는 토픽 하나로 끝나지만 이쪽은 기기마다 등록·해지가 필요해서

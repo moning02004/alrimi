@@ -6,7 +6,7 @@ from django.utils import timezone
 from django.test import TestCase
 from django.urls import reverse
 
-from .models import TEMPORARY_LENGTH
+from .models import Invite
 
 User = get_user_model()
 
@@ -40,22 +40,35 @@ class UserManagementTestCase(TestCase):
 
 
 class AddUserTests(UserManagementTestCase):
-    def test_관리자가_추가하면_임시_비밀번호를_한_번_준다(self):
+    def test_관리자가_추가하면_초대_링크를_한_번_준다(self):
         res = self.add("staff")
 
         self.assertEqual(res.status_code, 201)
         self.assertEqual(res.json()["name"], "새 사람")
-        self.assertTrue(res.json()["must_change_password"])
+        self.assertTrue(res.json()["invite_pending"])
+        self.assertFalse(res.json()["has_password"])
 
-        password = res.json()["temporary_password"]
-        self.assertEqual(len(password), TEMPORARY_LENGTH)
+        token = res.json()["invite"]["token"]
         user = User.objects.get(username="newbie")
-        self.assertTrue(user.check_password(password))
-        # 목록에는 안 실린다 — 보여줄 기회는 만든 그 순간뿐이다
+        self.assertEqual(Invite.objects.get(user=user).token, token)
+        # 링크를 쓰기 전에는 어떤 비밀번호로도 못 들어온다 — 아이디를 아는 사람도 마찬가지다
+        self.assertFalse(user.has_usable_password())
+        # 목록에는 열쇠가 안 실린다 — 보여줄 기회는 만든 그 순간뿐이다
         listed = self.client.get(reverse("users"), headers=self.auth("staff")).json()
-        self.assertNotIn("temporary_password", listed[0])
+        self.assertNotIn("invite", listed[0])
         # 추가한 사람은 늘 일반 사용자로 시작한다
         self.assertFalse(user.is_staff or user.is_superuser)
+
+    def test_목록이_초대_상태를_말해준다(self):
+        self.add("staff")
+        listed = self.client.get(reverse("users"), headers=self.auth("staff")).json()
+        rows = {u["username"]: u for u in listed}
+
+        self.assertTrue(rows["newbie"]["invite_pending"])
+        self.assertFalse(rows["newbie"]["has_password"])
+        # 이미 들어와 있는 사람은 둘 다 반대다
+        self.assertFalse(rows["plain"]["invite_pending"])
+        self.assertTrue(rows["plain"]["has_password"])
 
     def test_최고_관리자도_추가할_수_있다(self):
         self.assertEqual(self.add("root").status_code, 201)
@@ -76,6 +89,7 @@ class AddUserTests(UserManagementTestCase):
         user = User.objects.get(username="sneaky")
         self.assertFalse(user.is_staff or user.is_superuser)
         self.assertFalse(user.check_password("x"))
+        self.assertFalse(user.has_usable_password())
 
     def test_이름과_아이디가_모두_있어야_한다(self):
         res = self.client.post(
@@ -146,51 +160,76 @@ class RoleAndDeleteTests(UserManagementTestCase):
         self.assertFalse(Zone.objects.filter(owner_id=self.plain.pk).exists())
 
 
-class FirstLoginTests(UserManagementTestCase):
+class InviteTests(UserManagementTestCase):
+    """링크를 누르고 비밀번호를 정하면 그 자리에서 로그인된다."""
+
     def setUp(self):
         super().setUp()
-        self.temporary = self.add("staff").json()["temporary_password"]
-        self.newbie = self.auth("newbie", self.temporary)
+        self.token = self.add("staff").json()["invite"]["token"]
 
-    def change(self, current, new, headers=None):
+    def url(self, token=None):
+        return reverse("invite", args=[token or self.token])
+
+    def accept(self, password, token=None):
         return self.client.post(
-            reverse("change-password"),
-            {"current_password": current, "new_password": new},
-            content_type="application/json",
-            headers=headers or self.newbie,
+            self.url(token), {"password": password}, content_type="application/json"
         )
 
-    def test_바꾸기_전에는_내_정보와_비밀번호_변경_말고는_막힌다(self):
-        me = self.client.get(reverse("me"), headers=self.newbie)
-        self.assertEqual(me.status_code, 200)
-        self.assertTrue(me.json()["must_change_password"])
+    def test_링크는_누구를_맞이하는지_알려준다(self):
+        res = self.client.get(self.url())
 
-        blocked = self.client.get(reverse("zone-list"), headers=self.newbie)
-        # 401 이 아니다 — 웹은 401 을 받으면 로그아웃시켜 바꾸러 갈 수도 없게 된다
-        self.assertEqual(blocked.status_code, 403)
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json(), {"name": "새 사람", "username": "newbie"})
 
-    def test_같은_비밀번호로는_바꿀_수_없다(self):
-        res = self.change(self.temporary, self.temporary)
-        self.assertEqual(res.status_code, 400)
-
-    def test_바꾸면_풀리고_다시_로그인하지_않고_이어_쓴다(self):
-        res = self.change(self.temporary, "새-비밀번호-5678")
+    def test_비밀번호를_정하면_바로_로그인된다(self):
+        res = self.accept("새-비밀번호-5678")
 
         self.assertEqual(res.status_code, 200)
         user = User.objects.get(username="newbie")
-        self.assertFalse(user.must_change_password)
         self.assertTrue(user.check_password("새-비밀번호-5678"))
+        self.assertIsNotNone(user.last_login)
 
-        # 받은 토큰으로 곧바로 앱을 쓴다
+        # 받은 토큰으로 곧바로 앱을 쓴다 — 들어와서 또 바꾸라는 화면이 없다
         headers = {"authorization": f"Bearer {res.json()['access_token']}"}
         self.assertEqual(self.client.get(reverse("zone-list"), headers=headers).status_code, 200)
-        # 새로고침해도 이어지도록 refresh 쿠키도 새로 받는다
-        self.assertTrue(res.cookies["alrimi_refresh"].value)
+        # 새로고침해도 이어지도록 refresh 쿠키도 함께 받는다
+        self.assertTrue(res.cookies[settings.REFRESH_COOKIE["name"]].value)
         self.assertEqual(self.client.post(reverse("refresh-token")).status_code, 200)
 
-    def test_직접_만든_계정은_강제_변경이_없다(self):
-        me = self.client.get(reverse("me"), headers=self.auth("plain")).json()
-        self.assertFalse(me["must_change_password"])
+    def test_쓴_링크는_다시_열리지_않는다(self):
+        self.accept("새-비밀번호-5678")
+
+        self.assertFalse(Invite.objects.exists())
+        self.assertEqual(self.client.get(self.url()).status_code, 404)
+        # 두 번째 사람이 같은 링크로 비밀번호를 바꿔칠 수 없다
+        self.assertEqual(self.accept("가로채기-9999").status_code, 404)
+        self.assertTrue(User.objects.get(username="newbie").check_password("새-비밀번호-5678"))
+
+    def test_기한이_지난_링크는_열리지_않는다(self):
+        Invite.objects.update(expires_at=timezone.now() - dt.timedelta(seconds=1))
+
+        self.assertEqual(self.client.get(self.url()).status_code, 404)
+        self.assertEqual(self.accept("새-비밀번호-5678").status_code, 404)
+
+    def test_없는_링크도_있었는지_알려주지_않는다(self):
+        res = self.client.get(self.url("아무거나"))
+        self.assertEqual(res.status_code, 404)
+        self.assertIn("만료", str(res.json()))
+
+    def test_너무_쉬운_비밀번호는_거절한다(self):
+        res = self.accept("1234")
+
+        self.assertEqual(res.status_code, 400)
+        self.assertTrue(Invite.objects.exists())
+
+    def test_틀린_링크를_잇달아_두드리면_잠긴다(self):
+        from .models import LoginThrottle
+
+        for _ in range(LoginThrottle.MAX_FAILURES):
+            self.client.get(self.url("아무거나"), HTTP_X_FORWARDED_FOR="9.9.9.9")
+
+        blocked = self.client.get(self.url(), HTTP_X_FORWARDED_FOR="9.9.9.9")
+        self.assertEqual(blocked.status_code, 429)
 
 
 class LoginThrottleTests(UserManagementTestCase):
@@ -246,33 +285,49 @@ class LoginThrottleTests(UserManagementTestCase):
         self.assertEqual(res.status_code, 429)
 
 
-class ResetPasswordTests(UserManagementTestCase):
-    """비밀번호를 잊은 사람에게 최고 관리자가 새 임시 비밀번호를 준다."""
+class ReissueInviteTests(UserManagementTestCase):
+    """비밀번호를 잊은 사람에게 최고 관리자가 새 링크를 준다."""
 
-    def reset(self, as_user, target):
+    def reissue(self, as_user, target):
+        return self.client.post(reverse("user-invite", args=[target.id]), headers=self.auth(as_user))
+
+    def accept(self, token, password):
         return self.client.post(
-            reverse("user-password-reset", args=[target.id]), headers=self.auth(as_user)
+            reverse("invite", args=[token]), {"password": password}, content_type="application/json"
         )
 
-    def test_최고_관리자만_발급하고_받은_사람은_다시_바꿔야_한다(self):
+    def test_최고_관리자만_만든다(self):
         plain = User.objects.get(username="plain")
 
-        self.assertEqual(self.reset("staff", plain).status_code, 403)
+        self.assertEqual(self.reissue("staff", plain).status_code, 403)
 
-        res = self.reset("root", plain)
+        res = self.reissue("root", plain)
         self.assertEqual(res.status_code, 200)
-        password = res.json()["temporary_password"]
+        self.assertEqual(Invite.objects.get(user=plain).token, res.json()["token"])
 
-        plain.refresh_from_db()
-        self.assertTrue(plain.check_password(password))
-        self.assertTrue(plain.must_change_password)
-        self.assertEqual(self.auth("plain", password)["authorization"][:7], "Bearer ")
+    def test_링크를_만들어도_쓰던_비밀번호는_그대로다(self):
+        """보내고 보니 필요 없었을 때 멀쩡한 계정을 잠가버리지 않는다."""
+        plain = User.objects.get(username="plain")
 
-    def test_자기_자신은_여기서_바꾸지_않는다(self):
+        self.reissue("root", plain)
+
+        self.assertEqual(self.auth("plain")["authorization"][:7], "Bearer ")
+
+    def test_새로_만들면_앞의_링크는_죽는다(self):
+        plain = User.objects.get(username="plain")
+        first = self.reissue("root", plain).json()["token"]
+
+        second = self.reissue("root", plain).json()["token"]
+
+        self.assertNotEqual(first, second)
+        self.assertEqual(self.accept(first, "새-비밀번호-5678").status_code, 404)
+        self.assertEqual(self.accept(second, "새-비밀번호-5678").status_code, 200)
+
+    def test_자기_자신은_여기서_만들지_않는다(self):
         root = User.objects.get(username="root")
-        self.assertEqual(self.reset("root", root).status_code, 400)
+        self.assertEqual(self.reissue("root", root).status_code, 400)
 
-    def test_발급하면_살아_있던_로그인이_끊긴다(self):
+    def test_새_비밀번호를_정하는_순간_살아_있던_로그인이_끊긴다(self):
         plain = User.objects.get(username="plain")
         login = self.client.post(
             reverse("obtain-token"),
@@ -280,8 +335,9 @@ class ResetPasswordTests(UserManagementTestCase):
             content_type="application/json",
         )
         cookie = login.cookies[settings.REFRESH_COOKIE["name"]].value
+        token = self.reissue("root", plain).json()["token"]
 
-        self.reset("root", plain)
+        self.assertEqual(self.accept(token, "새-비밀번호-5678").status_code, 200)
 
         self.client.cookies[settings.REFRESH_COOKIE["name"]] = cookie
         again = self.client.post(reverse("refresh-token"))

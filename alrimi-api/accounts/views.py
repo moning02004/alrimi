@@ -4,7 +4,7 @@ from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -16,10 +16,11 @@ from notices.models import Priority
 
 from . import throttle
 from .cookies import clear_refresh, read_refresh, set_refresh
-from .models import PushSubscription, temporary_password
+from .models import Invite, PushSubscription
 from .permissions import CanAddUsers, IsSuperuser
 from .serializers import (
     ChangePasswordSerializer,
+    InvitePasswordSerializer,
     MeSerializer,
     ObtainTokenSerializer,
     PushSubscriptionSerializer,
@@ -59,11 +60,16 @@ def revoke_sessions(user) -> None:
     이 사람의 refresh 토큰을 전부 폐기한다. 비밀번호를 바꾸거나 새로 발급할 때 부른다 —
     남의 손에 넘어간 기기가 비밀번호를 바꾼 뒤에도 30일 동안 살아 있으면 바꾼 뜻이 없다.
 
-    폐기 목록(`token_blacklist`)은 쌓이기만 하므로 `manage.py flushexpiredtokens` 를
-    가끔 돌린다(README).
+    폐기 목록(`token_blacklist`)은 쌓이기만 하므로 서버가 하루 한 번 스스로 치운다
+    (`alrimi_api.housekeeping`).
     """
     for outstanding in OutstandingToken.objects.filter(user=user):
         BlacklistedToken.objects.get_or_create(token=outstanding)
+
+
+def invite_data(invite: Invite) -> dict:
+    """초대 응답. 링크 주소가 아니라 열쇠만 준다 — 주소는 웹이 자기 origin 으로 만든다."""
+    return {"token": invite.token, "expires_at": invite.expires_at}
 
 
 class ObtainTokenView(APIView):
@@ -102,7 +108,7 @@ class RefreshTokenView(APIView):
     한 곳에서만 부르고(`lib/api.ts` 의 공유 프로미스), 탭이 여럿이라 엇갈려 거절당하면 그 사이
     심어진 **새 쿠키로 한 번 더** 시도한다.
 
-    폐기 목록은 쌓이기만 하므로 `manage.py flushexpiredtokens` 를 가끔 돌린다.
+    폐기 목록은 쌓이기만 하므로 서버가 하루 한 번 스스로 치운다(`alrimi_api.housekeeping`).
     """
 
     permission_classes = [AllowAny]
@@ -147,6 +153,65 @@ class RevokeTokenView(APIView):
         return clear_refresh(Response(status=status.HTTP_204_NO_CONTENT))
 
 
+class InviteView(APIView):
+    """
+    GET  /auth/invite/{token} → {"name", "username"} — 누구를 맞이하는지
+    POST /auth/invite/{token} {"password"} → {"access_token"} + refresh 쿠키
+
+    초대 링크가 열리는 자리. **로그인 없이** 부른다 — 링크를 받은 사람은 아직 계정에
+    들어가는 방법이 이것뿐이다.
+
+    받아야 할 것은 새 비밀번호 하나다. 예전처럼 임시 비밀번호를 옮겨 적고 들어와서 또
+    바꾸는 두 걸음이 없다. 정하는 순간 로그인까지 끝나므로(`issue`) 링크를 누른 사람은
+    비밀번호 한 번 적고 바로 달력을 본다.
+
+    **정하는 순간 옛 로그인은 모두 끊는다.** 비밀번호를 잊어 새 링크를 받은 경우라면,
+    잊은 까닭이 "누가 쓰고 있는지 모른다" 일 수 있다.
+
+    **쓴 링크는 사라진다.** 같은 링크로 두 번째 사람이 들어와 비밀번호를 바꿔칠 수 없다.
+
+    틀린 열쇠는 IP 마다 센다(`accounts.throttle`). 24바이트를 찍어 맞힐 길은 없지만,
+    맞을 때까지 두드리는 것을 두고 볼 까닭도 없다.
+    """
+
+    permission_classes = [AllowAny]
+    authentication_classes: list = []
+
+    def get(self, request, token):
+        invite = self.find(request, token)
+        return Response({"name": invite.user.name, "username": invite.user.username})
+
+    def post(self, request, token):
+        invite = self.find(request, token)
+
+        serializer = InvitePasswordSerializer(data=request.data, context={"user": invite.user})
+        serializer.is_valid(raise_exception=True)
+
+        user = invite.user
+        user.set_password(serializer.validated_data["password"])
+        user.save(update_fields=["password"])
+        # 먼저 끊고 아래에서 새로 준다. 순서가 반대면 방금 준 것까지 함께 끊긴다.
+        revoke_sessions(user)
+        invite.delete()
+
+        User.objects.filter(pk=user.pk).update(last_login=timezone.now())
+        return issue(user)
+
+    @staticmethod
+    def find(request, token: str) -> Invite:
+        keys = [f"invite:{throttle.client_ip(request) or '-'}"]
+        throttle.check(keys)
+
+        invite = Invite.objects.select_related("user").filter(token=token).first()
+        if invite is None or not invite.alive or not invite.user.is_active:
+            throttle.record_failure(keys)
+            # 만료와 없는 링크를 나눠 말하지 않는다. 링크가 있었는지조차 알려줄 까닭이 없다.
+            raise NotFound("초대 링크가 만료되었거나 이미 사용되었어요. 새 링크를 받아주세요.")
+
+        throttle.clear(keys)
+        return invite
+
+
 class MeView(APIView):
     """GET/PATCH /users/me"""
 
@@ -169,12 +234,8 @@ class ChangePasswordView(APIView):
     """
     POST /users/me/password → {"access_token"} + 새 refresh 쿠키
 
-    처음 받은 비밀번호(0000)로 들어온 사람도 여기는 부를 수 있다
-    (`accounts.authentication.ALLOWED_URL_NAMES`). 바꾸면 강제 변경이 풀린다.
-
-    **로그인은 끊지 않고 새 토큰을 준다.** 예전에는 쿠키를 지워 다시 로그인하게 했는데,
-    첫 로그인이면 "0000 으로 로그인 → 바꾸기 → 새 비밀번호로 또 로그인" 이 되어 들어오는
-    데만 세 번을 거친다. 방금 현재 비밀번호를 맞힌 사람이라 다시 물을 까닭이 없다.
+    **로그인은 끊지 않고 새 토큰을 준다.** 쿠키를 지워 다시 로그인하게 하면, 방금 현재
+    비밀번호를 맞힌 사람에게 같은 것을 한 번 더 묻는 꼴이 된다.
 
     **다른 기기의 로그인은 끊는다.** 비밀번호를 바꾸는 까닭의 절반은 "누가 보고 있을지도
     모른다" 인데, 살아 있는 refresh 토큰을 그대로 두면 그 기기는 30일 동안 그대로 들어온다.
@@ -188,8 +249,7 @@ class ChangePasswordView(APIView):
         serializer.is_valid(raise_exception=True)
 
         request.user.set_password(serializer.validated_data["new_password"])
-        request.user.must_change_password = False
-        request.user.save(update_fields=["password", "must_change_password"])
+        request.user.save(update_fields=["password"])
 
         # 옛 토큰을 먼저 끊고 새것을 발급한다. 순서가 반대면 방금 준 것까지 함께 끊긴다.
         revoke_sessions(request.user)
@@ -199,7 +259,7 @@ class ChangePasswordView(APIView):
 class UserListCreateView(APIView):
     """
     GET  /users → 사용자 목록
-    POST /users {"username", "name"} → 추가. 비밀번호는 늘 0000 이다
+    POST /users {"username", "name"} → 추가. 비밀번호 없이 만들고 초대 링크를 준다
 
     관리자와 최고 관리자가 부른다. 관리자가 할 수 있는 것은 **여기까지**다 —
     권한을 바꾸고 지우는 것은 `UserDetailView` 이고 최고 관리자만 들어간다.
@@ -208,31 +268,37 @@ class UserListCreateView(APIView):
     permission_classes = [IsAuthenticated, CanAddUsers]
 
     def get(self, request):
-        # 권한이 높은 사람이 위로. 같은 등급 안에서는 아이디 순이다
-        users = User.objects.order_by("-is_superuser", "-is_staff", "username")
+        # 권한이 높은 사람이 위로. 같은 등급 안에서는 아이디 순이다.
+        # 초대가 남았는지를 줄마다 물으면 사람 수만큼 쿼리가 된다 — 한 번에 붙여 온다.
+        users = User.objects.select_related("invite").order_by(
+            "-is_superuser", "-is_staff", "username"
+        )
         return Response(UserSerializer(users, many=True).data)
 
     def post(self, request):
         """
-        임시 비밀번호는 **이 응답에만** 실린다. 저장되는 것은 해시라 여기서 못 보여주면 아무도
-        알 수 없다 — 화면이 "한 번만 보여요" 라고 적고 옮겨 적게 한다.
+        초대 링크의 열쇠는 **이 응답에만** 실린다. 링크 주소는 웹이 자기 주소로 조립한다 —
+        서버는 어느 주소로 열려 있는지(도메인·앱·개발 서버) 모른다.
         """
         serializer = UserCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
-        data = {**UserSerializer(user).data, "temporary_password": user.temporary_password}
+        data = {**UserSerializer(user).data, "invite": invite_data(user.invite)}
         return Response(data, status=status.HTTP_201_CREATED)
 
 
-class ResetPasswordView(APIView):
+class ReissueInviteView(APIView):
     """
-    POST /users/{id}/password/reset → {"temporary_password": "..."} (최고 관리자만)
+    POST /users/{id}/invite → {"token", "expires_at"} (최고 관리자만)
 
-    비밀번호를 잊은 사람에게 새 임시 비밀번호를 만들어 준다. 만든 값은 이 응답에만 실리고,
-    받은 사람은 첫 로그인에서 바꾸게 된다. 살아 있던 로그인은 모두 끊는다 — 잊었다는 것은
-    누가 쓰고 있는지 모른다는 뜻일 수 있다.
+    비밀번호를 잊었거나 링크가 만료된 사람에게 새 링크를 만들어 준다. 사람마다 줄이
+    하나라 새로 만들면 앞의 링크는 그 자리에서 죽는다.
 
-    자기 자신은 여기서 바꾸지 않는다. 그 길은 `/users/me/password` 다.
+    **지금 비밀번호는 건드리지 않는다.** 링크를 만들었다는 것만으로 쓰던 비밀번호가 막히면,
+    보내고 보니 필요 없었을 때 멀쩡한 계정을 잠가버리는 셈이다. 실제로 링크를 눌러 새
+    비밀번호를 정하는 순간에 옛 비밀번호도 로그인도 함께 끊긴다(`InviteView.post`).
+
+    자기 자신은 여기서 하지 않는다. 그 길은 `/users/me/password` 다.
     """
 
     permission_classes = [IsAuthenticated, IsSuperuser]
@@ -242,13 +308,8 @@ class ResetPasswordView(APIView):
         if user.pk == request.user.pk:
             raise ValidationError({"detail": "내 비밀번호는 계정 설정에서 바꿔주세요."})
 
-        password = temporary_password()
-        user.set_password(password)
-        user.must_change_password = True
-        user.save(update_fields=["password", "must_change_password"])
-        revoke_sessions(user)
-
-        return Response({"temporary_password": password})
+        Invite.objects.filter(user=user).delete()
+        return Response(invite_data(Invite.objects.create(user=user)))
 
 
 class UserSearchView(APIView):

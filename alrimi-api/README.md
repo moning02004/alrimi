@@ -107,20 +107,22 @@ DJANGO_ENV=prod gunicorn alrimi_api.wsgi -b 0.0.0.0:8000 -w 3
 
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
-| GET | `/users/me` | `{username, name, is_staff, is_superuser, must_change_password, version, …}` |
+| GET | `/users/me` | `{username, name, is_staff, is_superuser, version, …}` |
 | PATCH | `/users/me` | `{name}` |
 | POST | `/users/me/password` | `{current_password, new_password}` → `{access_token}` + 새 refresh 쿠키. 다시 로그인하지 않는다 |
 | GET | `/users` | 사용자 목록. 관리자·최고 관리자 |
-| POST | `/users` | `{username, name}` → 201. 비밀번호는 늘 `0000`. 관리자·최고 관리자 |
+| POST | `/users` | `{username, name}` → 201 + `{invite: {token, expires_at}}`. 관리자·최고 관리자 |
+| POST | `/users/{id}/invite` | 새 초대 링크 → `{token, expires_at}`. 최고 관리자만 |
 | PATCH | `/users/{id}` | `{is_staff?, is_superuser?}`. 최고 관리자만, 자기 자신은 안 된다 |
 | DELETE | `/users/{id}` | 204. 최고 관리자만, 자기 자신은 안 된다 |
 
 **사용자는 관리자가 추가한다.** 회원가입은 없다. 추가할 때 받는 것은 이름과 아이디뿐이고,
-비밀번호는 서버가 **임시 비밀번호**를 만들어 그 응답에만 실어 준다(`temporary_password`).
-추가하는 사람이 정하게 하면 남의 비밀번호를 아는 채로 남고, 예전처럼 모두가 아는 `0000` 이면
-아이디만 아는 사람이 본인보다 먼저 들어가 계정을 가져갈 수 있다. 잊었으면 최고 관리자가
-`POST /users/{id}/password/reset` 으로 새로 발급한다(그 사람의 로그인은 모두 끊긴다). 권한도 받지 않는다. 추가한 사람은 일반 사용자로 시작하고 권한은 최고 관리자가
-따로 준다.
+**비밀번호는 아무도 정하지 않는다.** 만들어진 계정에는 쓸 수 있는 비밀번호가 아예 없고
+(`set_unusable_password`), 대신 **초대 링크**가 하나 나온다. 추가하는 사람이 정하게 하면 남의
+비밀번호를 아는 채로 남고, 예전처럼 모두가 아는 `0000` 이면 아이디만 아는 사람이 본인보다 먼저
+들어가 계정을 가져갈 수 있다.
+
+권한도 받지 않는다. 추가한 사람은 일반 사용자로 시작하고 권한은 최고 관리자가 따로 준다.
 
 | | 추가 | 권한 변경 | 삭제 |
 | --- | --- | --- | --- |
@@ -131,14 +133,33 @@ DJANGO_ENV=prod gunicorn alrimi_api.wsgi -b 0.0.0.0:8000 -w 3
 최고 관리자도 꺼진다. 자기 권한을 바꾸거나 자기를 지우는 것은 막는다 — 마지막 최고
 관리자가 스스로 내려오면 되돌려줄 사람이 없다.
 
-**`0000` 으로 들어온 사람은 비밀번호부터 바꿔야 한다.** `must_change_password` 가 켜진
-동안에는 `/users/me` 와 `/users/me/password` 말고는 전부 403(`password_change_required`)
-이다. 화면이 아니라 인증(`accounts.authentication`)에서 막는다 — 화면만 막으면 주소를
-직접 부르는 길이 남는다. 401 이 아니라 403 인 까닭은, 웹이 401 을 받으면 로그아웃시켜서
-바꾸러 갈 수도 없게 되기 때문이다. `0000` 은 새 비밀번호로 받지 않는다(추가할 때만 쓴다).
-createsuperuser·관리자 사이트로 만든 계정은 비밀번호를 직접 정했으므로 이 표시가 없다.
+### 초대 링크
 
-회원가입은 없다. 계정은 `createsuperuser`나 admin에서 발급한다.
+| 메서드 | 경로 | 설명 |
+| --- | --- | --- |
+| GET | `/auth/invite/{token}` | `{name, username}` — 누구를 맞이하는지. 로그인 없이 |
+| POST | `/auth/invite/{token}` | `{password}` → `{access_token}` + refresh 쿠키. 로그인 없이 |
+
+새 계정에 **처음 들어가는 유일한 길**이다(`accounts.models.Invite`). 관리자가 링크를
+보내주면, 받은 사람이 그것을 눌러 **자기 비밀번호를 정하면서 곧장 로그인한다**. 옮겨 적을
+값이 없고, 들어와서 또 바꾸는 걸음도 없다.
+
+- 열쇠는 24바이트(`secrets.token_urlsafe`)다. 사람이 옮겨 적는 값이 아니라 링크에 실려
+  가는 값이므로, 읽기 좋은 글자를 고르는 대신 찍어 맞힐 수 없을 만큼 길게 간다.
+- **사람마다 많아야 하나**다. 새로 만들면 앞의 링크는 그 자리에서 죽는다.
+- **사흘**이면 만료된다. 카톡으로 보내놓고 저녁에 여는 정도는 넉넉하고, 대화방에 남은 링크가
+  몇 달 뒤까지 계정을 여는 열쇠로 남지는 않는다.
+- **쓰면 사라진다.** 지워지는 것이 곧 "썼다" 는 표시라 표가 쌓이지 않는다. 안 쓴 채 기한이
+  지난 줄은 하루 한 번 청소가 지운다(`alrimi_api/housekeeping.py`).
+- 비밀번호를 정하는 순간 **그 사람의 살아 있던 로그인은 모두 끊긴다.** 다만 링크를 만드는
+  것만으로는 쓰던 비밀번호가 막히지 않는다 — 보내고 보니 필요 없었을 때 멀쩡한 계정을
+  잠가버리지 않으려는 것이다.
+- 틀린 열쇠는 IP 마다 센다(`accounts/throttle.py`). 로그인과 같은 자리를 쓴다.
+
+링크 **주소**는 서버가 모른다(도메인·개발 서버·설치한 앱). 서버는 열쇠만 주고, 주소는 웹이
+자기 origin 으로 조립한다 — `/join/{token}`.
+
+`createsuperuser` 나 관리자 사이트로 만든 계정은 비밀번호를 직접 정하므로 초대가 없다.
 
 ### 공간
 

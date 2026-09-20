@@ -26,7 +26,6 @@ class UserAdmin(DjangoUserAdmin):
                     "is_active",
                     "is_staff",
                     "is_superuser",
-                    "must_change_password",
                     "groups",
                     "user_permissions",
                 )

@@ -1,28 +1,9 @@
 import datetime as dt
 import secrets
-import string
 
 from django.contrib.auth.models import AbstractUser
 from django.db import models
-
-#  임시 비밀번호에 쓰는 글자. 눈으로 옮겨 적는 값이라 헷갈리는 것(0·O·1·l·I)은 뺀다.
-TEMPORARY_ALPHABET = "".join(
-    c for c in string.ascii_lowercase + string.digits if c not in "0o1li"
-)
-TEMPORARY_LENGTH = 10
-
-
-def temporary_password() -> str:
-    """
-    관리자가 사용자를 추가할 때 만들어 **한 번만 보여주는** 비밀번호.
-
-    예전에는 모두가 아는 `0000` 이었다. 아이디를 아는 사람이 본인보다 먼저 들어가 비밀번호를
-    정하면 계정을 가져갈 수 있었다 — 첫 로그인 강제 변경이 오히려 가져간 쪽을 도왔다.
-
-    받은 사람은 첫 로그인에서 바꾸게 되고(`User.must_change_password`), 그 뒤로는 만든
-    사람도 모른다. 잊었으면 최고 관리자가 새로 발급한다(`POST /users/{id}/password/reset`).
-    """
-    return "".join(secrets.choice(TEMPORARY_ALPHABET) for _ in range(TEMPORARY_LENGTH))
+from django.utils import timezone
 
 
 # Create your models here.
@@ -31,20 +12,62 @@ class User(AbstractUser):
 
     name = models.CharField(max_length=255, null=True, blank=True)
     ntfy_topic = models.CharField(max_length=255, null=True, blank=True)
-    must_change_password = models.BooleanField(
-        default=False,
-        help_text=(
-            "처음 받은 비밀번호(0000)를 아직 안 바꿨다. 켜져 있으면 내 정보 조회와 비밀번호 "
-            "변경 말고는 API 가 전부 403 으로 막힌다(`accounts.authentication`). 화면의 "
-            "'사용자 추가' 로 만든 계정만 켜진다 — createsuperuser 나 관리자 사이트로 만든 "
-            "계정은 비밀번호를 직접 정했으므로 끈 채로 둔다."
-        ),
-    )
 
     def save(self, *args, **kwargs):
         if not self.ntfy_topic:
             self.ntfy_topic = f"alrimi-{secrets.token_hex(8)}"
         super().save(*args, **kwargs)
+
+
+def invite_token() -> str:
+    """
+    초대 링크의 열쇠. 24바이트(192비트)라 찍어서 맞히는 길은 없다.
+
+    사람이 옮겨 적는 값이 아니라 링크에 실려 가는 값이므로, 읽기 좋은 글자를 고르는 대신
+    길게 간다 — 이것이 짧은 임시 비밀번호와 갈리는 지점이다.
+    """
+    return secrets.token_urlsafe(24)
+
+
+class Invite(models.Model):
+    """
+    새로 만든 계정에 처음 들어가는 길. **사람마다 많아야 하나**다.
+
+    예전에는 관리자가 임시 비밀번호를 만들어 불러주고, 받은 사람이 그것을 옮겨 적은 뒤 첫
+    로그인에서 다시 바꿨다. 열 자를 옮겨 적는 것도, 들어오자마자 또 바꾸는 것도 번거로웠다.
+    지금은 관리자가 링크 하나를 보내고, 받은 사람은 그것을 눌러 **자기 비밀번호를 정하면서**
+    곧장 로그인한다. 옮겨 적을 값이 없고, 서버가 아는 비밀번호도 없다.
+
+    **다 쓰면 줄이 사라진다.** 지워지는 것이 곧 "썼다" 는 표시라 따로 `used_at` 을 두지
+    않고, 표가 쌓이지도 않는다. 새로 만들면 앞의 것을 덮으므로 링크는 늘 마지막 것 하나만
+    살아 있다.
+
+    만료된 줄은 다음 초대가 덮거나 하루 한 번 청소가 지운다(`alrimi_api.housekeeping`).
+    """
+
+    #  사흘. 카톡으로 보내놓고 저녁에 여는 정도는 넉넉히 살아 있어야 하고, 대화방에 남은
+    #  링크가 몇 달 뒤까지 계정을 여는 열쇠로 남아 있어서는 안 된다.
+    TTL = dt.timedelta(days=3)
+
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="invite")
+    token = models.CharField(max_length=64, unique=True, default=invite_token)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+
+    class Meta:
+        indexes = [models.Index(fields=["expires_at"])]
+
+    def __str__(self) -> str:
+        return f"{self.user_id} ~{self.expires_at:%Y-%m-%d}"
+
+    def save(self, *args, **kwargs):
+        if not self.expires_at:
+            self.expires_at = timezone.now() + self.TTL
+        super().save(*args, **kwargs)
+
+    @property
+    def alive(self) -> bool:
+        return self.expires_at > timezone.now()
 
 
 class PushSubscription(models.Model):
