@@ -2,9 +2,16 @@
 
 import { useState } from "react";
 import toast from "react-hot-toast";
+import { LuCopy, LuKeyRound } from "react-icons/lu";
 import { BottomSheet } from "./BottomSheet";
 import { firstError } from "@/lib/api";
-import { useCreateUser, useDeleteUser, useUpdateUserRole, useUsers } from "@/hooks/useUsers";
+import {
+  useCreateUser,
+  useDeleteUser,
+  useResetUserPassword,
+  useUpdateUserRole,
+  useUsers,
+} from "@/hooks/useUsers";
 import type { ManagedUser, Me } from "@/types";
 
 // 설정 화면의 줄·묶음과 같은 모양이다(`app/(main)/settings/page.tsx`)
@@ -119,10 +126,73 @@ function UserCreateSheet({ open, onClose }: { open: boolean; onClose: () => void
   );
 }
 
+/**
+ * 한 번만 보여주는 임시 비밀번호.
+ *
+ * 서버에는 해시만 남아서 이 화면을 닫으면 아무도 알 수 없다 — 그래서 닫기 전에 옮겨 적게
+ * 하고, 복사 버튼을 눌러 메시지로 보낼 수 있게 둔다. 잊었으면 새로 발급하면 된다.
+ */
+function IssuedPassword({
+  label,
+  username,
+  password,
+}: {
+  label: string;
+  username: string;
+  password: string;
+}) {
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(password);
+      toast.success("복사했어요");
+    } catch {
+      // 클립보드를 막아둔 브라우저도 있다. 화면의 값을 직접 옮겨 적으면 된다.
+      toast.error("복사하지 못했어요. 화면의 값을 적어주세요");
+    }
+  };
+
+  return (
+    <div className="rounded-2xl border border-pine/40 bg-pinelt/50 px-4 py-4">
+      <p className="text-sm font-medium">{label} 님의 임시 비밀번호</p>
+      <p className="mt-1 text-xs leading-relaxed text-muted">
+        이 화면을 닫으면 다시 볼 수 없어요. 아이디(<b className="text-ink">{username}</b>)와 함께
+        전해주세요.
+      </p>
+
+      <div className="mt-3 flex items-center gap-2">
+        <code
+          className="min-w-0 flex-1 truncate rounded-xl border border-line bg-card px-3.5 py-3
+                     text-base tracking-wider"
+        >
+          {password}
+        </code>
+        <button
+          type="button"
+          onClick={copy}
+          aria-label="임시 비밀번호 복사"
+          title="복사"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border
+                     border-line bg-card text-muted transition-colors hover:border-pine/50 hover:text-pine"
+        >
+          <LuCopy className="h-4 w-4" aria-hidden="true" />
+        </button>
+      </div>
+
+      <p className="mt-3 text-xs leading-relaxed text-muted">
+        받은 사람은 처음 로그인할 때 다른 화면으로 가기 전에 새 비밀번호로 바꾸게 돼요.
+      </p>
+    </div>
+  );
+}
+
 function CreateForm({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState("");
   const [username, setUsername] = useState("");
   const [error, setError] = useState<string | null>(null);
+  /** 만들고 난 뒤 보여줄 값. 이것이 있으면 폼 대신 이 값만 보인다 */
+  const [issued, setIssued] = useState<{ label: string; username: string; password: string } | null>(
+    null,
+  );
   const create = useCreateUser();
 
   const submit = () => {
@@ -138,13 +208,29 @@ function CreateForm({ onClose }: { onClose: () => void }) {
       {
         onSuccess: (user) => {
           toast.success(`${user.name} 님을 추가했어요`);
-          onClose();
+          // 닫지 않는다 — 임시 비밀번호는 지금 이 화면에서만 볼 수 있다
+          setIssued({
+            label: user.name || user.username,
+            username: user.username,
+            password: user.temporary_password,
+          });
         },
         // 이미 있는 아이디 등. 어느 칸이 문제인지 서버가 말해준다
         onError: (err) => setError(firstError(err, "추가하지 못했어요")),
       },
     );
   };
+
+  if (issued) {
+    return (
+      <div className="pb-3">
+        <IssuedPassword {...issued} />
+        <button onClick={onClose} className={submitCls}>
+          확인했어요
+        </button>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -181,13 +267,10 @@ function CreateForm({ onClose }: { onClose: () => void }) {
 
       <div className="mt-3 space-y-1.5 rounded-xl border border-line bg-card px-3.5 py-3 text-xs leading-relaxed text-muted">
         <p>
-          처음 비밀번호는 <b className="text-ink">0000</b> 으로 만들어져요. 추가한 사람에게 아이디와
-          함께 알려주세요.
+          임시 비밀번호는 추가하고 나면 <b className="text-ink">한 번만</b> 보여요. 그 화면에서
+          아이디와 함께 전해주세요.
         </p>
-        <p>
-          처음 로그인하면 다른 화면으로 가기 전에 반드시 새 비밀번호로 바꿔야 해요. 0000 은 새
-          비밀번호로 쓸 수 없어요.
-        </p>
+        <p>받은 사람은 처음 로그인할 때 반드시 새 비밀번호로 바꾸게 돼요.</p>
         <p>추가한 사람은 일반 사용자로 시작해요. 권한은 최고 관리자가 줄 수 있어요.</p>
       </div>
 
@@ -222,7 +305,9 @@ function UserManageSheet({ userId, onClose }: { userId: number | null; onClose: 
 function ManageForm({ user, onClose }: { user: ManagedUser; onClose: () => void }) {
   const update = useUpdateUserRole();
   const remove = useDeleteUser();
+  const reset = useResetUserPassword();
   const [confirming, setConfirming] = useState(false);
+  const [issued, setIssued] = useState<string | null>(null);
   const label = user.name || user.username;
 
   const setRole = (roles: { is_staff?: boolean; is_superuser?: boolean }) =>
@@ -253,6 +338,31 @@ function ManageForm({ user, onClose }: { user: ManagedUser; onClose: () => void 
           disabled={update.isPending}
           onToggle={() => setRole({ is_superuser: !user.is_superuser })}
         />
+      </div>
+
+      {/*
+        비밀번호를 잊은 사람에게 새 임시 비밀번호를 준다. 이 사람의 로그인은 모두 끊긴다 —
+        잊었다는 것은 누가 쓰고 있는지 모른다는 뜻일 수도 있다.
+      */}
+      <div className="mt-3">
+        {issued ? (
+          <IssuedPassword label={label} username={user.username} password={issued} />
+        ) : (
+          <button
+            onClick={() =>
+              reset.mutate(user.id, {
+                onSuccess: ({ temporary_password }) => setIssued(temporary_password),
+                onError: (err) => toast.error(firstError(err, "발급하지 못했어요")),
+              })
+            }
+            disabled={reset.isPending}
+            className="flex w-full items-center justify-center gap-2 rounded-xl border border-line
+                       bg-card py-3 text-sm disabled:opacity-60"
+          >
+            <LuKeyRound className="h-4 w-4 text-muted" aria-hidden="true" />
+            {reset.isPending ? "발급하는 중" : "비밀번호 새로 발급"}
+          </button>
+        )}
       </div>
 
       {/*

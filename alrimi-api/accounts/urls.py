@@ -9,6 +9,7 @@ from .views import (
     PushTestView,
     RefreshTokenView,
     RevokeTokenView,
+    ResetPasswordView,
     UserDetailView,
     UserListCreateView,
     UserSearchView,
@@ -31,6 +32,8 @@ user_patterns = [
     # 공간을 함께 볼 사람 찾기. 로그인한 누구나. `<int:user_id>` 보다 먼저 와야 한다
     path("users/search", UserSearchView.as_view(), name="user-search"),
     path("users/<int:user_id>", UserDetailView.as_view(), name="user-detail"),
+    # 비밀번호를 잊은 사람에게 임시 비밀번호를 새로 발급한다(최고 관리자)
+    path("users/<int:user_id>/password/reset", ResetPasswordView.as_view(), name="user-password-reset"),
 ]
 
 #  웹 푸시. ntfy 는 토픽 하나로 끝나지만 이쪽은 기기마다 등록·해지가 필요해서

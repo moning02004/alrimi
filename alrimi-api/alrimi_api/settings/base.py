@@ -2,6 +2,7 @@
 환경 공통 설정. local/prod가 이 모듈을 읽고 각자 필요한 부분만 덮어쓴다.
 """
 
+import sys
 from datetime import timedelta
 from pathlib import Path
 
@@ -103,8 +104,11 @@ SIMPLE_JWT = {
     # refresh를 부르고 StrictMode에서 두 번 실행되므로, 같은 쿠키를 든 요청이
     # 여러 개 동시에 뜬다. 회전시키면 그중 하나만 살고 나머지는 401을 받아
     # 프런트가 로그아웃 처리해버린다. 폐기는 로그아웃에서만 한다.
-    "ROTATE_REFRESH_TOKENS": False,
-    "BLACKLIST_AFTER_ROTATION": False,
+    # 재발급할 때마다 refresh 토큰을 새것으로 바꾸고 옛것은 폐기한다. 유출된 토큰이 살아 있는
+    # 시간이 "30일" 에서 "다음 재발급까지" 로 줄어든다. 웹은 재발급을 한 곳에서만 부르고
+    # (`lib/api.ts`), 경합으로 한 번 거절당하면 새 쿠키로 한 번 더 시도한다.
+    "ROTATE_REFRESH_TOKENS": True,
+    "BLACKLIST_AFTER_ROTATION": True,
     "UPDATE_LAST_LOGIN": True,
 }
 
@@ -194,7 +198,10 @@ GOOGLE_REDIRECT_URI = env("GOOGLE_REDIRECT_URI")
 GOOGLE_TIMEOUT_SECONDS = env_int("GOOGLE_TIMEOUT_SECONDS", 10)
 
 # 스레드 없이 그 자리에서 보낸다. 테스트용이다 — 켜면 일정 저장이 구글을 기다린다.
-GOOGLE_CALENDAR_SYNC_INLINE = env_bool("GOOGLE_CALENDAR_SYNC_INLINE", False)
+#  테스트는 스레드를 띄우지 않는다. 일꾼 스레드가 sqlite 테스트 DB 를 건드리면 "table is
+#  locked" 가 나고, 무엇보다 테스트가 끝난 뒤에도 뒤에서 무언가 돌고 있게 된다.
+TESTING = "test" in sys.argv
+GOOGLE_CALENDAR_SYNC_INLINE = env_bool("GOOGLE_CALENDAR_SYNC_INLINE", TESTING)
 
 
 # ── CORS ──────────────────────────────────────────────────────────────

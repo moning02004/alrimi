@@ -1,8 +1,12 @@
+import datetime as dt
+
+from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 from django.test import TestCase
 from django.urls import reverse
 
-from .models import INITIAL_PASSWORD
+from .models import TEMPORARY_LENGTH
 
 User = get_user_model()
 
@@ -36,14 +40,20 @@ class UserManagementTestCase(TestCase):
 
 
 class AddUserTests(UserManagementTestCase):
-    def test_관리자는_추가할_수_있고_비밀번호는_0000_이다(self):
+    def test_관리자가_추가하면_임시_비밀번호를_한_번_준다(self):
         res = self.add("staff")
 
         self.assertEqual(res.status_code, 201)
         self.assertEqual(res.json()["name"], "새 사람")
         self.assertTrue(res.json()["must_change_password"])
+
+        password = res.json()["temporary_password"]
+        self.assertEqual(len(password), TEMPORARY_LENGTH)
         user = User.objects.get(username="newbie")
-        self.assertTrue(user.check_password(INITIAL_PASSWORD))
+        self.assertTrue(user.check_password(password))
+        # 목록에는 안 실린다 — 보여줄 기회는 만든 그 순간뿐이다
+        listed = self.client.get(reverse("users"), headers=self.auth("staff")).json()
+        self.assertNotIn("temporary_password", listed[0])
         # 추가한 사람은 늘 일반 사용자로 시작한다
         self.assertFalse(user.is_staff or user.is_superuser)
 
@@ -65,7 +75,7 @@ class AddUserTests(UserManagementTestCase):
         )
         user = User.objects.get(username="sneaky")
         self.assertFalse(user.is_staff or user.is_superuser)
-        self.assertTrue(user.check_password(INITIAL_PASSWORD))
+        self.assertFalse(user.check_password("x"))
 
     def test_이름과_아이디가_모두_있어야_한다(self):
         res = self.client.post(
@@ -139,8 +149,8 @@ class RoleAndDeleteTests(UserManagementTestCase):
 class FirstLoginTests(UserManagementTestCase):
     def setUp(self):
         super().setUp()
-        self.add("staff")
-        self.newbie = self.auth("newbie", INITIAL_PASSWORD)
+        self.temporary = self.add("staff").json()["temporary_password"]
+        self.newbie = self.auth("newbie", self.temporary)
 
     def change(self, current, new, headers=None):
         return self.client.post(
@@ -159,17 +169,12 @@ class FirstLoginTests(UserManagementTestCase):
         # 401 이 아니다 — 웹은 401 을 받으면 로그아웃시켜 바꾸러 갈 수도 없게 된다
         self.assertEqual(blocked.status_code, 403)
 
-    def test_0000_으로는_바꿀_수_없다(self):
-        res = self.change(INITIAL_PASSWORD, INITIAL_PASSWORD)
-        self.assertEqual(res.status_code, 400)
-        self.assertIn("0000", str(res.json()["new_password"]))
-
-    def test_이미_바꾼_사람도_0000_으로_되돌릴_수_없다(self):
-        res = self.change(PASSWORD, INITIAL_PASSWORD, headers=self.auth("plain"))
+    def test_같은_비밀번호로는_바꿀_수_없다(self):
+        res = self.change(self.temporary, self.temporary)
         self.assertEqual(res.status_code, 400)
 
     def test_바꾸면_풀리고_다시_로그인하지_않고_이어_쓴다(self):
-        res = self.change(INITIAL_PASSWORD, "새-비밀번호-5678")
+        res = self.change(self.temporary, "새-비밀번호-5678")
 
         self.assertEqual(res.status_code, 200)
         user = User.objects.get(username="newbie")
@@ -186,3 +191,98 @@ class FirstLoginTests(UserManagementTestCase):
     def test_직접_만든_계정은_강제_변경이_없다(self):
         me = self.client.get(reverse("me"), headers=self.auth("plain")).json()
         self.assertFalse(me["must_change_password"])
+
+
+class LoginThrottleTests(UserManagementTestCase):
+    """아이디를 아는 사람이 비밀번호를 찍어 맞히는 것을 막는다."""
+
+    def login(self, password, ip="1.2.3.4"):
+        return self.client.post(
+            reverse("obtain-token"),
+            {"username": "plain", "password": password},
+            content_type="application/json",
+            HTTP_X_FORWARDED_FOR=ip,
+        )
+
+    def test_다섯_번_틀리면_잠기고_맞는_비밀번호도_막힌다(self):
+        from .models import LoginThrottle
+
+        for _ in range(LoginThrottle.MAX_FAILURES):
+            self.assertEqual(self.login("틀린-비밀번호").status_code, 400)
+
+        locked = self.login(PASSWORD)
+        self.assertEqual(locked.status_code, 429)
+        self.assertIn("여러 번", str(locked.json()))
+
+    def test_잠긴_뒤_시간이_지나면_다시_된다(self):
+        from .models import LoginThrottle
+
+        for _ in range(LoginThrottle.MAX_FAILURES):
+            self.login("틀린-비밀번호")
+
+        # 잠금이 끝난 것으로 옮긴다 — 기다리지 않고 경계만 확인한다
+        LoginThrottle.objects.update(locked_until=timezone.now() - dt.timedelta(seconds=1))
+        self.assertEqual(self.login(PASSWORD).status_code, 200)
+
+    def test_들어오면_센_것이_지워진다(self):
+        from .models import LoginThrottle
+
+        self.login("틀린-비밀번호")
+        self.assertEqual(self.login(PASSWORD).status_code, 200)
+        self.assertFalse(LoginThrottle.objects.exists())
+
+    def test_다른_아이디로_바꿔도_같은_IP_면_막힌다(self):
+        from .models import LoginThrottle
+
+        for _ in range(LoginThrottle.MAX_FAILURES):
+            self.login("틀린-비밀번호")
+
+        res = self.client.post(
+            reverse("obtain-token"),
+            {"username": "staff", "password": PASSWORD},
+            content_type="application/json",
+            HTTP_X_FORWARDED_FOR="1.2.3.4",
+        )
+        self.assertEqual(res.status_code, 429)
+
+
+class ResetPasswordTests(UserManagementTestCase):
+    """비밀번호를 잊은 사람에게 최고 관리자가 새 임시 비밀번호를 준다."""
+
+    def reset(self, as_user, target):
+        return self.client.post(
+            reverse("user-password-reset", args=[target.id]), headers=self.auth(as_user)
+        )
+
+    def test_최고_관리자만_발급하고_받은_사람은_다시_바꿔야_한다(self):
+        plain = User.objects.get(username="plain")
+
+        self.assertEqual(self.reset("staff", plain).status_code, 403)
+
+        res = self.reset("root", plain)
+        self.assertEqual(res.status_code, 200)
+        password = res.json()["temporary_password"]
+
+        plain.refresh_from_db()
+        self.assertTrue(plain.check_password(password))
+        self.assertTrue(plain.must_change_password)
+        self.assertEqual(self.auth("plain", password)["authorization"][:7], "Bearer ")
+
+    def test_자기_자신은_여기서_바꾸지_않는다(self):
+        root = User.objects.get(username="root")
+        self.assertEqual(self.reset("root", root).status_code, 400)
+
+    def test_발급하면_살아_있던_로그인이_끊긴다(self):
+        plain = User.objects.get(username="plain")
+        login = self.client.post(
+            reverse("obtain-token"),
+            {"username": "plain", "password": PASSWORD},
+            content_type="application/json",
+        )
+        cookie = login.cookies[settings.REFRESH_COOKIE["name"]].value
+
+        self.reset("root", plain)
+
+        self.client.cookies[settings.REFRESH_COOKIE["name"]] = cookie
+        again = self.client.post(reverse("refresh-token"))
+        self.assertEqual(again.status_code, 401)

@@ -3,26 +3,21 @@
 import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { onlineManager, useQueryClient } from "@tanstack/react-query";
-import { API_HOST, apiUrl, pageUrl } from "@/constants/routeUrl";
+import { pageUrl } from "@/constants/routeUrl";
+import { refreshSession } from "@/lib/api";
 import { forgetOfflineCache, hasOfflineCache } from "@/lib/offlineCache";
 import { useAuthStore } from "@/store/auth";
 
-type RefreshResult = "ok" | "denied" | "unreachable";
+type RefreshOutcome = "ok" | "denied" | "unreachable";
 
-async function tryRefresh(setToken: (token: string) => void): Promise<RefreshResult> {
-  try {
-    const res = await fetch(API_HOST + apiUrl.refreshToken, {
-      method: "POST",
-      credentials: "include",
-    });
-    if (!res.ok) return "denied";
-    const data = (await res.json()) as { access_token: string };
-    setToken(data.access_token);
-    return "ok";
-  } catch {
-    // 서버에 닿지 못했다(연결 없음). 거절당한 것과 다르다 — 로그인이 풀린 게 아니다.
-    return "unreachable";
-  }
+/**
+ * 재발급은 `lib/api.ts` 의 한 곳만 부른다. 여기서 따로 부르면 같은 쿠키로 두 번 나가는데,
+ * 서버가 재발급마다 쿠키를 새것으로 바꾸므로(회전) 뒤의 것이 거절당한다.
+ */
+async function tryRefresh(): Promise<RefreshOutcome> {
+  const result = await refreshSession();
+  if (result === "unreachable") return "unreachable";
+  return result === null ? "denied" : "ok";
 }
 
 /**
@@ -40,13 +35,13 @@ export function useAuthBootstrap() {
   const router = useRouter();
   const pathname = usePathname();
   const client = useQueryClient();
-  const { token, ready, offline, setToken, setReady, setOffline } = useAuthStore();
+  const { token, ready, offline, setReady, setOffline } = useAuthStore();
 
   useEffect(() => {
     if (ready) return;
 
     (async () => {
-      const result = await tryRefresh(setToken);
+      const result = await tryRefresh();
       if (result === "unreachable" && hasOfflineCache()) {
         setOffline(true);
         // 브라우저는 연결됐다고 믿는데 서버에 못 닿는 경우가 있다(와이파이 로그인 화면 등).
@@ -59,14 +54,14 @@ export function useAuthBootstrap() {
       }
       setReady(true);
     })();
-  }, [ready, setToken, setReady, setOffline, client]);
+  }, [ready, setReady, setOffline, client]);
 
   // 오프라인 보기 중에 연결이 돌아왔다. 로그인을 다시 확인하고 받아둔 것을 새로 받는다.
   useEffect(() => {
     if (!offline) return;
 
     const onOnline = async () => {
-      const result = await tryRefresh(setToken);
+      const result = await tryRefresh();
       if (result === "ok") {
         onlineManager.setOnline(true);
         client.invalidateQueries();
@@ -79,7 +74,7 @@ export function useAuthBootstrap() {
 
     window.addEventListener("online", onOnline);
     return () => window.removeEventListener("online", onOnline);
-  }, [offline, setToken, client]);
+  }, [offline, client]);
 
   useEffect(() => {
     if (!ready) return;

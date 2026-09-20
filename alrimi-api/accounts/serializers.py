@@ -2,7 +2,7 @@ from django.contrib.auth import authenticate
 from django.contrib.auth.validators import UnicodeUsernameValidator
 from rest_framework import serializers
 
-from .models import INITIAL_PASSWORD, User
+from .models import User, temporary_password
 from .subscribe import qr_data_uri, subscribe_link
 
 
@@ -74,12 +74,6 @@ class ChangePasswordSerializer(serializers.Serializer):
         from django.contrib.auth.password_validation import validate_password
         from django.core.exceptions import ValidationError as DjangoValidationError
 
-        # 처음 받는 비밀번호로 되돌아가지 못하게 한다. 길이 검사에서도 걸리지만, 그 말로는
-        # 왜 안 되는지가 드러나지 않는다 — 검사를 느슨하게 바꾸는 날에도 이 줄은 남아야 한다.
-        if value == INITIAL_PASSWORD:
-            raise serializers.ValidationError(
-                f"{INITIAL_PASSWORD} 은 처음 받는 비밀번호라 새 비밀번호로 쓸 수 없어요."
-            )
         # 같은 값으로 "바꾸면" 강제 변경이 아무 일도 안 한 채 풀린다
         if self.context["request"].user.check_password(value):
             raise serializers.ValidationError("지금 비밀번호와 다른 비밀번호로 바꿔주세요.")
@@ -112,10 +106,14 @@ class UserSerializer(serializers.ModelSerializer):
 
 class UserCreateSerializer(serializers.Serializer):
     """
-    사용자 추가. 이름과 아이디만 받는다 — **비밀번호는 받지 않고 늘 0000 으로 만든다.**
+    사용자 추가. 이름과 아이디만 받는다 — **비밀번호는 받지 않고 임시 비밀번호를 만들어 준다.**
 
     추가하는 사람이 비밀번호를 정하게 하면 그 사람이 남의 비밀번호를 아는 채로 남는다.
-    모두가 아는 값으로 만들고 첫 로그인에서 바꾸게 하면, 바뀐 뒤의 비밀번호는 본인만 안다.
+    임시 비밀번호는 추가한 화면에 **한 번만** 보이고 서버에도 원문이 남지 않는다. 받은 사람은
+    첫 로그인에서 바꾼다.
+
+    예전에는 모두가 아는 `0000` 이었는데, 아이디만 알면 본인보다 먼저 들어가 비밀번호를
+    정해버릴 수 있었다.
 
     권한도 받지 않는다. 추가한 사람은 늘 일반 사용자로 시작하고, 권한은 최고 관리자가
     따로 준다(`UserRoleSerializer`) — 관리자가 추가하면서 관리자를 만들 수 있으면
@@ -141,9 +139,10 @@ class UserCreateSerializer(serializers.Serializer):
             name=validated_data["name"],
             must_change_password=True,
         )
-        # 비밀번호 검사(길이·숫자만)를 거치지 않는다. 0000 은 그 검사를 통과할 수 없는 값이고,
-        # 그래서 바꿀 때는 받아주지 않는다.
-        user.set_password(INITIAL_PASSWORD)
+        # 만든 값은 응답에 한 번 실어 보내려고 객체에 얹어둔다(`UserCreateView`). 저장되는 것은
+        # 늘 해시라, 이 값을 지금 보여주지 못하면 아무도 알 수 없다.
+        user.temporary_password = temporary_password()
+        user.set_password(user.temporary_password)
         user.save()
         return user
 

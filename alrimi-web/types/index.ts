@@ -180,6 +180,11 @@ export interface Me {
   version: string;
 }
 
+/** 사용자를 추가하거나 비밀번호를 새로 발급했을 때만 오는 값 — **이때 한 번만** 볼 수 있다 */
+export interface TemporaryPassword {
+  temporary_password: string;
+}
+
 /** 사용자 관리 목록의 한 사람 */
 export interface ManagedUser {
   id: number;

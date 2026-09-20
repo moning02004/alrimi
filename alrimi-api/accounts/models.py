@@ -1,13 +1,28 @@
+import datetime as dt
 import secrets
+import string
 
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 
-#  관리자가 사용자를 추가할 때 넣는 처음 비밀번호. **추가할 때만** 쓸 수 있다 —
-#  비밀번호를 바꿀 때는 이 값을 받지 않는다(`ChangePasswordSerializer`). 누구나 아는
-#  값이라, 이 비밀번호로 들어온 사람은 다른 일을 하기 전에 반드시 바꾸게 한다
-#  (`User.must_change_password`).
-INITIAL_PASSWORD = "0000"
+#  임시 비밀번호에 쓰는 글자. 눈으로 옮겨 적는 값이라 헷갈리는 것(0·O·1·l·I)은 뺀다.
+TEMPORARY_ALPHABET = "".join(
+    c for c in string.ascii_lowercase + string.digits if c not in "0o1li"
+)
+TEMPORARY_LENGTH = 10
+
+
+def temporary_password() -> str:
+    """
+    관리자가 사용자를 추가할 때 만들어 **한 번만 보여주는** 비밀번호.
+
+    예전에는 모두가 아는 `0000` 이었다. 아이디를 아는 사람이 본인보다 먼저 들어가 비밀번호를
+    정하면 계정을 가져갈 수 있었다 — 첫 로그인 강제 변경이 오히려 가져간 쪽을 도왔다.
+
+    받은 사람은 첫 로그인에서 바꾸게 되고(`User.must_change_password`), 그 뒤로는 만든
+    사람도 모른다. 잊었으면 최고 관리자가 새로 발급한다(`POST /users/{id}/password/reset`).
+    """
+    return "".join(secrets.choice(TEMPORARY_ALPHABET) for _ in range(TEMPORARY_LENGTH))
 
 
 # Create your models here.
@@ -72,3 +87,37 @@ class PushSubscription(models.Model):
     def info(self) -> dict:
         """pywebpush 가 받는 모양. 브라우저의 `subscription.toJSON()` 과 같다."""
         return {"endpoint": self.endpoint, "keys": {"p256dh": self.p256dh, "auth": self.auth}}
+
+
+class LoginThrottle(models.Model):
+    """
+    로그인을 잇달아 틀린 자리. 아이디 하나와 IP 하나마다 한 줄이다.
+
+    **실패했을 때만 쓴다.** 성공한 로그인은 읽기 한 번으로 끝나고(잠겼는지 보는 조회),
+    줄이 있을 때만 지운다 — 평소에 쓰기가 늘지 않아야 로그인이 느려지지 않는다.
+
+    캐시가 아니라 표에 둔 까닭: 운영은 워커가 여럿이고 캐시는 프로세스마다 따로라, 캐시로
+    세면 다섯 번이 열다섯 번이 된다. 표는 워커가 몇이든 같은 곳을 본다.
+
+    아이디와 IP 를 함께 세는 까닭: 아이디만 세면 아이디를 바꿔가며 같은 비밀번호를 던지는
+    쪽을 못 막고, IP 만 세면 같은 공유기 뒤의 가족이 서로를 막는다.
+    """
+
+    #  다섯 번 틀리면 잠근다. 손으로 치다 틀리는 횟수로는 넉넉하고, 자동으로 던지는 쪽에는
+    #  충분히 성가시다.
+    MAX_FAILURES = 5
+    #  이 시간 안의 실패만 센다. 어제 두 번 틀린 것이 오늘까지 따라오지 않게.
+    WINDOW = dt.timedelta(minutes=10)
+    #  잠기는 시간. 사람이 기다릴 만하면서, 자동 시도에는 초당 수천 번이 분당 다섯 번이 된다.
+    LOCK = dt.timedelta(minutes=5)
+
+    key = models.CharField(max_length=190, unique=True, help_text='"user:hoon" · "ip:1.2.3.4"')
+    failures = models.PositiveSmallIntegerField(default=0)
+    first_failed_at = models.DateTimeField()
+    locked_until = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["locked_until"])]
+
+    def __str__(self) -> str:
+        return f"{self.key} {self.failures}회"

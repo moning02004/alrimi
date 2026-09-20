@@ -4,16 +4,19 @@ from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.exceptions import TokenError
+from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from notices.models import Priority
 
+from . import throttle
 from .cookies import clear_refresh, read_refresh, set_refresh
-from .models import PushSubscription
+from .models import PushSubscription, temporary_password
 from .permissions import CanAddUsers, IsSuperuser
 from .serializers import (
     ChangePasswordSerializer,
@@ -29,11 +32,38 @@ from .serializers import (
 User = get_user_model()
 
 
+def rotate(refresh: RefreshToken):
+    """
+    받은 refresh 를 폐기하고 같은 사람에게 새 refresh·access 를 준다.
+
+    `for_user` 로 다시 만드는 것은 토큰 안의 사용자 id 만 믿고 새로 세우기 위해서다 — 옛
+    토큰의 남은 수명을 물려받으면 회전이 수명을 늘리거나 줄이는 쪽으로 새어나간다.
+    """
+    user = User.objects.filter(pk=refresh["user_id"]).first()
+    if user is None or not user.is_active:
+        return clear_refresh(
+            Response({"detail": "refresh 토큰이 유효하지 않습니다."}, status=status.HTTP_401_UNAUTHORIZED)
+        )
+    return issue(user)
+
+
 def issue(user):
     """access는 본문으로, refresh는 httpOnly 쿠키로 나간다."""
     refresh = RefreshToken.for_user(user)
     response = Response({"access_token": str(refresh.access_token)})
     return set_refresh(response, refresh)
+
+
+def revoke_sessions(user) -> None:
+    """
+    이 사람의 refresh 토큰을 전부 폐기한다. 비밀번호를 바꾸거나 새로 발급할 때 부른다 —
+    남의 손에 넘어간 기기가 비밀번호를 바꾼 뒤에도 30일 동안 살아 있으면 바꾼 뜻이 없다.
+
+    폐기 목록(`token_blacklist`)은 쌓이기만 하므로 `manage.py flushexpiredtokens` 를
+    가끔 돌린다(README).
+    """
+    for outstanding in OutstandingToken.objects.filter(user=user):
+        BlacklistedToken.objects.get_or_create(token=outstanding)
 
 
 class ObtainTokenView(APIView):
@@ -43,16 +73,37 @@ class ObtainTokenView(APIView):
     authentication_classes: list = []
 
     def post(self, request):
-        serializer = ObtainTokenSerializer(data=request.data, context={"request": request})
-        serializer.is_valid(raise_exception=True)
+        """
+        잇달아 틀리면 잠근다(`accounts.throttle`). 아이디를 아는 사람이 비밀번호를 찍어
+        맞히는 것을 막는 자리다 — 계정은 관리자가 만들어 주므로 아이디는 짐작하기 쉽다.
+        """
+        keys = throttle.keys_for(request, str(request.data.get("username", "")))
+        throttle.check(keys)
 
+        serializer = ObtainTokenSerializer(data=request.data, context={"request": request})
+        if not serializer.is_valid():
+            throttle.record_failure(keys)
+            raise ValidationError(serializer.errors)
+
+        throttle.clear(keys)
         user = serializer.validated_data["user"]
         User.objects.filter(pk=user.pk).update(last_login=timezone.now())
         return issue(user)
 
 
 class RefreshTokenView(APIView):
-    """POST /auth/refresh-token — 쿠키의 refresh로 access를 다시 발급한다."""
+    """
+    POST /auth/refresh-token — 쿠키의 refresh 로 access 를 다시 발급한다.
+
+    **재발급할 때마다 쿠키도 새것으로 바꾼다**(회전). 옛 토큰은 폐기되므로, 새어나간 쿠키가
+    살아 있는 시간이 남은 수명(30일)이 아니라 다음 재발급까지로 줄어든다.
+
+    회전은 같은 쿠키로 두 번 부르면 뒤의 것이 거절된다는 뜻이기도 하다. 그래서 웹은 재발급을
+    한 곳에서만 부르고(`lib/api.ts` 의 공유 프로미스), 탭이 여럿이라 엇갈려 거절당하면 그 사이
+    심어진 **새 쿠키로 한 번 더** 시도한다.
+
+    폐기 목록은 쌓이기만 하므로 `manage.py flushexpiredtokens` 를 가끔 돌린다.
+    """
 
     permission_classes = [AllowAny]
     authentication_classes: list = []
@@ -70,9 +121,14 @@ class RefreshTokenView(APIView):
                 Response({"detail": "refresh 토큰이 유효하지 않습니다."}, status=status.HTTP_401_UNAUTHORIZED)
             )
 
-        # 쿠키는 그대로 두고 access만 새로 준다. 같은 쿠키로 동시에 여러 번
-        # 불려도 전부 성공해야 한다 (RefreshTokenView 주석 참고).
-        return Response({"access_token": str(refresh.access_token)})
+        # 받은 것은 폐기하고 새것을 준다. 폐기가 먼저라야 이 쿠키를 다시 쓸 수 없다.
+        try:
+            refresh.blacklist()
+        except AttributeError:
+            # 블랙리스트 앱이 없는 설정. 회전만 하고 넘어간다.
+            pass
+
+        return rotate(refresh)
 
 
 class RevokeTokenView(APIView):
@@ -120,8 +176,9 @@ class ChangePasswordView(APIView):
     첫 로그인이면 "0000 으로 로그인 → 바꾸기 → 새 비밀번호로 또 로그인" 이 되어 들어오는
     데만 세 번을 거친다. 방금 현재 비밀번호를 맞힌 사람이라 다시 물을 까닭이 없다.
 
-    이 브라우저의 refresh 쿠키는 새것으로 덮인다. 옛 토큰을 폐기(blacklist)하지는 못한다 —
-    쿠키가 `/auth` 경로에만 실려 이 요청에는 오지 않는다. 쿠키를 지우던 예전에도 같았다.
+    **다른 기기의 로그인은 끊는다.** 비밀번호를 바꾸는 까닭의 절반은 "누가 보고 있을지도
+    모른다" 인데, 살아 있는 refresh 토큰을 그대로 두면 그 기기는 30일 동안 그대로 들어온다.
+    이 브라우저는 바로 아래에서 새 토큰을 받으므로 끊기지 않는다.
     """
 
     permission_classes = [IsAuthenticated]
@@ -134,6 +191,8 @@ class ChangePasswordView(APIView):
         request.user.must_change_password = False
         request.user.save(update_fields=["password", "must_change_password"])
 
+        # 옛 토큰을 먼저 끊고 새것을 발급한다. 순서가 반대면 방금 준 것까지 함께 끊긴다.
+        revoke_sessions(request.user)
         return issue(request.user)
 
 
@@ -154,10 +213,42 @@ class UserListCreateView(APIView):
         return Response(UserSerializer(users, many=True).data)
 
     def post(self, request):
+        """
+        임시 비밀번호는 **이 응답에만** 실린다. 저장되는 것은 해시라 여기서 못 보여주면 아무도
+        알 수 없다 — 화면이 "한 번만 보여요" 라고 적고 옮겨 적게 한다.
+        """
         serializer = UserCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
-        return Response(UserSerializer(user).data, status=status.HTTP_201_CREATED)
+        data = {**UserSerializer(user).data, "temporary_password": user.temporary_password}
+        return Response(data, status=status.HTTP_201_CREATED)
+
+
+class ResetPasswordView(APIView):
+    """
+    POST /users/{id}/password/reset → {"temporary_password": "..."} (최고 관리자만)
+
+    비밀번호를 잊은 사람에게 새 임시 비밀번호를 만들어 준다. 만든 값은 이 응답에만 실리고,
+    받은 사람은 첫 로그인에서 바꾸게 된다. 살아 있던 로그인은 모두 끊는다 — 잊었다는 것은
+    누가 쓰고 있는지 모른다는 뜻일 수 있다.
+
+    자기 자신은 여기서 바꾸지 않는다. 그 길은 `/users/me/password` 다.
+    """
+
+    permission_classes = [IsAuthenticated, IsSuperuser]
+
+    def post(self, request, user_id):
+        user = get_object_or_404(User, pk=user_id)
+        if user.pk == request.user.pk:
+            raise ValidationError({"detail": "내 비밀번호는 계정 설정에서 바꿔주세요."})
+
+        password = temporary_password()
+        user.set_password(password)
+        user.must_change_password = True
+        user.save(update_fields=["password", "must_change_password"])
+        revoke_sessions(user)
+
+        return Response({"temporary_password": password})
 
 
 class UserSearchView(APIView):

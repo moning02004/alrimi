@@ -19,6 +19,8 @@ export const apiUrl = {
   // 사용자 관리. 추가는 관리자부터, 권한 변경·삭제는 최고 관리자만
   users: "/users",
   user: (userId: number) => `/users/${userId}`,
+  // 비밀번호를 잊은 사람에게 임시 비밀번호를 새로 발급한다(최고 관리자)
+  resetUserPassword: (userId: number) => `/users/${userId}/password/reset`,
   // 알림장을 함께 볼 사람 찾기. 로그인한 누구나 부른다
   userSearch: (q: string) => `/users/search?q=${encodeURIComponent(q)}`,
 

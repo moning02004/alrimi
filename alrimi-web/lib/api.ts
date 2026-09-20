@@ -27,29 +27,45 @@ export const OFFLINE_MESSAGE = "오프라인이라 저장하지 않았어요. �
 export const isOffline = () =>
   useAuthStore.getState().offline || (typeof navigator !== "undefined" && navigator.onLine === false);
 
-/** 동시에 401이 여러 개 떠도 재발급은 한 번만 나가도록 진행 중 요청을 공유 */
-let refreshing: Promise<string | null | "unreachable"> | null = null;
+/** 재발급 결과. 거절당하면 null(로그인이 풀렸다), 서버에 닿지 못했으면 "unreachable" */
+export type RefreshResult = string | null | "unreachable";
 
-/** 새 access 토큰. 거절당하면 null, 서버에 닿지 못했으면 "unreachable" */
-async function refreshAccessToken(): Promise<string | null | "unreachable"> {
+/** 동시에 401이 여러 개 떠도 재발급은 한 번만 나가도록 진행 중 요청을 공유 */
+let refreshing: Promise<RefreshResult> | null = null;
+
+async function callRefresh(): Promise<RefreshResult> {
+  try {
+    const res = await fetch(API_HOST + apiUrl.refreshToken, {
+      method: "POST",
+      credentials: "include",
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { access_token: string };
+    useAuthStore.getState().setToken(data.access_token);
+    return data.access_token;
+  } catch {
+    // 닿지 못한 것은 거절이 아니다. 여기서 로그아웃시키면 지하철에서 앱이 로그인 화면으로 튄다.
+    return "unreachable";
+  }
+}
+
+/**
+ * 새 access 토큰을 받아온다. **앱 전체에서 이 함수 하나만 재발급을 부른다** — 화면 시작
+ * (`useAuthBootstrap`)도 여기를 거친다.
+ *
+ * 서버가 재발급할 때마다 쿠키를 새것으로 바꾸므로(회전), 같은 쿠키로 두 번 부르면 뒤의 것이
+ * 거절된다. 탭이 여럿이면 엇갈릴 수 있어 **한 번 거절당하면 한 번 더** 해본다 — 그 사이 다른
+ * 탭이 심어둔 새 쿠키로 성공한다. 두 번째도 거절이면 정말로 로그인이 풀린 것이다.
+ */
+export function refreshSession(): Promise<RefreshResult> {
   if (!refreshing) {
     refreshing = (async () => {
-      try {
-        const res = await fetch(API_HOST + apiUrl.refreshToken, {
-          method: "POST",
-          credentials: "include",
-        });
-        if (!res.ok) return null;
-        const data = (await res.json()) as { access_token: string };
-        useAuthStore.getState().setToken(data.access_token);
-        return data.access_token;
-      } catch {
-        // 닿지 못한 것은 거절이 아니다. 여기서 로그아웃시키면 지하철에서 앱이 로그인 화면으로 튄다.
-        return "unreachable";
-      } finally {
-        refreshing = null;
-      }
-    })();
+      const first = await callRefresh();
+      if (first !== null) return first;
+      return callRefresh();
+    })().finally(() => {
+      refreshing = null;
+    });
   }
   return refreshing;
 }
@@ -94,7 +110,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 
   // 만료가 화면에 드러나지 않도록 재발급 후 원래 요청을 그대로 재시도
   if (res.status === 401 && !skipAuth) {
-    const next = await refreshAccessToken();
+    const next = await refreshSession();
     if (next === "unreachable") throw new ApiError(0, { detail: OFFLINE_MESSAGE });
     if (!next) {
       useAuthStore.getState().clear();

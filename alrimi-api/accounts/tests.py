@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from django.urls import reverse
@@ -239,3 +240,51 @@ class PushSubscriptionApiTests(TestCase):
         self.assertEqual(res.json()["delivered"], 1)
         sent = sender.call_args.kwargs["subscription_info"]
         self.assertEqual(sent["endpoint"], self.body()["endpoint"])
+
+
+class RefreshRotationTests(TestCase):
+    """재발급할 때마다 쿠키가 새것으로 바뀌고 옛것은 죽는다."""
+
+    def setUp(self):
+        self.user = User.objects.create_user("hoon", password="pw-strong-1234")
+        self.login = self.client.post(
+            reverse("obtain-token"),
+            {"username": "hoon", "password": "pw-strong-1234"},
+            content_type="application/json",
+        )
+        self.cookie = settings.REFRESH_COOKIE["name"]
+
+    def refresh(self, raw=None):
+        if raw is not None:
+            self.client.cookies[self.cookie] = raw
+        return self.client.post(reverse("refresh-token"))
+
+    def test_재발급하면_쿠키가_바뀌고_옛_쿠키는_죽는다(self):
+        first = self.login.cookies[self.cookie].value
+
+        again = self.refresh()
+        self.assertEqual(again.status_code, 200)
+        rotated = again.cookies[self.cookie].value
+        self.assertNotEqual(first, rotated)
+
+        # 옛 쿠키로는 더 못 들어온다
+        self.assertEqual(self.refresh(first).status_code, 401)
+        # 새 쿠키로는 이어서 된다
+        self.assertEqual(self.refresh(rotated).status_code, 200)
+
+    def test_비밀번호를_바꾸면_다른_기기_로그인이_끊긴다(self):
+        other = self.login.cookies[self.cookie].value
+        access = self.login.json()["access_token"]
+
+        changed = self.client.post(
+            reverse("change-password"),
+            {"current_password": "pw-strong-1234", "new_password": "새-비밀번호-9876"},
+            content_type="application/json",
+            headers={"authorization": f"Bearer {access}"},
+        )
+        self.assertEqual(changed.status_code, 200)
+
+        # 바꾼 그 브라우저는 새 쿠키를 받아 이어 쓰고
+        self.assertEqual(self.refresh(changed.cookies[self.cookie].value).status_code, 200)
+        # 남아 있던 다른 기기는 끊긴다
+        self.assertEqual(self.refresh(other).status_code, 401)
