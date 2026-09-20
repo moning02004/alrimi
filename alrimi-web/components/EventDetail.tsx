@@ -36,7 +36,7 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
   /** 보류함에서 꺼내는 중. 같은 폼이지만 날짜를 새로 고르게 열린다 */
   const [resuming, setResuming] = useState(false);
   /** 발송 기록을 펼쳤나. 이미 나간 알림은 예정된 것과 섞지 않고 이 아래에서 본다 */
-  const [history, setHistory] = useState(false);
+  const [history, setHistory] = useState(true);
   /** 반복 일정을 지울 때 어디까지 지울지 묻는 시트 */
   const [deleting, setDeleting] = useState(false);
   const { data: event, isLoading, isError, refetch } = useEvent(eventId);
