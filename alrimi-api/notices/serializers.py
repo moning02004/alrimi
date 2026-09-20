@@ -117,6 +117,7 @@ class EventListSerializer(CanEditMixin, serializers.ModelSerializer):
             "event_hour",
             "title",
             "completed_at",
+            "canceled_at",
             # 보류함이 "9월 14일에 있던 일정" 을 적으려면 치운 때가 아니라 보류
             # 여부를 알아야 한다. 목록 카드도 이 값으로 완료 동그라미를 감춘다 —
             # 보류한 일정에는 완료할 것이 없다.
@@ -164,6 +165,7 @@ class EventDetailSerializer(CanEditMixin, serializers.ModelSerializer):
             "title",
             "content",
             "completed_at",
+            "canceled_at",
             "held_at",
             "zone_id",
             "zone_name",
@@ -185,6 +187,8 @@ class EventWriteSerializer(serializers.ModelSerializer):
     alerts = AlertCodesField(required=False)
     # 모델에는 completed_at 이 있지만 클라이언트는 켜고 끄기만 하면 된다
     completed = serializers.BooleanField(required=False, write_only=True)
+    # 취소도 같다. 완료와 함께 켤 수는 없다 — 아래 `update` 가 뒤에 온 것으로 덮는다
+    canceled = serializers.BooleanField(required=False, write_only=True)
     # 보류도 마찬가지. `held: false` 는 "다시 잡는다" 는 뜻이라 새 날짜와 함께 온다
     held = serializers.BooleanField(required=False, write_only=True)
     # 등록할 때만. 반복 규칙은 만든 뒤에 바꾸지 않는다(`EventSeries`)
@@ -202,6 +206,7 @@ class EventWriteSerializer(serializers.ModelSerializer):
             "content",
             "alerts",
             "completed",
+            "canceled",
             "held",
             "repeat",
         ]
@@ -342,6 +347,7 @@ class EventWriteSerializer(serializers.ModelSerializer):
         # 알림 없이 날짜만 적어두는 일정이 있다. 빈 배열도, 아예 안 보낸 것도 "안 울린다" 다.
         codes = validated_data.pop("alerts", None) or []
         validated_data.pop("completed", None)
+        validated_data.pop("canceled", None)
         # 등록하는 일정은 늘 잡혀 있는 것이다. 보류로 시작할 길은 두지 않는다
         # — 날짜와 알림을 다 고른 뒤 보류함에 넣는 것은 아무 뜻도 없다.
         validated_data.pop("held", None)
@@ -407,6 +413,7 @@ class EventWriteSerializer(serializers.ModelSerializer):
 
         codes = validated_data.pop("alerts", None)
         completed = validated_data.pop("completed", None)
+        canceled = validated_data.pop("canceled", None)
         held = validated_data.pop("held", None)
         # 보류를 푸는 중인가. 아래에서 예약을 되살릴지 가르는 값이라 instance 를
         # 고치기 **전에** 잡아둔다.
@@ -420,14 +427,22 @@ class EventWriteSerializer(serializers.ModelSerializer):
 
         for field, value in validated_data.items():
             setattr(instance, field, value)
+        # 완료와 취소는 한 일정에 함께 설 수 없다. 켜는 쪽이 다른 쪽을 끈다.
         if completed is not None:
             instance.completed_at = timezone.now() if completed else None
+            if completed:
+                instance.canceled_at = None
+        if canceled is not None:
+            instance.canceled_at = timezone.now() if canceled else None
+            if canceled:
+                instance.completed_at = None
         if held is not None:
             instance.held_at = timezone.now() if held else None
-            # 보류하는 일정에 완료는 남아 있을 자리가 없다. 둘 다 켜져 있으면
-            # 다시 잡았을 때 목록에 돌아오자마자 완료로 그어진 채 나타난다.
+            # 보류하는 일정에 완료·취소는 남아 있을 자리가 없다. 둘 다 켜져 있으면
+            # 다시 잡았을 때 목록에 돌아오자마자 끝난 것으로 그어진 채 나타난다.
             if held:
                 instance.completed_at = None
+                instance.canceled_at = None
         instance.save()
 
         # 날짜가 바뀌면 코드가 그대로여도 발송 시각을 다시 잡아야 한다

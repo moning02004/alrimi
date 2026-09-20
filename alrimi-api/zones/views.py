@@ -24,10 +24,15 @@ def with_counts(queryset, user, today=None):
     # 잡히면, 칩의 숫자를 눌러 들어간 사람이 그만큼을 찾지 못한다.
     scheduled = Q(events__held_at__isnull=True)
     return queryset.select_related("owner").annotate(
-        # 앞으로 남은 할 일. 완료한 것은 세지 않는다.
+        # 앞으로 남은 할 일. 끝낸 것(완료·취소)은 세지 않는다.
         upcoming_count=Count(
             "events",
-            filter=scheduled & Q(events__event_date__gte=today, events__completed_at__isnull=True),
+            filter=scheduled
+            & Q(
+                events__event_date__gte=today,
+                events__completed_at__isnull=True,
+                events__canceled_at__isnull=True,
+            ),
             distinct=True,
         ),
         past_count=Count(

@@ -5,7 +5,7 @@ from datetime import timedelta
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import F, Q
+from django.db.models import Case, F, IntegerField, Q, When
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_date as parse_date_string
@@ -21,7 +21,7 @@ from accounts.permissions import HasAPIKey
 from zones.models import editable_zones, recipients, visible_zones
 
 from .filters import FILTERS, filter_q, ordering_for
-from .models import EventAlert, Event, Priority
+from .models import FINISHED, EventAlert, Event, Priority
 from .notify import new_event as notify_new_event
 from .ntfy import NtfyError, send_alert
 from .webpush import send_alert as push_alert, send_to_user
@@ -105,6 +105,11 @@ def parse_date(raw: str, field: str) -> dt.date:
 # 같은 날 안에서 시각 순. 시각을 안 정한 것이 앞이다.
 HOUR_ORDER = F("event_hour").asc(nulls_first=True)
 
+#  하루 보기에서 끝난 것(완료·취소)을 아래로 내린다. 시각으로 줄 세우기 전에 한 번 가르는
+#  것이라, 남은 일이 위에 모인다. 날짜 칸을 그냥 정렬에 넣지 않는 것은 NULL 을 앞에 둘지
+#  뒤에 둘지가 DB 마다 달라서다(sqlite 는 앞, PostgreSQL 은 뒤) — 값으로 만들어 못 박는다.
+FINISHED_ORDER = Case(When(FINISHED, then=1), default=0, output_field=IntegerField())
+
 #  범위를 열어두면 실수 한 번에 몇 년치를 긁는다
 MAX_RANGE_DAYS = 400
 
@@ -186,10 +191,8 @@ class EventListCreateView(generics.ListCreateAPIView):
         queryset = visible_events(self.request.user).filter(held_at__isnull=not held)
         if hide_completed:
             # 끝난 날짜가 기준이다 — 오늘까지 이어지는 여행을 완료로 덮었다면
-            # 마지막 날까지는 앞으로의 목록에서 빠져야 한다.
-            queryset = queryset.exclude(
-                completed_at__isnull=False, end_date__gte=timezone.localdate()
-            )
+            # 마지막 날까지는 앞으로의 목록에서 빠져야 한다. 취소도 같다.
+            queryset = queryset.exclude(FINISHED & Q(end_date__gte=timezone.localdate()))
         return (
             queryset.filter(zone_filter(self.request), condition)
             .select_related("zone")
@@ -241,7 +244,7 @@ class EventListCreateView(generics.ListCreateAPIView):
             # 여행 둘째 날 아침에 열었을 때 비어 있으면 안 된다.
             return self.rows(
                 Q(event_date__lte=day, end_date__gte=day),
-                ["completed_at", HOUR_ORDER, "zone_id", "id"],
+                [FINISHED_ORDER, HOUR_ORDER, "zone_id", "id"],
                 hide_completed=False,
             )
 
@@ -255,7 +258,7 @@ class EventListCreateView(generics.ListCreateAPIView):
             if end is not None:
                 window &= Q(event_date__lte=end)
             return self.rows(
-                window, ["event_date", "completed_at", HOUR_ORDER, "zone_id", "id"], hide_completed=False
+                window, ["event_date", FINISHED_ORDER, HOUR_ORDER, "zone_id", "id"], hide_completed=False
             )
 
         name = params.get("filter", "upcoming")
@@ -309,11 +312,21 @@ class CalendarView(APIView):
                 # 간 자리(하루 보기)에는 없어서, 달력과 목록이 서로 다른 말을 한다.
                 held_at__isnull=True,
             )
-            # 목록에서 뺀 것은 달력에도 그리지 않는다. 표시는 있는데 눌러도 아래에
-            # 없는 날을 만들지 않으려는 것이다. 지난 날은 목록에 남으므로 함께 남긴다.
+            # 아직 오지 않은 날의 완료는 띠에서 뺀다 — 목록에서도 빠진 것이라, 표시는
+            # 있는데 눌러도 아래에 없는 날이 된다. 지난 날은 목록에 남으므로 함께 남긴다.
+            #
+            # **취소는 언제나 남긴다.** 띠가 사라지면 달력만 보고는 그 날 무엇이 있었는지
+            # 알 길이 없는데, 그것을 알게 하려고 지우는 대신 취소로 두는 것이다.
             .exclude(completed_at__isnull=False, end_date__gte=timezone.localdate())
             .values_list(
-                "id", "event_date", "end_date", "zone_id", "zone__color", "title", "completed_at"
+                "id",
+                "event_date",
+                "end_date",
+                "zone_id",
+                "zone__color",
+                "title",
+                "completed_at",
+                "canceled_at",
             )
         )
 
@@ -335,8 +348,18 @@ class CalendarView(APIView):
                     "end_date": last_date,
                     "title": title,
                     "completed": completed_at is not None,
+                    "canceled": canceled_at is not None,
                 }
-                for event_id, event_date, last_date, zone_id, color, title, completed_at in rows
+                for (
+                    event_id,
+                    event_date,
+                    last_date,
+                    zone_id,
+                    color,
+                    title,
+                    completed_at,
+                    canceled_at,
+                ) in rows
             ]
         )
 
@@ -512,6 +535,8 @@ def list_weekly(request):
         .filter(event_date__lte=end_date,
                 end_date__gte=start_date,
                 completed_at__isnull=True,
+                # 취소한 것도 마찬가지다. 그 날에 기록으로 남을 뿐 할 일은 아니다
+                canceled_at__isnull=True,
                 # 보류한 것은 다음 주에 할 일이 아니다
                 held_at__isnull=True)
         .order_by("event_date", "event_hour", "zone_id", "id")
@@ -671,7 +696,11 @@ def due_alerts(*, ids: list[int] | None = None):
         "event__zone__mutes",
         # 보류한 일정의 예약은 나가지 않는다. 다시 잡을 때 `revive_alerts` 가
         # 새 날짜로 되살리므로, 여기서 빼도 알림이 영영 사라지지는 않는다.
-    ).filter(event__completed_at__isnull=True, event__held_at__isnull=True)
+    ).filter(
+        event__completed_at__isnull=True,
+        event__canceled_at__isnull=True,
+        event__held_at__isnull=True,
+    )
 
     if ids is None:
         end_date = timezone.now()

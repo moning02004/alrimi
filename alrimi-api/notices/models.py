@@ -173,6 +173,11 @@ def repeat_dates(
 MAX_SPAN_DAYS = 60
 
 
+#  끝났거나 취소된 일정. 앞으로의 목록에서 빠지고 알림도 나가지 않는 자리는 늘 둘을 함께
+#  묻는다 — 갈리는 것은 화면에 어떻게 그리느냐뿐이다(완료는 체크, 취소는 취소선).
+FINISHED = models.Q(completed_at__isnull=False) | models.Q(canceled_at__isnull=False)
+
+
 class Event(models.Model):
     """
     알려야 할 일정 하나. 하루짜리도 있고 여행처럼 며칠에 걸치는 것도 있다.
@@ -217,6 +222,17 @@ class Event(models.Model):
         null=True,
         blank=True,
         help_text="완료 표시한 시각. 완료하면 목록·달력에서 빠지고 남은 알림도 나가지 않는다.",
+    )
+    canceled_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "취소한 시각. **날짜에 그대로 남는다** — 완료와 같은 자리에 흐리게, 취소선을 긋고 "
+            "남는다. 지우지 않는 까닭이 이것이다: 몇 주 뒤에 달력을 보다가 '이 날 뭐가 "
+            "있었는데 뭐였지' 하는 순간, 지워버렸으면 답할 길이 없고 남아 있으면 '아, 취소했지' "
+            "로 끝난다. 보류와 갈리는 지점이기도 하다 — 보류는 다시 잡을 일이라 날짜를 떠나 "
+            "보류함으로 가고, 취소는 다시 잡지 않을 일이라 그 날에 눌러앉는다."
+        ),
     )
     held_at = models.DateTimeField(
         null=True,
@@ -279,11 +295,23 @@ class Event(models.Model):
     def set_completed(self, completed: bool) -> None:
         """
         오늘 일정이라도 이미 끝난 것이 있다. 지우면 기록이 사라지므로 지우지 않고
-        완료로 덮는다 — 목록에서 빠지고, 아직 안 나간 알림도 발송 대상에서 제외된다.
-        알림 자체는 남겨둔다. 완료를 취소하면 예약이 그대로 살아나야 한다.
+        완료로 덮는다 — 앞으로의 목록에서 빠지고, 아직 안 나간 알림도 발송 대상에서
+        제외된다. 알림 자체는 남겨둔다. 완료를 풀면 예약이 그대로 살아나야 한다.
         """
         self.completed_at = timezone.now() if completed else None
-        self.save(update_fields=["completed_at", "updated_at"])
+        if completed:
+            # 한 일정이 끝나기도 하고 취소되기도 할 수는 없다
+            self.canceled_at = None
+        self.save(update_fields=["completed_at", "canceled_at", "updated_at"])
+
+    def set_canceled(self, canceled: bool) -> None:
+        """
+        취소. 보이는 자리와 알림은 완료와 똑같이 다루고, 화면에 그리는 모양만 다르다.
+        """
+        self.canceled_at = timezone.now() if canceled else None
+        if canceled:
+            self.completed_at = None
+        self.save(update_fields=["completed_at", "canceled_at", "updated_at"])
 
     def revive_alerts(self) -> None:
         """

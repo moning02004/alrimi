@@ -819,6 +819,121 @@ class CompletionTests(ApiTestCase):
         self.assertEqual(after, before - 1)
 
 
+class CancelTests(ApiTestCase):
+    """
+    취소한 일정은 **그 날에 남는다**. 앞으로의 목록과 발송에서는 빠지지만, 날짜를 축으로
+    삼는 화면(하루 보기·기간 목록·달력 띠)에는 그대로 있다.
+
+    보류와 반대쪽이다. 보류는 "다시 잡을 것" 이라 날짜를 떠나 보류함으로 가고, 취소는
+    "다시 잡지 않을 것" 이라 그 날에 눌러앉는다 — 몇 주 뒤에 "이 날 뭐가 있었지" 하고
+    달력을 볼 때 답이 남아 있어야 한다.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.event = Event.objects.create(
+            zone=self.zone, event_date=self.today, title="소아과 진료"
+        )
+        self.event.sync_alerts(["D 07:00"])
+        EventAlert.objects.filter(event=self.event).update(
+            due_at=timezone.now() - dt.timedelta(hours=1)
+        )
+
+    def cancel(self, value: bool, event=None):
+        return self.client.patch(
+            reverse("event-detail", args=[(event or self.event).id]),
+            {"canceled": value},
+            content_type="application/json",
+            headers=self.auth,
+        )
+
+    def test_patch_canceled_sets_and_clears_the_timestamp(self):
+        res = self.cancel(True)
+
+        self.assertEqual(res.status_code, 200)
+        self.assertIsNotNone(res.json()["canceled_at"])
+        self.assertIsNone(self.cancel(False).json()["canceled_at"])
+
+    def test_it_stays_on_its_date(self):
+        """이것이 취소를 삭제 대신 두는 까닭이다."""
+        self.cancel(True)
+
+        rows = self.get(f"{reverse('event-list')}?date={self.today}").json()
+        row = next(n for n in rows if n["title"] == "소아과 진료")
+        self.assertIsNotNone(row["canceled_at"])
+
+    def test_it_keeps_its_calendar_band_and_says_so(self):
+        """띠가 사라지면 달력만 보고는 그 날 무엇이 있었는지 알 길이 없다."""
+        rows = self.get(f"{reverse('calendar')}?from={self.today}&to={self.today}").json()
+        self.assertEqual([row["canceled"] for row in rows], [False])
+
+        self.cancel(True)
+
+        rows = self.get(f"{reverse('calendar')}?from={self.today}&to={self.today}").json()
+        self.assertEqual([(row["title"], row["canceled"]) for row in rows], [("소아과 진료", True)])
+
+    def test_it_drops_out_of_the_upcoming_list_and_count(self):
+        before = self.get(reverse("zone-list")).json()[0]["upcoming_count"]
+
+        self.cancel(True)
+
+        titles = [n["title"] for n in self.get(f"{reverse('event-list')}?filter=upcoming").json()]
+        self.assertNotIn("소아과 진료", titles)
+        after = self.get(reverse("zone-list")).json()[0]["upcoming_count"]
+        self.assertEqual(after, before - 1)
+
+    def test_its_alerts_stop_going_out_but_stay(self):
+        """되돌리면 예약이 그대로 살아나야 하므로 지우지는 않는다."""
+        from .views import due_alerts
+
+        self.cancel(True)
+
+        self.assertEqual(due_alerts().count(), 0)
+        self.assertEqual(self.event.alerts.count(), 1)
+
+        self.cancel(False)
+        self.assertEqual(due_alerts().count(), 1)
+
+    @override_settings(N8N_API_KEY="k")
+    def test_it_is_left_out_of_the_weekly_digest(self):
+        day = next_week()[0]
+        later = Event.objects.create(zone=self.zone, event_date=day, title="다음 주 소풍")
+
+        def weekly():
+            return self.client.get(reverse("weekly-events"), headers={"x-api-key": "k"}).json()
+
+        self.assertIn("다음 주 소풍", weekly()[0]["message"])
+        self.cancel(True, event=later)
+        self.assertEqual(weekly(), [])
+
+    def test_completing_and_canceling_do_not_stack(self):
+        """한 일정이 끝나기도 하고 취소되기도 할 수는 없다."""
+        self.client.patch(
+            reverse("event-detail", args=[self.event.id]),
+            {"completed": True},
+            content_type="application/json",
+            headers=self.auth,
+        )
+
+        body = self.cancel(True).json()
+
+        self.assertIsNotNone(body["canceled_at"])
+        self.assertIsNone(body["completed_at"])
+
+    def test_holding_clears_it(self):
+        """보류는 '다시 잡는다' 는 뜻이라, 돌아올 때 취소선이 그어진 채 나타나면 안 된다."""
+        self.cancel(True)
+
+        res = self.client.patch(
+            reverse("event-detail", args=[self.event.id]),
+            {"held": True},
+            content_type="application/json",
+            headers=self.auth,
+        )
+
+        self.assertIsNone(res.json()["canceled_at"])
+
+
 class HoldTests(ApiTestCase):
     """
     보류한 일정은 날짜를 축으로 삼는 모든 화면과 발송에서 빠지고, 보류함에만 남는다.
