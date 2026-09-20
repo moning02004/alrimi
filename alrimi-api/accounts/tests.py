@@ -288,3 +288,45 @@ class RefreshRotationTests(TestCase):
         self.assertEqual(self.refresh(changed.cookies[self.cookie].value).status_code, 200)
         # 남아 있던 다른 기기는 끊긴다
         self.assertEqual(self.refresh(other).status_code, 401)
+
+
+class HousekeepingTests(TestCase):
+    """쌓이기만 하는 것을 하루에 한 번 치운다. 크론이 없으므로 서버가 스스로 한다."""
+
+    def setUp(self):
+        from alrimi_api import housekeeping
+
+        housekeeping._last_run = None
+        self.user = User.objects.create_user("hoon", password="pw-strong-1234")
+
+    def test_수명이_지난_토큰과_오래된_실패_기록을_지운다(self):
+        import datetime as dt
+
+        from django.utils import timezone
+        from rest_framework_simplejwt.token_blacklist.models import OutstandingToken
+
+        from alrimi_api import housekeeping
+        from accounts.models import LoginThrottle
+
+        now = timezone.now()
+        OutstandingToken.objects.create(
+            user=self.user, jti="old", token="x", created_at=now, expires_at=now - dt.timedelta(days=1)
+        )
+        OutstandingToken.objects.create(
+            user=self.user, jti="alive", token="y", created_at=now, expires_at=now + dt.timedelta(days=1)
+        )
+        LoginThrottle.objects.create(
+            key="user:old", failures=3, first_failed_at=now - dt.timedelta(days=1)
+        )
+        LoginThrottle.objects.create(key="user:new", failures=1, first_failed_at=now)
+
+        housekeeping.sweep(now)
+
+        self.assertEqual(list(OutstandingToken.objects.values_list("jti", flat=True)), ["alive"])
+        self.assertEqual(list(LoginThrottle.objects.values_list("key", flat=True)), ["user:new"])
+
+    def test_하루에_한_번만_돈다(self):
+        from alrimi_api import housekeeping
+
+        self.assertTrue(housekeeping.run_if_due())
+        self.assertFalse(housekeeping.run_if_due())

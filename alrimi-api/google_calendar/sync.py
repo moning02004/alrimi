@@ -36,6 +36,8 @@ from django.utils import timezone
 from notices.models import Event
 
 from . import client
+from alrimi_api import housekeeping
+
 from .models import GoogleCalendarLink, SyncJob
 
 logger = logging.getLogger(__name__)
@@ -156,6 +158,9 @@ def _work() -> None:
         # 오래 사는 스레드라 DB 연결이 끊겨 있을 수 있다(CONN_MAX_AGE·재시작)
         close_old_connections()
         try:
+            # 이 프로세스에서 오래 사는 스레드는 이것 하나뿐이라, 하루 한 번 치우는 일도
+            # 지나가는 길에 맡는다(`alrimi_api.housekeeping`). 크론을 따로 두지 않으려는 것이다.
+            housekeeping.run_if_due()
             worked = drain()
         except Exception:  # noqa: BLE001 — 일꾼이 죽으면 그 뒤로 줄 선 일이 전부 멈춘다
             logger.exception("google calendar worker error")
