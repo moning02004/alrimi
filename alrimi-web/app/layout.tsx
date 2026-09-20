@@ -1,6 +1,21 @@
 import type { Metadata, Viewport } from "next";
+import localFont from "next/font/local";
 import { Providers } from "./providers";
 import "./globals.css";
+
+/**
+ * 글꼴은 앱과 함께 나간다. 예전에는 CDN 에서 받아왔는데, 그쪽이 느리거나 막히면 첫 화면의
+ * 글꼴이 한 번 바뀌었고 연결이 없을 때는 아예 다른 글꼴로 떴다. 여기 담아두면 서비스 워커가
+ * 앱 껍데기와 함께 받아두므로 오프라인에서도 같은 화면이다.
+ *
+ * 하나짜리 가변 폰트라 굵기마다 파일을 받지 않는다(2MB 한 번).
+ */
+const pretendard = localFont({
+  src: "./fonts/PretendardVariable.woff2",
+  weight: "45 920",
+  variable: "--font-pretendard",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "일정 알리미",
@@ -22,13 +37,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="ko">
-      <head>
-        <link
-          rel="stylesheet"
-          href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css"
-        />
-      </head>
+    <html lang="ko" className={pretendard.variable}>
       <body className="font-sans">
         <Providers>{children}</Providers>
       </body>

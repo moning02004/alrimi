@@ -34,9 +34,6 @@
 var SHELL_CACHE = "alrimi-shell-v1";
 var CACHING = self.location.hostname !== "localhost" && self.location.hostname !== "127.0.0.1";
 
-// 글꼴 CSS 는 다른 주소(jsDelivr)에서 온다. 이것까지 받아둬야 오프라인에서도 글꼴이 같다.
-var FONT_HOST = "cdn.jsdelivr.net";
-
 function isShellAsset(url) {
   if (url.origin === self.location.origin) {
     return (
@@ -44,7 +41,8 @@ function isShellAsset(url) {
       /\.(png|svg|ico|json|woff2?)$/.test(url.pathname)
     );
   }
-  return url.hostname === FONT_HOST;
+  // 글꼴도 앱과 함께 나가므로(같은 주소) 다른 곳에서 받아둘 것이 없다.
+  return false;
 }
 
 function offlinePage() {
