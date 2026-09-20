@@ -48,7 +48,7 @@ export interface Limits {
 }
 
 /** 일정이 지금 어떤 상태로 보여야 하는가 */
-export type Tone = "normal" | "past" | "done";
+export type Tone = "normal" | "past" | "done" | "canceled";
 
 /**
  * 지난 일정은 흐리게, 완료한 것은 색을 잃는다.
@@ -58,6 +58,8 @@ export type Tone = "normal" | "past" | "done";
  * 흐리지 않다. 끝난 날을 기준으로 본다.
  */
 export function toneOf(event: CalendarEvent, todayISO: string): Tone {
+  // 취소가 먼저다. 앞으로의 날에도 실려 오므로 "지난 것" 으로 갈리기 전에 잡아야 한다.
+  if (event.canceled) return "canceled";
   if (event.completed) return "done";
   return (event.end_date || event.event_date) < todayISO ? "past" : "normal";
 }

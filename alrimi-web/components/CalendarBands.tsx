@@ -101,7 +101,7 @@ export function CalendarBands({ days, layout, lanes }: Props) {
 }
 
 /**
- * 지난 것은 흐리게, 완료한 것은 색을 잃는다.
+ * 지난 것은 흐리게, 완료한 것은 색을 잃고, 취소한 것은 속이 빈다.
  *
  * 둘을 같은 흐림으로 그리면 "아직 안 치웠는데 지나간 것"이 눈에 안 든다 —
  * 지난 주를 되짚는 이유가 대개 그것이다. 목록 카드는 완료를 취소선으로 말하지만
@@ -114,6 +114,21 @@ export function CalendarBands({ days, layout, lanes }: Props) {
 const DIMMED = 0.4;
 
 function paint(event: CalendarEvent, tone: Tone) {
+  /*
+    취소는 **속이 빈 고리**다. 채운 것과 빈 것은 4px 짜리 점에서도 갈리는데, 흐림의
+    정도나 색기로는 안 갈린다 — 아래 완료와 지난 것이 이미 그 둘을 쓰고 있다.
+    "있었지만 없어진 일" 이라는 말도 빈 자리가 가장 가깝다.
+
+    테두리는 바깥이 아니라 안쪽에 넣는다(`inset`). 바깥에 두면 점이 그만큼 커져서
+    같은 칸의 다른 점들과 크기가 어긋난다.
+  */
+  if (tone === "canceled") {
+    return {
+      background: "transparent",
+      boxShadow: "inset 0 0 0 1.5px var(--color-muted)",
+      opacity: 0.75,
+    };
+  }
   if (tone === "done") return { background: "var(--color-muted)", opacity: DIMMED };
   return { background: event.color, opacity: tone === "past" ? DIMMED : 1 };
 }

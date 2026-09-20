@@ -95,6 +95,8 @@ export interface EventListItem {
    * `event_date` 는 마지막으로 잡혔던 날 그대로라, 보류함이 "9월 14일에 있던
    * 일정" 이라고 적어 무엇을 미룬 것인지 알아볼 수 있게 한다.
    */
+  /** 취소한 시각. **날짜에 그대로 남는다** — 지우면 그 날 뭐가 있었는지 알 길이 없다 */
+  canceled_at: string | null;
   held_at: string | null;
   zone_id: number;
   zone_color: string;
@@ -128,6 +130,7 @@ export interface EventPayload {
    * 보류함에 넣고 빼기. `false` 는 "다시 잡는다" 는 뜻이라 새 `event_date` 와
    * 함께 보내야 한다 — 서버가 지난 날짜로 푸는 것을 막는다(알림이 한 통도 안 나간다).
    */
+  canceled?: boolean;
   held?: boolean;
   /**
    * 등록할 때만. 날마다 한 건씩 미리 만들어진다(서버 `EventSeries`). 규칙은 나중에
@@ -153,6 +156,9 @@ export interface CalendarEvent {
   end_date: string;
   /** 띠에 붙는 이름. 스크린리더가 "일정 1건" 대신 이것을 읽는다 */
   title: string;
+  /** 취소한 일정. 지난 날이든 앞으로의 날이든 **늘** 실려 온다 — 띠가 사라지면
+   * 달력만 보고는 그 날 무엇이 있었는지 알 길이 없다 */
+  canceled: boolean;
   /**
    * 여기 실려 오는 완료 일정은 늘 지난 것이다(앞으로의 것은 서버가 뺀다).
    * 그냥 지나간 것과 치운 것을 달력이 다르게 그리려면 이 값이 있어야 한다.

@@ -2,7 +2,14 @@
 
 import { useState } from "react";
 import toast from "react-hot-toast";
-import { useDeleteEvent, useEvent, useHold, useSendAlert, useToggleComplete } from "@/hooks/useEvents";
+import {
+  useDeleteEvent,
+  useEvent,
+  useHold,
+  useSendAlert,
+  useToggleCancel,
+  useToggleComplete,
+} from "@/hooks/useEvents";
 import { useZoneMark, useZones } from "@/hooks/useZones";
 import { ZoneMark } from "@/components/ZoneMark";
 import { ErrorBlock, LoadingBlock } from "@/components/Loading";
@@ -42,6 +49,7 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
   const { data: event, isLoading, isError, refetch } = useEvent(eventId);
   const remove = useDeleteEvent();
   const toggleComplete = useToggleComplete(eventId);
+  const toggleCancel = useToggleCancel(eventId);
   const hold = useHold(eventId);
   const send = useSendAlert(eventId);
   const markOf = useZoneMark();
@@ -51,6 +59,12 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
   if (isError || !event) return <ErrorBlock onRetry={() => refetch()} />;
 
   const done = event.completed_at !== null;
+  /*
+    취소. 완료와 같은 칸(끝난 일)이지만 뜻이 반대다 — 완료는 한 일, 취소는 없어진 일이다.
+    지우지 않고 남겨두는 까닭은 몇 주 뒤에 "이 날 뭐가 있었지" 하는 순간에 답이 있어야
+    해서다. 그래서 날짜·달력 어디에서도 사라지지 않고, 취소선과 딱지로만 말한다.
+  */
+  const canceled = event.canceled_at !== null;
   const held = event.held_at !== null;
   /*
     함께 보는(공유받은) 공간의 일정은 보기만 한다. 고치는 자리 — 점 세 개 메뉴, 완료
@@ -86,6 +100,17 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
         onDeleted();
       },
       onError: () => toast.error("옮기지 못했어요"),
+    });
+
+  /*
+    취소는 보류와 달리 이 화면을 떠나지 않는다. 보류는 목록에서 통째로 빠져 여기 남아
+    있을 까닭이 없지만, 취소한 일정은 그 날에 그대로 있으므로 방금 무엇이 바뀌었는지를
+    제자리에서 보여주는 편이 맞다 — 취소선이 그어지고 딱지가 붙는다.
+  */
+  const onCancel = () =>
+    toggleCancel.mutate(!canceled, {
+      onSuccess: () => toast.success(canceled ? "다시 예정으로 돌렸어요" : "취소로 표시했어요"),
+      onError: () => toast.error("바꾸지 못했어요"),
     });
 
   const removeScoped = (scope: EditScope) =>
@@ -148,9 +173,17 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
             { label: "수정", onSelect: () => setEditing(true) },
             // 이미 치워둔 것을 또 치울 수는 없다. 보류함에서 열었을 때 남아야 할
             // 것은 "정말 필요 없다" 는 길(삭제)뿐이다.
+            // 이미 치워둔 것에는 취소할 일정이 없다
             ...(held
               ? []
-              : [{ label: "보류", onSelect: onHold, disabled: hold.isPending }]),
+              : [
+                  {
+                    label: canceled ? "취소 되돌리기" : "취소",
+                    onSelect: onCancel,
+                    disabled: toggleCancel.isPending,
+                  },
+                  { label: "보류", onSelect: onHold, disabled: hold.isPending },
+                ]),
             { label: "삭제", onSelect: onDelete, disabled: remove.isPending, danger: true },
           ]}
         />
@@ -186,14 +219,17 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
         <div className="mt-1.5 flex items-start gap-2">
           <h1
             className={`min-w-0 flex-1 text-xl font-semibold tracking-tight ${
-              done ? "text-muted line-through" : ""
-            }`}
+              done ? "text-muted" : ""
+            } ${canceled ? "text-muted line-through" : ""}`}
           >
             {event.title}
           </h1>
 
-          {/* 보류한 것에는 끝낼 일이 없다. 서버도 보류하면 완료를 지운다 */}
-          {!held && !readOnly && (
+          {/*
+            보류·취소한 것에는 끝낼 일이 없다. 서버도 그때 완료를 지운다.
+            되돌리는 길은 점 세 개 메뉴와 아래 딱지 옆 버튼이다.
+          */}
+          {!held && !canceled && !readOnly && (
             <button
               type="button"
               onClick={() =>
@@ -235,6 +271,28 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
           {done && (
             <span className="rounded-full bg-pinelt px-2.5 py-1 text-xs text-pine">
               {event.completed_at ? `${monthDayLabel(event.completed_at)} 완료` : "완료"}
+            </span>
+          )}
+          {/*
+            언제 취소했는지도 같이 적는다. 이 화면에 들어온 까닭이 대개 "이거 뭐였더라"
+            라서, 언제 없어진 일인지가 곧 답이다. 되돌리는 버튼을 딱지에 붙여 두는 것은
+            잘못 취소했을 때 여기가 눈이 먼저 닿는 자리이기 때문이다.
+          */}
+          {canceled && (
+            <span className="flex items-center gap-1.5 rounded-full bg-paper px-2.5 py-1 text-xs text-muted">
+              <span className="line-through">
+                {event.canceled_at ? `${monthDayLabel(event.canceled_at)} 취소` : "취소"}
+              </span>
+              {!readOnly && (
+                <button
+                  type="button"
+                  onClick={onCancel}
+                  disabled={toggleCancel.isPending}
+                  className="font-medium text-pine disabled:opacity-60"
+                >
+                  되돌리기
+                </button>
+              )}
             </span>
           )}
           <span className="flex items-center gap-1.5 rounded-full border border-line py-1 pl-1 pr-2.5 text-xs text-muted">
@@ -279,8 +337,8 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
                 {alert.status === "fail" ? (
                   // 저절로 다시 시도하지 않는다. "대기 중"으로 두면 올 것처럼 읽힌다.
                   <span className="text-xs text-red-600">발송 실패</span>
-                ) : done || held ? (
-                  // 완료하거나 치워두면 남은 알림은 나가지 않는다. 올 것처럼 보이면 안 된다.
+                ) : done || canceled || held ? (
+                  // 완료·취소하거나 치워두면 남은 알림은 나가지 않는다. 올 것처럼 보이면 안 된다.
                   // 보류한 것은 다시 잡을 때 새 날짜로 되살아난다(서버 `revive_alerts`).
                   <span className="text-xs text-muted/70">보내지 않음</span>
                 ) : (

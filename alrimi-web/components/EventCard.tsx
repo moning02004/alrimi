@@ -46,8 +46,18 @@ export function EventCard({
   on?: string;
 }) {
   const zone = useZoneMark()(event.zone_id);
-  // 목록에서는 완료한 것이 아예 빠진다. 기간·하루 보기에만 흐리게 남아 되돌릴 수 있다.
+  /*
+    끝난 일정은 둘로 갈린다.
+
+    - **완료**: 한 일이다. 체크가 차고 흐려진다.
+    - **취소**: 없어진 일이다. 제목에 취소선을 긋고 "취소" 딱지를 붙인다.
+
+    취소선을 완료에서 취소로 옮긴 것은 글자 그대로 읽히기 때문이다 — 그어진 줄은
+    "한 일" 보다 "없어진 일" 로 읽힌다. 취소한 일정을 지우지 않고 그 날에 남겨두는 것이
+    이 기능의 요점이라, 목록에서도 그 날 자리에 그대로 선다.
+  */
   const done = event.completed_at !== null;
+  const canceled = event.canceled_at !== null;
   const toggle = useToggleComplete(event.id);
 
   const selecting = useSelection((s) => s.active);
@@ -104,7 +114,7 @@ export function EventCard({
         받은 공간의 일정은 딱지가 사람이라, 그 사람의 어느 공간인지를 제목 앞에 적는다.
         내 공간은 딱지가 곧 공간이라 적지 않는다.
       */}
-      <span className={`truncate font-medium ${done ? "line-through" : ""}`}>
+      <span className={`truncate font-medium ${canceled ? "line-through" : ""}`}>
         {zone?.received && <span className="font-normal text-muted">[{zone.zoneName}] </span>}
         {event.title}
       </span>
@@ -122,12 +132,16 @@ export function EventCard({
           {dayMark}
         </span>
       )}
-      {!done && <AlertDots alerts={event.alerts} />}
+      {/* 없어진 일이라고 글자로 못 박는다. 취소선만으로는 "지난 일" 과 헷갈린다 */}
+      {canceled && (
+        <span className="shrink-0 rounded-full bg-paper px-2 py-0.5 text-xs text-muted">취소</span>
+      )}
+      {!done && !canceled && <AlertDots alerts={event.alerts} />}
     </>
   );
 
   const cardCls = `relative flex items-center overflow-hidden rounded-xl border bg-card
-                   transition-colors ${done ? "opacity-55" : ""}`;
+                   transition-colors ${done || canceled ? "opacity-55" : ""}`;
 
   /*
     며칠에 걸치는 일정만 왼쪽에 띠가 선다.
@@ -215,7 +229,11 @@ export function EventCard({
         44px 과녁. 보이는 동그라미는 20px 이지만 손가락으로 겨냥하는 자리는 그보다
         커야 한다 — 옆 칸(카드 열기)을 잘못 누르면 화면이 통째로 바뀐다.
       */}
-      {editable ? (
+      {/*
+        취소한 일정에는 완료 동그라미를 두지 않는다. 없어진 일을 "했다" 로 덮는 것은
+        스쳐 누를 일이 아니라, 되돌리는 것도 상세에서 하게 둔다.
+      */}
+      {editable && !canceled ? (
       <button
         type="button"
         onClick={() =>

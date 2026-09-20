@@ -18,6 +18,7 @@ const event = (start: string, end = start, over: Partial<CalendarEvent> = {}): C
   end_date: end,
   title: `${start}~${end}`,
   completed: false,
+  canceled: false,
   ...over,
 });
 
@@ -63,6 +64,12 @@ describe("toneOf — 지난 것과 치운 것은 다른 말이다", () => {
 
   it("완료한 것은 지난 것과 따로 센다", () => {
     expect(toneOf(event("2026-09-08", "2026-09-08", { completed: true }), today)).toBe("done");
+  });
+
+  it("취소한 것은 앞으로의 날에도 취소로 읽힌다", () => {
+    // 지난 날이든 앞으로의 날이든 달력에 남는다 — 그 날 무엇이 있었는지 알라고 둔 것이다
+    expect(toneOf(event("2026-09-12", "2026-09-12", { canceled: true }), today)).toBe("canceled");
+    expect(toneOf(event("2026-09-08", "2026-09-08", { canceled: true }), today)).toBe("canceled");
   });
 });
 

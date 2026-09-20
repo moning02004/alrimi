@@ -99,6 +99,24 @@ export function useEvent(eventId: number, enabled = true) {
 }
 
 /**
+ * 취소 토글. 완료와 같은 모양이고, 서버가 둘을 서로 끄므로 여기서 맞출 것이 없다.
+ *
+ * 완료와 갈리는 것은 보이는 자리다 — 취소한 일정은 그 날에 그대로 남는다. 지우지 않고
+ * 취소로 두는 까닭이 그것이라, 목록에서 사라지면 기능이 아무 일도 안 한 셈이 된다.
+ */
+export function useToggleCancel(eventId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (canceled: boolean) =>
+      api.patch<EventDetail>(apiUrl.event(eventId), { canceled }),
+    onSuccess: (event) => {
+      qc.setQueryData(eventKeys.detail(eventId), event);
+      invalidateAll(qc);
+    },
+  });
+}
+
+/**
  * 상세 화면의 보류 토글. 완료와 같은 모양이라 알림 코드를 다시 보내지 않아도 된다.
  *
  * **푸는 쪽은 이것으로 하지 않는다.** 다시 잡으려면 새 날짜가 함께 가야 해서
