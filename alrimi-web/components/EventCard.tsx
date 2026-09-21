@@ -252,8 +252,9 @@ export function EventCard({
         }
         disabled={toggle.isPending}
         aria-pressed={done}
-        aria-label={`${event.title} ${done ? "완료 취소" : "완료로 표시"}`}
-        title={done ? "완료 취소" : "완료로 표시"}
+        /* "완료 취소" 는 일정 취소로 읽힌다. 되돌리는 말은 토스트와 같은 것으로 쓴다 */
+        aria-label={`${event.title} ${done ? "다시 예정으로" : "완료로 표시"}`}
+        title={done ? "다시 예정으로" : "완료로 표시"}
         className="mr-1.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-full
                    transition-colors hover:bg-pinelt disabled:opacity-40"
       >

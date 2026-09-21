@@ -96,9 +96,10 @@ export default function IntroPage() {
             <Feature icon={LuCalendarRange} title="여러 날 일정">
               사흘짜리 여행은 한 건입니다. 달력에 띠로 이어지고 카드에는 &ldquo;2/3&rdquo; 이 붙어요.
             </Feature>
-            <Feature icon={LuCheckCheck} title="완료와 보류">
-              끝낸 것은 완료로 덮고, 미룬 것은 지우는 대신 보류함에 둡니다. 날짜만 다시 고르면
-              알림도 따라옵니다.
+            <Feature icon={LuCheckCheck} title="완료 · 취소 · 보류">
+              끝낸 것은 완료로 덮습니다. 없어진 일은 취소로 두어 그 날에 남기고요 — 몇 주 뒤에
+              &ldquo;이 날 뭐였더라&rdquo; 할 때 답이 됩니다. 미룬 것은 보류함에 두었다가 날짜만
+              다시 고르면 알림도 따라옵니다.
             </Feature>
             <Feature icon={LuCalendarDays} title="공휴일과 절기">
               달력에 빨간 날과 절기가 함께 보입니다. 무슨 색으로 볼지는 각자 고릅니다.

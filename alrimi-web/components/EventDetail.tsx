@@ -245,8 +245,9 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
               }
               disabled={toggleComplete.isPending}
               aria-pressed={done}
-              aria-label={done ? "완료 취소" : "완료로 표시"}
-              title={done ? "완료 취소" : "완료로 표시"}
+              /* "완료 취소" 라고 적지 않는다 — 이 화면에서 "취소" 는 일정을 취소하는 말이다 */
+              aria-label={done ? "다시 예정으로" : "완료로 표시"}
+              title={done ? "다시 예정으로" : "완료로 표시"}
               /*
                 44px 과녁. 넓힌 만큼은 음수 여백으로 도로 당긴다 — 안 그러면 이
                 높이가 제목 줄의 높이가 되어, 제목 아래 내용이 그만큼 밀린다.
@@ -272,10 +273,14 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
           {held && (
             <span className="rounded-full bg-amberlt px-2.5 py-1 text-xs text-amber">보류 중</span>
           )}
-          {/* 언제 끝냈는지까지 적는다. "완료" 만으로는 오늘 찍은 것과 지난달에 찍은 것이 같아 보인다 */}
+          {/*
+            언제 끝냈는지까지 적는다. 날짜가 없으면 오늘 찍은 것과 지난달에 찍은 것이 같아 보인다.
+            "완료" 가 아니라 "완료됨" 인 것은 옆에 설 "취소됨" 과 같은 말투로 맞춘 것이다 —
+            하나는 상태고 하나는 명령처럼 읽히면 나란히 놓였을 때 둘이 다른 종류로 보인다.
+          */}
           {done && (
             <span className="rounded-full bg-pinelt px-2.5 py-1 text-xs text-pine">
-              {event.completed_at ? `${monthDayLabel(event.completed_at)} 완료` : "완료"}
+              {event.completed_at ? `${monthDayLabel(event.completed_at)} 완료됨` : "완료됨"}
             </span>
           )}
           {/*
