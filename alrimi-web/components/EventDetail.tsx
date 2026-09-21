@@ -178,7 +178,12 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
               ? []
               : [
                   {
-                    label: canceled ? "취소 되돌리기" : "취소",
+                    /*
+                      그냥 "취소" 로 적지 않는다. 이 메뉴에는 닫는 ✕ 가 함께 있어서,
+                      한 글자짜리 "취소" 는 "이 메뉴를 닫겠다" 로 먼저 읽힌다.
+                      무엇을 취소하는지를 붙여야 눌러도 되는 자리인 줄 안다.
+                    */
+                    label: canceled ? "취소 되돌리기" : "일정 취소",
                     onSelect: onCancel,
                     disabled: toggleCancel.isPending,
                   },
@@ -280,9 +285,12 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
           */}
           {canceled && (
             <span className="flex items-center gap-1.5 rounded-full bg-paper px-2.5 py-1 text-xs text-muted">
-              <span className="line-through">
-                {event.canceled_at ? `${monthDayLabel(event.canceled_at)} 취소` : "취소"}
-              </span>
+              {/*
+                딱지에는 취소선을 긋지 않는다. 취소선은 없어진 일정을 가리키는 표시라
+                제목이 이미 쓰고 있는데, "9월 21일 취소" 위에 한 번 더 그으면 취소한 것이
+                취소된 것처럼 읽힌다.
+              */}
+              <span>{event.canceled_at ? `${monthDayLabel(event.canceled_at)} 취소` : "취소"}</span>
               {!readOnly && (
                 <button
                   type="button"
