@@ -50,7 +50,7 @@ export function EventCard({
     끝난 일정은 둘로 갈린다.
 
     - **완료**: 한 일이다. 체크가 차고 흐려진다.
-    - **취소**: 없어진 일이다. 제목에 취소선을 긋고 "취소" 딱지를 붙인다.
+    - **취소**: 없어진 일이다. 제목에 취소선을 긋고 "취소됨" 딱지를 붙인다.
 
     취소선을 완료에서 취소로 옮긴 것은 글자 그대로 읽히기 때문이다 — 그어진 줄은
     "한 일" 보다 "없어진 일" 로 읽힌다. 취소한 일정을 지우지 않고 그 날에 남겨두는 것이
@@ -132,9 +132,17 @@ export function EventCard({
           {dayMark}
         </span>
       )}
-      {/* 없어진 일이라고 글자로 못 박는다. 취소선만으로는 "지난 일" 과 헷갈린다 */}
+      {/*
+        없어진 일이라고 글자로 못 박는다. 취소선만으로는 "지난 일" 과 헷갈린다.
+
+        "취소" 가 아니라 **"취소됨"** 이다. 이 앱에서 "취소" 는 이미 누르는 자리의 말이라
+        (고르기를 끄는 버튼, 시트의 취소 버튼) 딱지에 그대로 쓰면 눌러야 할 것처럼 읽힌다.
+        "-됨" 한 글자가 그것을 벌어진 일로 바꾼다.
+      */}
       {canceled && (
-        <span className="shrink-0 rounded-full bg-paper px-2 py-0.5 text-xs text-muted">취소</span>
+        <span className="shrink-0 rounded-full bg-paper px-2 py-0.5 text-xs text-muted">
+          취소됨
+        </span>
       )}
       {!done && !canceled && <AlertDots alerts={event.alerts} />}
     </>

@@ -287,10 +287,12 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
             <span className="flex items-center gap-1.5 rounded-full bg-paper px-2.5 py-1 text-xs text-muted">
               {/*
                 딱지에는 취소선을 긋지 않는다. 취소선은 없어진 일정을 가리키는 표시라
-                제목이 이미 쓰고 있는데, "9월 21일 취소" 위에 한 번 더 그으면 취소한 것이
+                제목이 이미 쓰고 있는데, "9월 21일 취소됨" 위에 한 번 더 그으면 취소한 것이
                 취소된 것처럼 읽힌다.
               */}
-              <span>{event.canceled_at ? `${monthDayLabel(event.canceled_at)} 취소` : "취소"}</span>
+              <span>
+                {event.canceled_at ? `${monthDayLabel(event.canceled_at)} 취소됨` : "취소됨"}
+              </span>
               {!readOnly && (
                 <button
                   type="button"
