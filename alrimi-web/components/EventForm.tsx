@@ -314,10 +314,11 @@ export function EventForm({event, initialDate, initialTitle, initialContent, res
         })
         .slice(0, 5);
     /*
-      비어 있으면 그냥 보여준다 — 이것이 이 기능을 알게 되는 유일한 길이다. 치기
-      시작한 뒤에는 칸에 손이 있을 때만 남는다(걸러진 목록이 내용 칸을 계속 밀지 않게).
+      **제목 칸을 눌렀을 때만 뜬다.** 비어 있으면 그냥 펼쳐 두기도 해봤는데, 폼을 열자마자
+      목록이 한 덩어리 놓여 있어 등록하러 온 사람에게는 제 자리가 아닌 것이 끼어든 것처럼
+      읽혔다. 칸을 누르는 것은 "이제 제목을 정한다" 는 뜻이라, 그때가 내놓을 때다.
     */
-    const showFrequent = suggesting && matches.length > 0 && (!title || titleFocused);
+    const showFrequent = suggesting && matches.length > 0 && titleFocused;
 
     /** 고르면 날짜만 빼고 다 채운다. 날짜는 매번 달라지는 유일한 값이라 사람이 고른다. */
     const pickFrequent = (item: FrequentEvent) => {
@@ -849,72 +850,96 @@ export function EventForm({event, initialDate, initialTitle, initialContent, res
                 </div>
 
                 <div className="flex items-center gap-3 px-4 py-2">
-                    <label htmlFor="title" className="w-14 shrink-0 text-sm text-muted">
+                    <label htmlFor="title" className={labelCls}>
                         제목
                     </label>
-                    <input
-                        id="title"
-                        value={title}
-                        onChange={(e) => {
-                            setTitle(e.target.value);
-                            setError(null);
-                        }}
-                        onFocus={() => setTitleFocused(true)}
-                        onBlur={() => setTitleFocused(false)}
-                        // 서버가 80자에서 자른다. 다 적고 저장을 눌러서야 알게 되지 않도록
-                        maxLength={80}
-                        placeholder="가을 운동회"
-                        // 한 줄짜리 칸끼리 높이를 맞춘다. 여러 줄인 "내용" 만 자기 높이를 갖는다.
-                        className={`${inputCls} ${rowFieldCls}`}
-                    />
-                </div>
+                    {/*
+                      칸을 한 겹 감싼다. 자주 쓰는 일정 박스가 **칸에 붙어** 떠야 해서
+                      기준점이 필요하다. 칸이 쓰던 자리 값(`-mx-1 min-w-0 flex-1`)을 이 겹이
+                      그대로 물려받으므로, 위아래 날짜·내용 칸과 같은 선에 그대로 선다.
+                    */}
+                    <div className="relative -mx-1 min-w-0 flex-1">
+                        <input
+                            id="title"
+                            value={title}
+                            onChange={(e) => {
+                                setTitle(e.target.value);
+                                setError(null);
+                            }}
+                            onFocus={() => setTitleFocused(true)}
+                            onBlur={() => setTitleFocused(false)}
+                            onKeyDown={(e) => {
+                                // 박스가 떠 있으면 Esc 는 박스만 닫는다. 그냥 두면 시트가 통째로 닫혀,
+                                // 목록을 물리려던 사람이 적던 것까지 잃는다.
+                                if (e.key === "Escape" && showFrequent) {
+                                    e.stopPropagation();
+                                    setTitleFocused(false);
+                                }
+                            }}
+                            // 서버가 80자에서 자른다. 다 적고 저장을 눌러서야 알게 되지 않도록
+                            maxLength={80}
+                            placeholder="가을 운동회"
+                            // 한 줄짜리 칸끼리 높이를 맞춘다. 여러 줄인 "내용" 만 자기 높이를 갖는다.
+                            className={`${fieldCls} ${rowFieldCls} w-full py-2 text-base placeholder:text-muted/50`}
+                        />
 
-                {showFrequent && (
-                    /* 라벨 자리를 비워 제목 칸과 같은 선에서 시작한다 */
-                    <div className="flex gap-3 px-4 pb-1">
-                        <span className={labelCls} aria-hidden="true"/>
-                        <div className="min-w-0 flex-1">
-                            <p className="mb-1.5 text-xs text-muted">자주 쓰는 일정</p>
-                            <ul className="flex flex-col gap-1">
-                                {matches.map((item) => {
-                                    const info = markOf(item.zone_id);
-                                    return (
-                                        <li key={`${item.zone_id}-${item.title}`}>
-                                            <button
-                                                type="button"
-                                                /*
-                                                  `onPointerDown` 이라야 한다. 클릭까지 기다리면 그 전에
-                                                  칸에서 초점이 떠나 목록이 사라지고, 손가락은 허공을 친다.
-                                                  기본 동작을 막아 초점을 칸에 그대로 둔다.
-                                                */
-                                                onPointerDown={(e) => {
-                                                    e.preventDefault();
-                                                    pickFrequent(item);
-                                                }}
-                                                className="flex w-full items-center gap-2 rounded-lg border border-line
-                                                           bg-card px-2.5 py-2 text-left transition-colors
-                                                           hover:border-pine/50"
-                                            >
-                                                <ZoneMark
-                                                    mark={info?.mark ?? ""}
-                                                    color={info?.color ?? "var(--color-line)"}
-                                                    round={info?.received}
-                                                    size="sm"
-                                                />
-                                                <span className="shrink-0 truncate text-sm">{item.title}</span>
-                                                {item.content && (
-                                                    <span className="min-w-0 truncate text-xs text-muted">
-                                                        {item.content}
+                        {showFrequent && (
+                            /*
+                              칸 아래에 떠서 **덮는다.** 아래로 밀어내면 누를 때마다 내용 칸과
+                              그 밑이 통째로 움직여서, 고르려던 손이 움직인 자리를 다시 찾는다.
+                            */
+                            <div
+                                className="absolute inset-x-0 top-full z-20 mt-1 overflow-hidden rounded-xl
+                                           border border-line bg-card shadow-lg"
+                            >
+                                <p className="border-b border-line px-3 py-2 text-xs text-muted">
+                                    자주 쓰는 일정
+                                </p>
+                                <ul className="divide-y divide-line">
+                                    {matches.map((item) => {
+                                        const info = markOf(item.zone_id);
+                                        return (
+                                            <li key={`${item.zone_id}-${item.title}`}>
+                                                <button
+                                                    type="button"
+                                                    /*
+                                                      `onPointerDown` 이라야 한다. 클릭까지 기다리면 그 전에
+                                                      칸에서 초점이 떠나 박스가 사라지고, 손가락은 허공을 친다.
+                                                      기본 동작을 막아 초점을 칸에 그대로 둔다.
+                                                    */
+                                                    onPointerDown={(e) => {
+                                                        e.preventDefault();
+                                                        pickFrequent(item);
+                                                    }}
+                                                    className="flex w-full items-start gap-2 px-3 py-2.5 text-left
+                                                               transition-colors hover:bg-paper"
+                                                >
+                                                    <span className="pt-0.5">
+                                                        <ZoneMark
+                                                            mark={info?.mark ?? ""}
+                                                            color={info?.color ?? "var(--color-line)"}
+                                                            round={info?.received}
+                                                            size="sm"
+                                                        />
                                                     </span>
-                                                )}
-                                            </button>
-                                        </li>
-                                    );
-                                })}
-                            </ul>
-                        </div>
+                                                    {/* 제목이 위, 내용이 아래다 — 한 줄에 둘을 붙이면 좁은 폭에서 둘 다 잘린다 */}
+                                                    <span className="min-w-0 flex-1">
+                                                        <span className="block truncate text-sm">{item.title}</span>
+                                                        {item.content && (
+                                                            <span className="mt-0.5 block truncate text-xs text-muted">
+                                                                {item.content}
+                                                            </span>
+                                                        )}
+                                                    </span>
+                                                </button>
+                                            </li>
+                                        );
+                                    })}
+                                </ul>
+                            </div>
+                        )}
                     </div>
-                )}
+                </div>
 
                 {/*
           내용은 준비물 목록처럼 줄로 적는 일이 많아 여러 줄을 받는다.
