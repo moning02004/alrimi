@@ -185,6 +185,20 @@ export interface Me {
   version: string;
 }
 
+/**
+ * 자주 쓰는 일정. 지난 기록에서 뽑아 온 것이라 따로 저장해 둔 목록이 아니다.
+ * 고르면 등록 폼의 제목·내용·공간·시각·알림 시점이 한 번에 채워진다 — **날짜만 빼고**.
+ */
+export interface FrequentEvent {
+  title: string;
+  content: string;
+  zone_id: number;
+  event_hour: number | null;
+  alerts: string[];
+  /** 지난 180일 동안 몇 번 썼는가 */
+  used: number;
+}
+
 /** 사용자를 추가하거나 링크를 새로 만들었을 때만 오는 값 — **이때 한 번만** 볼 수 있다 */
 export interface Invite {
   /** 링크 주소는 웹이 자기 origin 으로 만든다(`pageUrl.join`). 서버는 열쇠만 준다 */

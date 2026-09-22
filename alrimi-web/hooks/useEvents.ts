@@ -11,6 +11,7 @@ import type {
   EventDetail,
   EventListItem,
   EventPayload,
+  FrequentEvent,
 } from "@/types";
 
 export const eventKeys = {
@@ -224,5 +225,21 @@ export function useDeleteEvent() {
     mutationFn: ({ eventId, scope = "this" }: { eventId: number; scope?: EditScope }) =>
       api.delete<void>(apiUrl.eventScoped(eventId, scope)),
     onSuccess: () => invalidateAll(qc),
+  });
+}
+
+/**
+ * 자주 쓰는 일정. 등록 폼이 제목 칸 아래에 놓는다.
+ *
+ * 지난 기록에서 뽑아 오는 값이라 하루에 몇 번씩 달라지지 않는다 — 시트를 여닫을 때마다
+ * 다시 받지 않도록 `staleTime` 을 길게 둔다. 일정을 하나 더 만들었다고 이 목록이 곧바로
+ * 달라져야 할 까닭도 없다(두 번째부터 목록에 서므로 대개 그대로다).
+ */
+export function useFrequentEvents(enabled: boolean) {
+  return useQuery({
+    queryKey: ["events", "frequent"],
+    queryFn: () => api.get<FrequentEvent[]>(apiUrl.frequentEvents),
+    enabled,
+    staleTime: 10 * 60 * 1000,
   });
 }

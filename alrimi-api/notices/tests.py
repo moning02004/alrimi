@@ -819,6 +819,96 @@ class CompletionTests(ApiTestCase):
         self.assertEqual(after, before - 1)
 
 
+class FrequentEventsTests(ApiTestCase):
+    """
+    자주 쓰는 일정 — 따로 만들어 두는 목록이 아니라, 쓰던 것이 쌓여 생기는 목록이다.
+    """
+
+    def url(self):
+        return reverse("event-frequent")
+
+    def make(self, title, *, days_ago=0, zone=None, content="", hour=None, codes=()):
+        event = Event.objects.create(
+            zone=zone or self.zone,
+            event_date=self.today - dt.timedelta(days=days_ago),
+            title=title,
+            content=content,
+            event_hour=hour,
+        )
+        if codes:
+            event.sync_alerts(list(codes))
+        return event
+
+    def titles(self):
+        return [row["title"] for row in self.get(self.url()).json()]
+
+    def test_두_번부터_목록에_선다(self):
+        self.make("한 번만", days_ago=3)
+        self.make("체육복", days_ago=7)
+        self.make("체육복", days_ago=14)
+
+        self.assertEqual(self.titles(), ["체육복"])
+
+    def test_많이_쓴_것이_위다(self):
+        for day in (3, 10, 17):
+            self.make("체육복", days_ago=day)
+        for day in (4, 11):
+            self.make("병원", days_ago=day)
+
+        self.assertEqual(self.titles(), ["체육복", "병원"])
+
+    def test_마지막에_적은_것으로_채워_준다(self):
+        """내용이나 알림 시점을 고쳐가며 쓰면, 마지막에 적은 것이 지금 쓰는 모양이다."""
+        self.make("체육복", days_ago=20, content="흰 티셔츠")
+        self.make("체육복", days_ago=3, content="흰 티셔츠, 모자", hour=9, codes=["D-1 20:00"])
+
+        row = self.get(self.url()).json()[0]
+
+        self.assertEqual(row["content"], "흰 티셔츠, 모자")
+        self.assertEqual(row["event_hour"], 9)
+        self.assertEqual(row["alerts"], ["D-1 20:00"])
+        self.assertEqual(row["zone_id"], self.zone.id)
+        self.assertEqual(row["used"], 2)
+
+    def test_오래된_것은_세지_않는다(self):
+        """학기가 바뀌면 챙길 것도 바뀐다. 작년 습관이 올해 목록에 남아 있으면 안 된다."""
+        self.make("작년 것", days_ago=200)
+        self.make("작년 것", days_ago=210)
+
+        self.assertEqual(self.titles(), [])
+
+    def test_보류한_것은_세지_않는다(self):
+        """지금 일정이 아닌 것을 자주 쓴다고 할 수 없다."""
+        for day in (3, 10):
+            held = self.make("미룬 것", days_ago=day)
+            held.held_at = timezone.now()
+            held.save(update_fields=["held_at"])
+
+        self.assertEqual(self.titles(), [])
+
+    def test_완료하거나_취소한_것도_센다(self):
+        """끝났든 없어졌든, 그 일을 그만큼 적었다는 사실은 그대로다."""
+        done = self.make("예방접종", days_ago=30)
+        done.set_completed(True)
+        gone = self.make("예방접종", days_ago=10)
+        gone.set_canceled(True)
+
+        self.assertEqual(self.titles(), ["예방접종"])
+
+    def test_남의_공간은_섞이지_않는다(self):
+        from zones.models import Zone
+
+        theirs = Zone.objects.create(owner=self.other, name="남의 공간")
+        for day in (3, 10):
+            self.make("남의 일정", days_ago=day, zone=theirs)
+            self.make("내 일정", days_ago=day)
+
+        self.assertEqual(self.titles(), ["내 일정"])
+
+    def test_로그인해야_부를_수_있다(self):
+        self.assertEqual(self.client.get(self.url()).status_code, 401)
+
+
 class CancelTests(ApiTestCase):
     """
     취소한 일정은 **그 날에 남는다**. 앞으로의 목록과 발송에서는 빠지지만, 날짜를 축으로

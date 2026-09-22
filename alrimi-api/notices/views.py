@@ -5,7 +5,7 @@ from datetime import timedelta
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Case, F, IntegerField, Q, When
+from django.db.models import Case, Count, F, IntegerField, Max, Q, When
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_date as parse_date_string
@@ -399,6 +399,79 @@ class EventDetailView(generics.RetrieveUpdateDestroyAPIView):
                 ).delete()
             return
         instance.delete()
+
+
+#  자주 쓰는 일정으로 내줄 개수. 폰 한 화면에 들어오는 만큼이다 — 더 길면 고르는 것이
+#  아니라 훑는 일이 되어, 손으로 적는 것보다 나을 게 없어진다.
+FREQUENT_LIMIT = 8
+#  이만큼 거슬러 센다. 학기가 바뀌면 챙길 것도 바뀌므로, 작년 습관이 올해 목록에 남아
+#  있으면 안 된다.
+FREQUENT_DAYS = 180
+#  한 번 쓴 것은 "자주" 가 아니다. 두 번째부터 목록에 선다.
+FREQUENT_MIN_USES = 2
+
+
+class FrequentEventsView(APIView):
+    """
+    GET /events/frequent → 자주 쓰는 일정 (최대 8)
+
+    규칙은 아닌데 되풀이되는 것 — 체육복, 병원, 준비물 — 을 지난 기록에서 뽑아준다.
+    반복 일정(`EventSeries`)으로는 안 잡히는 자리다: 언제인지는 매번 다르고 나머지가
+    같다. 웹은 이것을 등록 폼의 제목 칸 아래에 놓고, 고르면 제목·내용·공간·시각·알림
+    시점을 한 번에 채운다. **날짜만 비워 둔다** — 그것이 매번 달라지는 유일한 값이다.
+
+    **따로 만들어 두는 목록이 아니다.** "자주 쓰는 일정으로 저장" 같은 걸 두면 저장하는
+    일이 또 하나 늘고, 대개 아무도 저장해두지 않는다. 그냥 쓰던 것이 쌓여 목록이 된다.
+
+    **쿼리 둘로 끝낸다.** 묶어 세면서 대표로 쓸 id 까지 함께 받아오고(`Max("id")`),
+    그 id 들만 한 번에 읽는다. 대표를 줄마다 따로 찾으면 목록 길이만큼 쿼리가 늘어난다.
+    가장 최근에 **적은** 것을 대표로 삼는 것은, 내용이나 알림 시점을 고쳐가며 쓰는 경우
+    마지막에 적은 것이 지금 쓰는 모양이기 때문이다.
+
+    보류한 것은 세지 않는다 — 지금 일정이 아닌 것을 "자주 쓴다" 고 할 수 없다. 완료·취소는
+    센다: 끝났든 없어졌든 그 일을 그만큼 적었다는 사실은 그대로다.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        since = timezone.localdate() - dt.timedelta(days=FREQUENT_DAYS)
+        # 넣을 수 있는 공간만. 고르면 그 공간으로 채워지는데, 못 넣는 공간이 채워지면
+        # 저장에서 막힌다.
+        zones = editable_zones(request.user)
+
+        rows = list(
+            Event.objects.filter(zone__in=zones, event_date__gte=since, held_at__isnull=True)
+            .values("zone_id", "title")
+            .annotate(used=Count("id"), pick=Max("id"))
+            .filter(used__gte=FREQUENT_MIN_USES)
+            .order_by("-used", "-pick")[:FREQUENT_LIMIT]
+        )
+        if not rows:
+            return Response([])
+
+        events = {
+            event.id: event
+            for event in Event.objects.filter(id__in=[row["pick"] for row in rows])
+            .select_related("zone")
+            .prefetch_related("alerts")
+        }
+
+        return Response(
+            [
+                {
+                    "title": event.title,
+                    "content": event.content,
+                    "zone_id": event.zone_id,
+                    "event_hour": event.event_hour,
+                    # 이미 나간 예약도 코드는 그대로다. 다음에 쓸 시점으로 그대로 옮긴다.
+                    "alerts": sorted({alert.code for alert in event.alerts.all()}),
+                    "used": row["used"],
+                }
+                for row in rows
+                if (event := events.get(row["pick"])) is not None
+            ]
+        )
 
 
 class BulkDeleteEventsView(APIView):

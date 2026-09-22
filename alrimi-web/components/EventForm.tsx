@@ -32,11 +32,11 @@ import {
     repeatDates,
     serverWeekday,
 } from "@/lib/repeat";
-import {useCreateEvent, useUpdateEvent} from "@/hooks/useEvents";
+import {useCreateEvent, useFrequentEvents, useUpdateEvent} from "@/hooks/useEvents";
 import {useZoneMark, useZones} from "@/hooks/useZones";
 import {ZoneMark} from "./ZoneMark";
 import {Picker} from "./Picker";
-import type {EditScope, EventDetail, RepeatFreq} from "@/types";
+import type {EditScope, EventDetail, FrequentEvent, RepeatFreq} from "@/types";
 import {LuCalendar} from "react-icons/lu";
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -289,6 +289,47 @@ export function EventForm({event, initialDate, initialTitle, initialContent, res
       비어 있을 때만 열어둔다. 보여줄 칩이 없으니 채우는 길이 바로 보여야 한다.
     */
     const [error, setError] = useState<string | null>(null);
+
+    /*
+      ── 자주 쓰는 일정 ──────────────────────────────────────────────
+
+      규칙은 아닌데 되풀이되는 것(체육복·병원·준비물)을 지난 기록에서 뽑아 온다
+      (`GET /events/frequent`). 따로 저장해 두는 목록이 아니다 — "자주 쓰는 일정으로
+      저장" 같은 걸 두면 저장하는 일이 하나 더 늘고, 대개 아무도 저장해두지 않는다.
+
+      **제목 칸 아래에 둔다.** 고르는 자리를 따로 만들면 그리로 가는 길을 또 배워야 하는데,
+      여기서는 적으려고 칸을 누른 그 자리에 이미 답이 놓여 있다. 치기 시작하면 걸러진다.
+
+      수정할 때는 부르지 않는다 — 이미 있는 일정을 고치는 자리라 고를 것이 없다.
+    */
+    const suggesting = !editing && !resume;
+    const {data: frequent} = useFrequentEvents(suggesting);
+    const [titleFocused, setTitleFocused] = useState(false);
+    const typed = title.trim().toLowerCase();
+    const matches = (frequent ?? [])
+        .filter((item) => {
+            // 이미 그대로 적어 놓은 것을 다시 권하지 않는다
+            if (item.title.toLowerCase() === typed) return false;
+            return !typed || item.title.toLowerCase().includes(typed);
+        })
+        .slice(0, 5);
+    /*
+      비어 있으면 그냥 보여준다 — 이것이 이 기능을 알게 되는 유일한 길이다. 치기
+      시작한 뒤에는 칸에 손이 있을 때만 남는다(걸러진 목록이 내용 칸을 계속 밀지 않게).
+    */
+    const showFrequent = suggesting && matches.length > 0 && (!title || titleFocused);
+
+    /** 고르면 날짜만 빼고 다 채운다. 날짜는 매번 달라지는 유일한 값이라 사람이 고른다. */
+    const pickFrequent = (item: FrequentEvent) => {
+        setTitle(item.title);
+        setContent(item.content);
+        if (zones.some((zone) => zone.id === item.zone_id)) setPicked(item.zone_id);
+        setEventHour(item.event_hour);
+        setHourOpen(item.event_hour != null);
+        setAlerts(sortCodes(item.alerts));
+        setTitleFocused(false);
+        setError(null);
+    };
 
     /**
      * 지난 날짜로는 등록하지 못하게 한다. 알림 시각이 이미 지나 있어서
@@ -818,6 +859,8 @@ export function EventForm({event, initialDate, initialTitle, initialContent, res
                             setTitle(e.target.value);
                             setError(null);
                         }}
+                        onFocus={() => setTitleFocused(true)}
+                        onBlur={() => setTitleFocused(false)}
                         // 서버가 80자에서 자른다. 다 적고 저장을 눌러서야 알게 되지 않도록
                         maxLength={80}
                         placeholder="가을 운동회"
@@ -825,6 +868,53 @@ export function EventForm({event, initialDate, initialTitle, initialContent, res
                         className={`${inputCls} ${rowFieldCls}`}
                     />
                 </div>
+
+                {showFrequent && (
+                    /* 라벨 자리를 비워 제목 칸과 같은 선에서 시작한다 */
+                    <div className="flex gap-3 px-4 pb-1">
+                        <span className={labelCls} aria-hidden="true"/>
+                        <div className="min-w-0 flex-1">
+                            <p className="mb-1.5 text-xs text-muted">자주 쓰는 일정</p>
+                            <ul className="flex flex-col gap-1">
+                                {matches.map((item) => {
+                                    const info = markOf(item.zone_id);
+                                    return (
+                                        <li key={`${item.zone_id}-${item.title}`}>
+                                            <button
+                                                type="button"
+                                                /*
+                                                  `onPointerDown` 이라야 한다. 클릭까지 기다리면 그 전에
+                                                  칸에서 초점이 떠나 목록이 사라지고, 손가락은 허공을 친다.
+                                                  기본 동작을 막아 초점을 칸에 그대로 둔다.
+                                                */
+                                                onPointerDown={(e) => {
+                                                    e.preventDefault();
+                                                    pickFrequent(item);
+                                                }}
+                                                className="flex w-full items-center gap-2 rounded-lg border border-line
+                                                           bg-card px-2.5 py-2 text-left transition-colors
+                                                           hover:border-pine/50"
+                                            >
+                                                <ZoneMark
+                                                    mark={info?.mark ?? ""}
+                                                    color={info?.color ?? "var(--color-line)"}
+                                                    round={info?.received}
+                                                    size="sm"
+                                                />
+                                                <span className="shrink-0 truncate text-sm">{item.title}</span>
+                                                {item.content && (
+                                                    <span className="min-w-0 truncate text-xs text-muted">
+                                                        {item.content}
+                                                    </span>
+                                                )}
+                                            </button>
+                                        </li>
+                                    );
+                                })}
+                            </ul>
+                        </div>
+                    </div>
+                )}
 
                 {/*
           내용은 준비물 목록처럼 줄로 적는 일이 많아 여러 줄을 받는다.
