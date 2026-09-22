@@ -1,0 +1,21 @@
+<!--
+  안드로이드 적응형 아이콘(maskable)의 원본. `icon-maskable-512.png` 가 여기서 나온다.
+
+  **`app/icon.svg` 를 그대로 쓰면 안 된다.** 그쪽은 모서리가 둥근 타일(rx=23)이라
+  바깥 네 귀퉁이가 비어 있는데, 안드로이드는 제 모양(원·둥근사각·물방울)으로 한 번 더
+  오려내므로 그 빈 귀퉁이가 배경으로 비친다. 그래서 여기서는 **배경이 네 귀퉁이까지
+  꽉 찬다**(rx 없음) — 오려낸 뒤의 모양은 시스템이 만든다.
+
+  그림은 가운데 80% 안에 있어야 한다(safe zone). 이 달력은 지름 66% 쯤이라 넉넉하다.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <rect width="100" height="100" fill="#2F7A63"/>
+  <g transform="translate(19 19) scale(1.55)"
+     fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="5" y="8" width="30" height="27" rx="5"/>
+    <path d="M5 17h30M13 4v6M27 4v6"/>
+    <circle cx="14" cy="26" r="2.4" fill="#fff" stroke="none"/>
+    <circle cx="20" cy="26" r="2.4" fill="#fff" stroke="none"/>
+    <circle cx="26" cy="26" r="2.2" stroke-width="1.6"/>
+  </g>
+</svg>
