@@ -67,8 +67,8 @@ export const apiUrl = {
     scope === "this" ? `/events/${eventId}` : `/events/${eventId}?scope=${scope}`,
   // 여럿을 한 요청으로 지운다. 전부 지워지거나 하나도 안 지워진다
   bulkDeleteEvents: "/events/bulk-delete",
-  // 등록 폼의 "자주 쓰는 일정". 따로 저장해 둔 목록이 아니라 지난 기록에서 뽑아 온다
-  frequentEvents: "/events/frequent",
+  // 등록 폼의 제목 칸 아래에 뜨는 즐겨찾기. 넣고 빼는 것은 일정 상세의 별표가 한다
+  starredEvents: "/events/starred",
   // 발송 단위는 Alert 하나다. 상세 화면의 "보내기" 가 쓴다
   sendAlert: (eventId: number, alertId: number) =>
     `/events/${eventId}/alerts/${alertId}/send`,

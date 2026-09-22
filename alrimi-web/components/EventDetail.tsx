@@ -9,6 +9,7 @@ import {
   useSendAlert,
   useToggleCancel,
   useToggleComplete,
+  useToggleStar,
 } from "@/hooks/useEvents";
 import { useZoneMark, useZones } from "@/hooks/useZones";
 import { ZoneMark } from "@/components/ZoneMark";
@@ -21,7 +22,7 @@ import type { EditScope } from "@/types";
 import { BottomSheet } from "@/components/BottomSheet";
 import { EventForm } from "@/components/EventForm";
 import { Menu } from "@/components/Menu";
-import { HiCheckCircle, HiOutlineCheckCircle } from "react-icons/hi2";
+import { HiCheckCircle, HiOutlineCheckCircle, HiOutlineStar, HiStar } from "react-icons/hi2";
 
 interface Props {
   eventId: number;
@@ -50,6 +51,7 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
   const remove = useDeleteEvent();
   const toggleComplete = useToggleComplete(eventId);
   const toggleCancel = useToggleCancel(eventId);
+  const toggleStar = useToggleStar(eventId);
   const hold = useHold(eventId);
   const send = useSendAlert(eventId);
   const markOf = useZoneMark();
@@ -58,14 +60,26 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
   if (isLoading) return <LoadingBlock />;
   if (isError || !event) return <ErrorBlock onRetry={() => refetch()} />;
 
-  const done = event.completed_at !== null;
+  /*
+    참거짓으로 본다(`!== null` 이 아니라). 배포 중에는 웹이 서버보다 잠깐 앞설 수 있고,
+    그때 아직 안 오는 칸은 `undefined` 인데 `undefined !== null` 은 참이다 — 멀쩡한 일정이
+    취소·완료로 그어진 채 뜬다.
+  */
+  const done = Boolean(event.completed_at);
   /*
     취소. 완료와 같은 칸(끝난 일)이지만 뜻이 반대다 — 완료는 한 일, 취소는 없어진 일이다.
     지우지 않고 남겨두는 까닭은 몇 주 뒤에 "이 날 뭐가 있었지" 하는 순간에 답이 있어야
     해서다. 그래서 날짜·달력 어디에서도 사라지지 않고, 취소선과 딱지로만 말한다.
   */
-  const canceled = event.canceled_at !== null;
-  const held = event.held_at !== null;
+  const canceled = Boolean(event.canceled_at);
+  /*
+    즐겨찾기. 되풀이되는 것을 다시 적을 때 쓰는 본보기라, 완료·취소·보류와 겹치지 않는다 —
+    지난달 학부모 상담을 본보기로 삼아 다음 것을 적는 일에 뜻이 있다.
+
+    **켜고 끄는 자리는 여기뿐이다.** 목록 카드에서는 켜져 있는지만 보인다.
+  */
+  const starred = Boolean(event.starred_at);
+  const held = Boolean(event.held_at);
   /*
     함께 보는(공유받은) 공간의 일정은 보기만 한다. 고치는 자리 — 점 세 개 메뉴, 완료
     동그라미, 알림 보내기, 다시 잡기 — 를 통째로 감춘다. 눌러봐야 서버가 403 으로 막는다.
@@ -110,6 +124,13 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
   const onCancel = () =>
     toggleCancel.mutate(!canceled, {
       onSuccess: () => toast.success(canceled ? "다시 예정으로 돌렸어요" : "취소로 표시했어요"),
+      onError: () => toast.error("바꾸지 못했어요"),
+    });
+
+  const onStar = () =>
+    toggleStar.mutate(!starred, {
+      onSuccess: () =>
+        toast.success(starred ? "즐겨찾기에서 뺐어요" : "즐겨찾기에 넣었어요. 등록할 때 골라 쓸 수 있어요"),
       onError: () => toast.error("바꾸지 못했어요"),
     });
 
@@ -229,6 +250,34 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
           >
             {event.title}
           </h1>
+
+          {/*
+            즐겨찾기 별표. **이 앱에서 켜고 끄는 자리는 여기뿐이다.**
+
+            완료 동그라미 왼쪽에 나란히 둔다 — 둘 다 이 일정에 대해 한 번 누르고 끝나는
+            표시라 같은 줄에 서는 것이 맞다. 모양으로 갈린다: 동그라미는 "했다", 별은
+            "또 쓸 것". 보류·취소한 일정에도 그대로 둔다(끝난 일정을 본보기로 두는 것에도
+            뜻이 있다).
+          */}
+          {!readOnly && (
+            <button
+              type="button"
+              onClick={onStar}
+              disabled={toggleStar.isPending}
+              aria-pressed={starred}
+              aria-label={starred ? "즐겨찾기에서 빼기" : "즐겨찾기에 넣기"}
+              title={starred ? "즐겨찾기에서 빼기" : "즐겨찾기에 넣기"}
+              /* 완료 동그라미와 같은 44px 과녁·같은 음수 여백 — 제목 줄 높이를 건드리지 않는다 */
+              className="-my-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-full
+                         transition-colors hover:bg-amberlt disabled:opacity-40"
+            >
+              {starred ? (
+                <HiStar className="h-6 w-6 text-amber" aria-hidden="true" />
+              ) : (
+                <HiOutlineStar className="h-6 w-6 text-muted/60" aria-hidden="true" />
+              )}
+            </button>
+          )}
 
           {/*
             보류·취소한 것에는 끝낼 일이 없다. 서버도 그때 완료를 지운다.

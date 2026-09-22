@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import toast from "react-hot-toast";
-import { HiCheckCircle, HiOutlineCheckCircle } from "react-icons/hi2";
+import { HiCheckCircle, HiOutlineCheckCircle, HiStar } from "react-icons/hi2";
 import { LuRepeat } from "react-icons/lu";
 import { pageUrl } from "@/constants/routeUrl";
 import { dayIndex, hourLabel, spanDays } from "@/lib/date";
@@ -56,8 +56,13 @@ export function EventCard({
     "한 일" 보다 "없어진 일" 로 읽힌다. 취소한 일정을 지우지 않고 그 날에 남겨두는 것이
     이 기능의 요점이라, 목록에서도 그 날 자리에 그대로 선다.
   */
-  const done = event.completed_at !== null;
-  const canceled = event.canceled_at !== null;
+  /*
+    비었는지 보는 것은 `!== null` 이 아니라 참거짓으로 본다. 배포 중에는 웹이 서버보다
+    잠깐 앞설 수 있는데, 그때 서버가 아직 안 보내주는 칸은 `undefined` 로 온다 —
+    `undefined !== null` 은 참이라, 모든 일정이 취소선이 그어지고 별이 박힌 채로 나온다.
+  */
+  const done = Boolean(event.completed_at);
+  const canceled = Boolean(event.canceled_at);
   const toggle = useToggleComplete(event.id);
 
   const selecting = useSelection((s) => s.active);
@@ -123,6 +128,14 @@ export function EventCard({
 
   const tail = (
     <>
+      {/*
+        즐겨찾기. **여기서는 보여주기만 한다** — 켜고 끄는 것은 일정 상세에서 한다.
+        목록에서도 누를 수 있게 하면 완료 동그라미 옆에 과녁이 하나 더 붙어, 스쳐 누르기
+        쉬운 자리에 "다음에 또 쓸 것" 을 정하는 일이 놓인다. 한 번 들여다보고 정할 일이다.
+      */}
+      {Boolean(event.starred_at) && (
+        <HiStar className="h-3.5 w-3.5 shrink-0 text-amber" aria-label="즐겨찾기" role="img" />
+      )}
       {/* 반복 일정. 이름을 읽기 전에 "매주 오는 것" 인 줄 알게 한다 */}
       {event.series_id !== null && (
         <LuRepeat className="h-3.5 w-3.5 shrink-0 text-muted/70" aria-label="반복 일정" role="img" />

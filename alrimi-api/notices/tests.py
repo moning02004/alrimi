@@ -819,15 +819,15 @@ class CompletionTests(ApiTestCase):
         self.assertEqual(after, before - 1)
 
 
-class FrequentEventsTests(ApiTestCase):
+class StarredEventsTests(ApiTestCase):
     """
-    자주 쓰는 일정 — 따로 만들어 두는 목록이 아니라, 쓰던 것이 쌓여 생기는 목록이다.
+    즐겨찾기 — 되풀이되는 것을 다시 적을 때 쓰는 본보기. 쓴 횟수로 세지 않고 사람이 정한다.
     """
 
     def url(self):
-        return reverse("event-frequent")
+        return reverse("event-starred")
 
-    def make(self, title, *, days_ago=0, zone=None, content="", hour=None, codes=()):
+    def make(self, title, *, days_ago=0, zone=None, content="", hour=None, codes=(), star=False):
         event = Event.objects.create(
             zone=zone or self.zone,
             event_date=self.today - dt.timedelta(days=days_ago),
@@ -837,73 +837,108 @@ class FrequentEventsTests(ApiTestCase):
         )
         if codes:
             event.sync_alerts(list(codes))
+        if star:
+            event.set_starred(True)
         return event
+
+    def star(self, event, value=True):
+        return self.client.patch(
+            reverse("event-detail", args=[event.id]),
+            {"starred": value},
+            content_type="application/json",
+            headers=self.auth,
+        )
 
     def titles(self):
         return [row["title"] for row in self.get(self.url()).json()]
 
-    def test_두_번부터_목록에_선다(self):
-        self.make("한 번만", days_ago=3)
-        self.make("체육복", days_ago=7)
-        self.make("체육복", days_ago=14)
+    def test_별표한_것만_담긴다(self):
+        self.make("체육복", star=True)
+        # 세 번 적었어도 별표가 없으면 안 담긴다 — 많이 적은 것과 다시 쓸 것은 다르다
+        for day in (3, 10, 17):
+            self.make("병원", days_ago=day)
 
         self.assertEqual(self.titles(), ["체육복"])
 
-    def test_많이_쓴_것이_위다(self):
-        for day in (3, 10, 17):
-            self.make("체육복", days_ago=day)
-        for day in (4, 11):
-            self.make("병원", days_ago=day)
+    def test_상세에서_켜고_끈다(self):
+        event = self.make("학부모 상담")
 
-        self.assertEqual(self.titles(), ["체육복", "병원"])
+        res = self.star(event)
+        self.assertEqual(res.status_code, 200)
+        self.assertIsNotNone(res.json()["starred_at"])
+        self.assertEqual(self.titles(), ["학부모 상담"])
 
-    def test_마지막에_적은_것으로_채워_준다(self):
-        """내용이나 알림 시점을 고쳐가며 쓰면, 마지막에 적은 것이 지금 쓰는 모양이다."""
-        self.make("체육복", days_ago=20, content="흰 티셔츠")
-        self.make("체육복", days_ago=3, content="흰 티셔츠, 모자", hour=9, codes=["D-1 20:00"])
-
-        row = self.get(self.url()).json()[0]
-
-        self.assertEqual(row["content"], "흰 티셔츠, 모자")
-        self.assertEqual(row["event_hour"], 9)
-        self.assertEqual(row["alerts"], ["D-1 20:00"])
-        self.assertEqual(row["zone_id"], self.zone.id)
-        self.assertEqual(row["used"], 2)
-
-    def test_오래된_것은_세지_않는다(self):
-        """학기가 바뀌면 챙길 것도 바뀐다. 작년 습관이 올해 목록에 남아 있으면 안 된다."""
-        self.make("작년 것", days_ago=200)
-        self.make("작년 것", days_ago=210)
-
+        self.assertIsNone(self.star(event, False).json()["starred_at"])
         self.assertEqual(self.titles(), [])
 
-    def test_보류한_것은_세지_않는다(self):
-        """지금 일정이 아닌 것을 자주 쓴다고 할 수 없다."""
-        for day in (3, 10):
-            held = self.make("미룬 것", days_ago=day)
-            held.held_at = timezone.now()
-            held.save(update_fields=["held_at"])
+    def test_나중에_넣은_것이_위다(self):
+        first = self.make("체육복")
+        second = self.make("준비물")
+        self.star(first)
+        self.star(second)
 
-        self.assertEqual(self.titles(), [])
+        self.assertEqual(self.titles(), ["준비물", "체육복"])
 
-    def test_완료하거나_취소한_것도_센다(self):
-        """끝났든 없어졌든, 그 일을 그만큼 적었다는 사실은 그대로다."""
-        done = self.make("예방접종", days_ago=30)
+    def test_같은_제목은_하나로_묶고_마지막에_넣은_것을_쓴다(self):
+        """이 목록은 날짜가 아니라 무엇을 적을지 고르는 자리다."""
+        self.make("체육복", days_ago=20, content="흰 티셔츠", star=True)
+        self.star(self.make("체육복", days_ago=3, content="흰 티셔츠, 모자", hour=9, codes=["D-1 20:00"]))
+
+        rows = self.get(self.url()).json()
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["content"], "흰 티셔츠, 모자")
+        self.assertEqual(rows[0]["event_hour"], 9)
+        self.assertEqual(rows[0]["alerts"], ["D-1 20:00"])
+        self.assertEqual(rows[0]["zone_id"], self.zone.id)
+
+    def test_끝난_일정도_본보기로_남는다(self):
+        """지난달 상담을 본보기로 삼아 다음 것을 적는다. 완료·취소가 별표를 끄지 않는다."""
+        done = self.make("학부모 상담", days_ago=30, star=True)
         done.set_completed(True)
-        gone = self.make("예방접종", days_ago=10)
+        gone = self.make("소풍", days_ago=10, star=True)
         gone.set_canceled(True)
 
-        self.assertEqual(self.titles(), ["예방접종"])
+        done.refresh_from_db()
+        self.assertIsNotNone(done.starred_at)
+        self.assertEqual(sorted(self.titles()), ["소풍", "학부모 상담"])
+
+    def test_보류해도_별표는_남는다(self):
+        held = self.make("미룬 것", star=True)
+
+        self.client.patch(
+            reverse("event-detail", args=[held.id]),
+            {"held": True},
+            content_type="application/json",
+            headers=self.auth,
+        )
+
+        held.refresh_from_db()
+        self.assertIsNotNone(held.starred_at)
 
     def test_남의_공간은_섞이지_않는다(self):
         from zones.models import Zone
 
         theirs = Zone.objects.create(owner=self.other, name="남의 공간")
-        for day in (3, 10):
-            self.make("남의 일정", days_ago=day, zone=theirs)
-            self.make("내 일정", days_ago=day)
+        self.make("남의 일정", zone=theirs, star=True)
+        self.make("내 일정", star=True)
 
         self.assertEqual(self.titles(), ["내 일정"])
+
+    def test_등록하면서_별표할_수는_없다(self):
+        """한 번 써보고 정하는 것이 순서다."""
+        res = self.post(
+            reverse("event-list"),
+            {
+                "zone": self.zone.id,
+                "event_date": str(self.today + dt.timedelta(days=1)),
+                "title": "새 일정",
+                "starred": True,
+            },
+        )
+
+        self.assertEqual(res.status_code, 201)
+        self.assertIsNone(Event.objects.get(title="새 일정").starred_at)
 
     def test_로그인해야_부를_수_있다(self):
         self.assertEqual(self.client.get(self.url()).status_code, 401)

@@ -32,12 +32,13 @@ import {
     repeatDates,
     serverWeekday,
 } from "@/lib/repeat";
-import {useCreateEvent, useFrequentEvents, useUpdateEvent} from "@/hooks/useEvents";
+import {useCreateEvent, useStarredEvents, useUpdateEvent} from "@/hooks/useEvents";
 import {useZoneMark, useZones} from "@/hooks/useZones";
 import {ZoneMark} from "./ZoneMark";
 import {Picker} from "./Picker";
-import type {EditScope, EventDetail, FrequentEvent, RepeatFreq} from "@/types";
+import type {EditScope, EventDetail, RepeatFreq, StarredEvent} from "@/types";
 import {LuCalendar} from "react-icons/lu";
+import {HiStar} from "react-icons/hi2";
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
@@ -291,11 +292,15 @@ export function EventForm({event, initialDate, initialTitle, initialContent, res
     const [error, setError] = useState<string | null>(null);
 
     /*
-      ── 자주 쓰는 일정 ──────────────────────────────────────────────
+      ── 즐겨찾기 ────────────────────────────────────────────────────
 
-      규칙은 아닌데 되풀이되는 것(체육복·병원·준비물)을 지난 기록에서 뽑아 온다
-      (`GET /events/frequent`). 따로 저장해 두는 목록이 아니다 — "자주 쓰는 일정으로
-      저장" 같은 걸 두면 저장하는 일이 하나 더 늘고, 대개 아무도 저장해두지 않는다.
+      되풀이되는 것(체육복·학부모 상담·준비물)을 다시 적을 때 쓰는 본보기다
+      (`GET /events/starred`). 넣고 빼는 것은 **일정 상세의 별표**가 하고, 이 자리는 그것을
+      그대로 내놓는다.
+
+      **쓴 횟수로 세지 않는다.** 예전에는 지난 기록에서 자주 쓴 것을 뽑아 줬는데, 많이 적은
+      것과 다시 쓰고 싶은 것은 같지 않았다 — 병원은 자주 갔지만 다시 적을 일은 아니고, 1년에
+      두 번인 학부모 상담은 매번 그대로 다시 적는다.
 
       **제목 칸 아래에 둔다.** 고르는 자리를 따로 만들면 그리로 가는 길을 또 배워야 하는데,
       여기서는 적으려고 칸을 누른 그 자리에 이미 답이 놓여 있다. 치기 시작하면 걸러진다.
@@ -303,10 +308,10 @@ export function EventForm({event, initialDate, initialTitle, initialContent, res
       수정할 때는 부르지 않는다 — 이미 있는 일정을 고치는 자리라 고를 것이 없다.
     */
     const suggesting = !editing && !resume;
-    const {data: frequent} = useFrequentEvents(suggesting);
+    const {data: starred} = useStarredEvents(suggesting);
     const [titleFocused, setTitleFocused] = useState(false);
     const typed = title.trim().toLowerCase();
-    const matches = (frequent ?? [])
+    const matches = (starred ?? [])
         .filter((item) => {
             // 이미 그대로 적어 놓은 것을 다시 권하지 않는다
             if (item.title.toLowerCase() === typed) return false;
@@ -318,10 +323,10 @@ export function EventForm({event, initialDate, initialTitle, initialContent, res
       목록이 한 덩어리 놓여 있어 등록하러 온 사람에게는 제 자리가 아닌 것이 끼어든 것처럼
       읽혔다. 칸을 누르는 것은 "이제 제목을 정한다" 는 뜻이라, 그때가 내놓을 때다.
     */
-    const showFrequent = suggesting && matches.length > 0 && titleFocused;
+    const showStarred = suggesting && matches.length > 0 && titleFocused;
 
     /** 고르면 날짜만 빼고 다 채운다. 날짜는 매번 달라지는 유일한 값이라 사람이 고른다. */
-    const pickFrequent = (item: FrequentEvent) => {
+    const pickStarred = (item: StarredEvent) => {
         setTitle(item.title);
         setContent(item.content);
         if (zones.some((zone) => zone.id === item.zone_id)) setPicked(item.zone_id);
@@ -854,7 +859,7 @@ export function EventForm({event, initialDate, initialTitle, initialContent, res
                         제목
                     </label>
                     {/*
-                      칸을 한 겹 감싼다. 자주 쓰는 일정 박스가 **칸에 붙어** 떠야 해서
+                      칸을 한 겹 감싼다. 즐겨찾기 박스가 **칸에 붙어** 떠야 해서
                       기준점이 필요하다. 칸이 쓰던 자리 값(`-mx-1 min-w-0 flex-1`)을 이 겹이
                       그대로 물려받으므로, 위아래 날짜·내용 칸과 같은 선에 그대로 선다.
                     */}
@@ -871,7 +876,7 @@ export function EventForm({event, initialDate, initialTitle, initialContent, res
                             onKeyDown={(e) => {
                                 // 박스가 떠 있으면 Esc 는 박스만 닫는다. 그냥 두면 시트가 통째로 닫혀,
                                 // 목록을 물리려던 사람이 적던 것까지 잃는다.
-                                if (e.key === "Escape" && showFrequent) {
+                                if (e.key === "Escape" && showStarred) {
                                     e.stopPropagation();
                                     setTitleFocused(false);
                                 }
@@ -883,7 +888,7 @@ export function EventForm({event, initialDate, initialTitle, initialContent, res
                             className={`${fieldCls} ${rowFieldCls} w-full py-2 text-base placeholder:text-muted/50`}
                         />
 
-                        {showFrequent && (
+                        {showStarred && (
                             /*
                               칸 아래에 떠서 **덮는다.** 아래로 밀어내면 누를 때마다 내용 칸과
                               그 밑이 통째로 움직여서, 고르려던 손이 움직인 자리를 다시 찾는다.
@@ -892,14 +897,16 @@ export function EventForm({event, initialDate, initialTitle, initialContent, res
                                 className="absolute inset-x-0 top-full z-20 mt-1 overflow-hidden rounded-xl
                                            border border-line bg-card shadow-lg"
                             >
-                                <p className="border-b border-line px-3 py-2 text-xs text-muted">
-                                    자주 쓰는 일정
+                                <p className="flex items-center gap-1.5 border-b border-line px-3 py-2
+                                              text-xs text-muted">
+                                    <HiStar className="h-3.5 w-3.5 text-amber" aria-hidden="true"/>
+                                    즐겨찾기
                                 </p>
                                 <ul className="divide-y divide-line">
                                     {matches.map((item) => {
                                         const info = markOf(item.zone_id);
                                         return (
-                                            <li key={`${item.zone_id}-${item.title}`}>
+                                            <li key={item.event_id}>
                                                 <button
                                                     type="button"
                                                     /*
@@ -909,7 +916,7 @@ export function EventForm({event, initialDate, initialTitle, initialContent, res
                                                     */
                                                     onPointerDown={(e) => {
                                                         e.preventDefault();
-                                                        pickFrequent(item);
+                                                        pickStarred(item);
                                                     }}
                                                     className="flex w-full items-start gap-2 px-3 py-2.5 text-left
                                                                transition-colors hover:bg-paper"

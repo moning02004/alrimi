@@ -234,6 +234,19 @@ class Event(models.Model):
             "보류함으로 가고, 취소는 다시 잡지 않을 일이라 그 날에 눌러앉는다."
         ),
     )
+    starred_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "즐겨찾기에 넣은 시각. 등록 폼이 제목 칸 아래에 내놓는 목록이 이것이다 — 고르면 "
+            "제목·내용·공간·시각·알림 시점이 한 번에 채워지고 날짜만 빈다.\n\n"
+            "**쓴 횟수로 세지 않고 사람이 정한다.** 예전에는 지난 기록에서 자주 쓴 것을 뽑아 "
+            "줬는데, 많이 적은 것과 다시 쓰고 싶은 것은 같지 않았다 — 병원은 자주 갔지만 다시 "
+            "적을 일은 아니고, 1년에 두 번인 학부모 상담은 매번 그대로 다시 적는다.\n\n"
+            "시각을 남기는 것은 최근에 넣은 것이 위에 서게 하려는 것이다(불리언이면 줄 세울 "
+            "것이 없다). 완료·취소·보류가 모두 같은 방식이다."
+        ),
+    )
     held_at = models.DateTimeField(
         null=True,
         blank=True,
@@ -303,6 +316,14 @@ class Event(models.Model):
             # 한 일정이 끝나기도 하고 취소되기도 할 수는 없다
             self.canceled_at = None
         self.save(update_fields=["completed_at", "canceled_at", "updated_at"])
+
+    def set_starred(self, starred: bool) -> None:
+        """
+        즐겨찾기에 넣거나 뺀다. 일정의 다른 무엇도 건드리지 않는다 — 끝난 일정을 즐겨찾기에
+        두는 것도 뜻이 있다(지난달 학부모 상담을 본보기로 삼아 다음 것을 적는다).
+        """
+        self.starred_at = timezone.now() if starred else None
+        self.save(update_fields=["starred_at", "updated_at"])
 
     def set_canceled(self, canceled: bool) -> None:
         """

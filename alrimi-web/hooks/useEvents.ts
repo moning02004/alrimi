@@ -11,7 +11,7 @@ import type {
   EventDetail,
   EventListItem,
   EventPayload,
-  FrequentEvent,
+  StarredEvent,
 } from "@/types";
 
 export const eventKeys = {
@@ -229,17 +229,35 @@ export function useDeleteEvent() {
 }
 
 /**
- * 자주 쓰는 일정. 등록 폼이 제목 칸 아래에 놓는다.
+ * 즐겨찾기. 등록 폼이 제목 칸 아래에 놓는다.
  *
- * 지난 기록에서 뽑아 오는 값이라 하루에 몇 번씩 달라지지 않는다 — 시트를 여닫을 때마다
- * 다시 받지 않도록 `staleTime` 을 길게 둔다. 일정을 하나 더 만들었다고 이 목록이 곧바로
- * 달라져야 할 까닭도 없다(두 번째부터 목록에 서므로 대개 그대로다).
+ * 사람이 손으로 넣고 빼는 목록이라 자주 달라지지 않는다 — 시트를 여닫을 때마다 다시
+ * 받지 않도록 `staleTime` 을 길게 둔다. 별표를 켜고 끄는 `useToggleStar` 는 이 질의를
+ * 무르므로, 방금 넣은 것은 곧바로 박스에 선다.
  */
-export function useFrequentEvents(enabled: boolean) {
+export function useStarredEvents(enabled: boolean) {
   return useQuery({
-    queryKey: ["events", "frequent"],
-    queryFn: () => api.get<FrequentEvent[]>(apiUrl.frequentEvents),
+    queryKey: ["events", "starred"],
+    queryFn: () => api.get<StarredEvent[]>(apiUrl.starredEvents),
     enabled,
     staleTime: 10 * 60 * 1000,
+  });
+}
+
+/**
+ * 즐겨찾기 별표. **일정 상세에서만 켜고 끈다** — 목록 카드에서는 켜져 있는지만 보인다.
+ *
+ * 목록에서도 누를 수 있게 하면 완료 동그라미 옆에 과녁이 하나 더 붙어, 스쳐 누르기 쉬운
+ * 자리에 "다음에 또 쓸 것" 을 정하는 일이 놓인다. 그것은 한 번 들여다보고 정할 일이다.
+ */
+export function useToggleStar(eventId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (starred: boolean) => api.patch<EventDetail>(apiUrl.event(eventId), { starred }),
+    onSuccess: (event) => {
+      qc.setQueryData(eventKeys.detail(eventId), event);
+      // 목록 카드의 별표와 등록 폼의 박스가 함께 달라진다
+      invalidateAll(qc);
+    },
   });
 }

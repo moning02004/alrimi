@@ -97,6 +97,8 @@ export interface EventListItem {
    */
   /** 취소한 시각. **날짜에 그대로 남는다** — 지우면 그 날 뭐가 있었는지 알 길이 없다 */
   canceled_at: string | null;
+  /** 즐겨찾기에 넣은 시각. 등록 폼의 제목 칸 아래 박스가 이것을 모아 보여준다 */
+  starred_at: string | null;
   held_at: string | null;
   zone_id: number;
   zone_color: string;
@@ -131,6 +133,7 @@ export interface EventPayload {
    * 함께 보내야 한다 — 서버가 지난 날짜로 푸는 것을 막는다(알림이 한 통도 안 나간다).
    */
   canceled?: boolean;
+  starred?: boolean;
   held?: boolean;
   /**
    * 등록할 때만. 날마다 한 건씩 미리 만들어진다(서버 `EventSeries`). 규칙은 나중에
@@ -186,17 +189,17 @@ export interface Me {
 }
 
 /**
- * 자주 쓰는 일정. 지난 기록에서 뽑아 온 것이라 따로 저장해 둔 목록이 아니다.
+ * 즐겨찾기한 일정. 되풀이되는 것을 다시 적을 때 쓰는 본보기다.
  * 고르면 등록 폼의 제목·내용·공간·시각·알림 시점이 한 번에 채워진다 — **날짜만 빼고**.
  */
-export interface FrequentEvent {
+export interface StarredEvent {
+  /** 본보기가 된 일정. 같은 (공간, 제목) 은 서버가 하나로 묶어 대표 하나만 보낸다 */
+  event_id: number;
   title: string;
   content: string;
   zone_id: number;
   event_hour: number | null;
   alerts: string[];
-  /** 지난 180일 동안 몇 번 썼는가 */
-  used: number;
 }
 
 /** 사용자를 추가하거나 링크를 새로 만들었을 때만 오는 값 — **이때 한 번만** 볼 수 있다 */
