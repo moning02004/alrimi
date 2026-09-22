@@ -4,26 +4,35 @@ import toast from "react-hot-toast";
 import { isOffline } from "@/lib/api";
 import type { EventListItem } from "@/types";
 
+/** 폼을 미리 채워 열 때. 지금은 다른 앱에서 공유로 넘어온 글이 쓴다(`useSharedDraft`) */
+export interface AddDraft {
+  title?: string;
+  content?: string;
+}
+
 interface AddSheetState {
   open: boolean;
   /** 달력에서 빈 날을 눌러 열면 그 날짜가 채워진 채 뜬다 */
   initialDate: string | null;
-  openAdd: (initialDate?: string) => void;
+  /** 제목·내용을 미리 채워 열 때. 날짜와 달리 대개 비어 있다 */
+  draft: AddDraft | null;
+  openAdd: (initialDate?: string, draft?: AddDraft) => void;
   closeAdd: () => void;
 }
 
 export const useAddSheet = create<AddSheetState>((set) => ({
   open: false,
   initialDate: null,
-  openAdd: (initialDate) => {
+  draft: null,
+  openAdd: (initialDate, draft) => {
     // 오프라인은 읽기 전용이다. 다 적고 저장에서 막히면 적은 것이 헛수고가 되므로 열기 전에 막는다.
     if (isOffline()) {
       toast("오프라인이라 지금은 등록할 수 없어요");
       return;
     }
-    set({ open: true, initialDate: initialDate ?? null });
+    set({ open: true, initialDate: initialDate ?? null, draft: draft ?? null });
   },
-  closeAdd: () => set({ open: false, initialDate: null }),
+  closeAdd: () => set({ open: false, initialDate: null, draft: null }),
 }));
 
 interface SideNavState {

@@ -96,6 +96,8 @@ export const pageUrl = {
   settingsSharing: "/settings/sharing",
   settingsUsers: "/settings/users",
   search: "/search",
+  // 다른 앱의 공유가 들어오는 문. manifest 의 share_target 과 같은 주소여야 한다
+  share: "/share",
   // 로그인 없이 열린다. 구글 OAuth 동의 화면에 이 주소를 적는다
   privacy: "/privacy",
   event: (eventId: number) => `/events/${eventId}`,

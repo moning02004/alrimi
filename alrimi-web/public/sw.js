@@ -59,8 +59,60 @@ function offlinePage() {
   return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
 }
 
+/*
+  ── 공유로 받기 ─────────────────────────────────────────────────────────
+
+  manifest 의 `share_target` 이 다른 앱(카톡 등)의 공유를 **POST /share** 로 보낸다.
+  그것을 여기서 가로채 남겨두고, 앱은 주소가 깨끗한 화면(`/share`)에서 꺼내 쓴다.
+
+  **왜 POST 이고 왜 워커인가.** GET 으로 받으면 공유한 글이 주소에 실려 서버 기록과
+  브라우저 방문 기록에 그대로 남는다. 남의 집 공지가 우리 로그에 쌓일 까닭이 없다.
+  POST 를 워커가 가로채면 그 글은 기기 밖으로 한 발짝도 나가지 않는다.
+
+  `CACHING` 과 상관없이 동작한다 — 개발 서버에서도 시험할 수 있어야 한다.
+  꺼내 가는 쪽은 `lib/share.ts`·`hooks/useSharedDraft.ts` 이고, 아래 이름들이 그쪽과 짝이다.
+*/
+var SHARE_CACHE = "alrimi-share";
+var SHARE_KEY = "/__shared__";
+var SHARE_PATH = "/share";
+
+function receiveShare(request) {
+  return request
+    .formData()
+    .then(function (form) {
+      var payload = {
+        title: form.get("title") || "",
+        text: form.get("text") || "",
+        url: form.get("url") || "",
+        at: Date.now(),
+      };
+      return caches.open(SHARE_CACHE).then(function (cache) {
+        return cache.put(
+          SHARE_KEY,
+          new Response(JSON.stringify(payload), {
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      });
+    })
+    .catch(function () {
+      // 못 읽었어도 앱은 열어준다. 빈손으로 열린 앱이, 아무 일도 안 일어난 공유보다 낫다.
+    })
+    .then(function () {
+      // 303 이라야 브라우저가 POST 를 GET 으로 바꿔 따라간다
+      return Response.redirect(SHARE_PATH, 303);
+    });
+}
+
 self.addEventListener("fetch", function (event) {
   var request = event.request;
+
+  // 아래 GET 전용 규칙보다 먼저 본다
+  if (request.method === "POST" && new URL(request.url).pathname === SHARE_PATH) {
+    event.respondWith(receiveShare(request));
+    return;
+  }
+
   if (!CACHING || request.method !== "GET") return;
 
   var url = new URL(request.url);

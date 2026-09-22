@@ -2,6 +2,7 @@
 
 import {usePathname} from "next/navigation";
 import {useAuthBootstrap} from "@/hooks/useAuthBootstrap";
+import {useSharedDraft} from "@/hooks/useSharedDraft";
 import {useMe} from "@/hooks/useMe";
 import {LoadingScreen} from "@/components/Loading";
 import {TabBar} from "@/components/TabBar";
@@ -19,7 +20,15 @@ export default function MainLayout({children}: { children: React.ReactNode }) {
       (같은 질의라 캐시를 나눠 쓴다) 이 자리에서 한 번 부르고 기다린다.
     */
     const {isPending: mePending} = useMe(ready && authenticated);
-    const {open, initialDate, openAdd, closeAdd} = useAddSheet();
+    const {open, initialDate, draft, openAdd, closeAdd} = useAddSheet();
+    /*
+      다른 앱에서 공유로 넘어온 글이 있으면 등록 폼을 채워 연다.
+
+      `/share` 화면이 아니라 여기서 꺼낸다 — 로그인이 풀린 채 공유하면 그 화면은 그려지지도
+      못한 채 로그인으로 넘어가고, 남겨둔 글은 아무도 꺼내지 않은 채 남는다. 여기서 보면
+      로그인을 마치고 앱에 닿는 순간 열린다.
+    */
+    useSharedDraft(ready && authenticated && !offline);
     const pathname = usePathname();
 
     /**
@@ -72,7 +81,12 @@ export default function MainLayout({children}: { children: React.ReactNode }) {
                 onOpenChange={(next) => (next ? openAdd(initialDate ?? undefined) : closeAdd())}
                 title="일정 등록"
             >
-                <EventForm initialDate={initialDate} onDone={closeAdd}/>
+                <EventForm
+                    initialDate={initialDate}
+                    initialTitle={draft?.title}
+                    initialContent={draft?.content}
+                    onDone={closeAdd}
+                />
             </BottomSheet>
 
             {/*

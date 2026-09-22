@@ -192,6 +192,13 @@ interface Props {
     /** 달력에서 빈 날을 눌러 열었을 때 미리 채워지는 날짜 */
     initialDate?: string | null;
     /**
+     * 다른 앱에서 공유로 넘어온 글(`hooks/useSharedDraft.ts`). 카톡 공지를 이 앱으로
+     * 넘기면 첫 줄이 제목, 나머지가 내용으로 들어와 있다. **날짜는 채우지 않는다** —
+     * 글에서 날짜를 알아맞히는 일은 틀렸을 때 엉뚱한 날에 알림이 가는 쪽으로 실패한다.
+     */
+    initialTitle?: string;
+    initialContent?: string;
+    /**
      * 보류함에서 "다시 잡기" 로 열었다. 같은 폼이지만 세 가지가 달라진다:
      * 날짜 칸이 비어서 열리고(다시 잡는다는 것은 곧 날을 새로 고른다는 뜻이다),
      * 지난 날은 못 고르며(옛 날짜 그대로 풀면 알림이 한 통도 안 나간다 —
@@ -204,7 +211,7 @@ interface Props {
     onDone: () => void;
 }
 
-export function EventForm({event, initialDate, resume = false, onDone}: Props) {
+export function EventForm({event, initialDate, initialTitle, initialContent, resume = false, onDone}: Props) {
     const editing = Boolean(event);
     // 일정을 넣을 수 있는 공간만 — 내 공간과, 주인이 일정 추가·수정을 허락한 받은 공간
     const {writableZones: zones, defaultZone, isLoading: zonesLoading} = useZones();
@@ -238,8 +245,12 @@ export function EventForm({event, initialDate, resume = false, onDone}: Props) {
       3일짜리 여행을 다시 잡는데 마지막 날까지 또 고르게 하면, 치워둔 보람이 없다.
     */
     const heldSpan = event ? spanDays(event.event_date, event.end_date) : 1;
-    const [title, setTitle] = useState(event?.title ?? "");
-    const [content, setContent] = useState(event?.content ?? "");
+    /*
+      `initialTitle`·`initialContent` 는 다른 앱에서 공유로 넘어온 글이다(`useSharedDraft`).
+      시트가 열릴 때마다 새로 마운트되므로 여는 순간의 값이 그대로 첫 값이 된다.
+    */
+    const [title, setTitle] = useState(event?.title ?? initialTitle ?? "");
+    const [content, setContent] = useState(event?.content ?? initialContent ?? "");
     /*
       시각은 선택이다. 기본은 아예 안 묻는다 — 대부분은 몇 시인지 정해져 있지 않고,
       빈 칸이 놓여 있으면 채워야 할 것이 하나 더 있는 것처럼 보인다. "여러 날" 과
