@@ -8,13 +8,14 @@ import { useZones } from "@/hooks/useZones";
 import { groupByDate } from "@/lib/date";
 import { EventGroups } from "@/components/EventGroups";
 import { HeldList } from "@/components/HeldList";
+import { SeriesList } from "@/components/SeriesList";
 import { ErrorBlock, LoadingBlock } from "@/components/Loading";
 import { ZoneFilter } from "@/components/ZoneFilter";
 
-type Tab = "past" | "held";
+type Tab = "past" | "held" | "series";
 
 /**
- * 지금 목록에 없는 일정들. 두 탭이 서로 다른 까닭으로 빠져 있다.
+ * 지금 목록에 없는 일정들. 탭마다 서로 다른 까닭으로 빠져 있다.
  *
  * **지난 일정** — 날이 지나서 빠진 것. 기록이라 완료한 것도 그대로 남기고
  * (끝낸 것을 지워버리면 그 날 무엇이 있었는지가 틀리게 남는다) 화면에서만
@@ -23,7 +24,10 @@ type Tab = "past" | "held";
  *
  * **보류** — 날을 아직 안 잡아서 빠진 것. 지우는 대신 치워둔 자리다.
  *
- * 두 탭이 한 페이지에 있는 것은 둘 다 "지금 홈에 없는 것" 을 찾을 때 오는
+ * **반복** — 아직 오지 않아서 빠진 것. 반복은 가까운 날만 일정으로 있어서, 몇 달 뒤
+ * 생신이 걸려 있는지는 목록이 아니라 여기서 본다(`SeriesList`).
+ *
+ * 탭이 한 페이지에 있는 것은 모두 "지금 홈에 없는 것" 을 찾을 때 오는
  * 자리여서다. 아래 탭바에 칸을 하나 더 내주지 않은 것이기도 하다 — 폰에서
  * 늘 보이는 자리는 홈·등록·설정 셋이면 충분하다.
  */
@@ -56,7 +60,7 @@ export default function PastPage() {
       <header className="sticky top-0 z-20 border-b border-line bg-card px-4 py-3">
         <div className="mx-auto w-full max-w-2xl">
           {/* 머리글은 탭이 겸한다 — 위에 "지난 일정" 을 또 적으면 같은 말이 두 줄이다 */}
-          <h1 className="sr-only">지난 일정/보류</h1>
+          <h1 className="sr-only">지난 일정/보류/반복</h1>
 
           {/*
             밑줄 탭이다. 알약 모양으로 하면 아래 공간 칩과 같은 생김새가 되어,
@@ -70,6 +74,9 @@ export default function PastPage() {
               <TabButton on={tab === "held"} onClick={() => setTab("held")}>
                 보류
                 {heldCount > 0 && <span className="ml-1.5 tabular-nums">{heldCount}</span>}
+              </TabButton>
+              <TabButton on={tab === "series"} onClick={() => setTab("series")}>
+                반복
               </TabButton>
             </div>
 
@@ -100,6 +107,8 @@ export default function PastPage() {
       <main className="mx-auto w-full max-w-2xl px-4 pb-4">
         {tab === "held" ? (
           <HeldList zoneId={scope} />
+        ) : tab === "series" ? (
+          <SeriesList zoneId={scope} />
         ) : (
           <>
             {past.isLoading && <LoadingBlock />}

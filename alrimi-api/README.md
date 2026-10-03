@@ -240,12 +240,27 @@ DJANGO_ENV=prod gunicorn alrimi_api.wsgi -b 0.0.0.0:8000 -w 3
 | GET | `/events?q=소풍` | 제목·내용 검색. 앞으로의 것(날짜순) → 지난 것(최근순), 100건까지 |
 | POST | `/events/bulk-delete` | `{"ids": [...]}` → `{"deleted": n}`. 한 트랜잭션, 남의 것은 건너뛴다 |
 | GET | `/calendar?from=&to=&zone={id}` | 창에 걸치는 일정 목록 (아래) |
+| GET | `/series` | 끝나지 않은 반복들. 다음 날(`next_date`)과 그 일정 id(`next_event_id`, 음수일 수 있다) |
 
-**반복 일정은 미리 만든다.** 등록 본문에 `repeat: {freq: daily|weekly|monthly|yearly,
-weekdays: [월=0…], until}` 을 실으면 규칙(`EventSeries`)과 함께 날마다 일정이 한 건씩
-생긴다 — 최대 366개, 5년 안. 매월 31일·2월 29일은 없는 달을 건너뛴다. 규칙은 나중에
-못 바꾼다. `PATCH`·`DELETE /events/{id}?scope=following` 은 같은 반복의 뒤따르는 일정까지
-닿는다(완료·보류는 늘 그 날만).
+**반복 일정은 규칙으로 두고 가까운 날만 만든다.** 등록 본문에 `repeat: {freq:
+daily|weekly|monthly|yearly, weekdays: [월=0…], until, lunar}` 을 실으면 규칙(`EventSeries`)이
+서고, 앞으로 62일 안의 날만 일정으로 만들어진다 — 알림이 길어야 60일 앞이라 그 전에 행이
+있으면 된다. `until` 을 비우면(null) 끝이 없고, 길이에 한도도 없다. `lunar` 는 매년일 때
+음력 날짜로 되풀이한다.
+
+- 그 뒤의 날은 목록·달력·하루 보기·검색이 **조회할 때 펼쳐** 내보낸다. id 가 음수다
+  (`-(규칙 id × 100000 + 2000-01-01 부터 센 날 수)`, `notices/series.py`). 그 id 로
+  `GET`·`PATCH`·`DELETE /events/{id}` 하면 그 날 하나가 그 자리에서 일정이 된다.
+  `bulk-delete` 도 받는다.
+- 날이 다가오면 채운다(`series.fill_due`). 일꾼 스레드가 하루 한 번(`housekeeping`), 알림
+  크론이 매시(`GET /events/alerts`)·매주(`GET /events/weekly`) 부른다. 채운 날에는 새 일정
+  알림을 보내지 않는다.
+- 매월 31일·2월 29일은 없는 달을 건너뛴다. 음력 30일은 작은달이면 29일로, 윤달에 시작했으면
+  이듬해부터 평달이다.
+- 규칙은 나중에 못 바꾼다. `PATCH`·`DELETE /events/{id}?scope=following` 은 같은 반복의 뒤따르는
+  일정까지 닿는다(완료·보류는 늘 그 날만). 고친 모양은 규칙의 본보기에도 적혀 아직 안 만든
+  날에 이어진다. 날짜까지 옮기면 규칙을 그 날에서 끊고 새로 세운다. 이후 모두 지우면 규칙이
+  그 전날에서 끝나고, 하나만 지우면 규칙에 그 날을 건너뛰라고 적는다.
 
 `?zone=` 대신 `?owner={user_id}` 를 주면 그 사람의 (내가 볼 수 있는) 공간 전부로 좁힌다. 목록·달력·검색 모두 같다.
 

@@ -2,20 +2,20 @@ import datetime as dt
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 from rest_framework import serializers
 
 from zones.models import Zone, editable_zones
 
+from . import series as series_ops
 from .models import (
-    MAX_REPEAT_COUNT,
-    MAX_REPEAT_YEARS,
     MAX_SPAN_DAYS,
     Event,
     EventAlert,
     EventSeries,
     parse_code,
-    repeat_dates,
+    rule_dates,
 )
 
 #  수정·삭제가 어디까지 닿는가. 반복으로 만든 일정에서만 뜻이 있다.
@@ -81,6 +81,9 @@ class RepeatSerializer(serializers.Serializer):
     """
     등록할 때만 받는 반복 규칙. `{"freq": "weekly", "weekdays": [2], "until": "2026-12-31"}`
 
+    `until` 을 비우면(null) 끝이 없다. 날마다 미리 만들지 않으므로(`EventSeries`) 길이에
+    한도가 없다.
+
     요일은 월=0 … 일=6 이다(파이썬 `weekday()`). 매주가 아니면 요일은 무시한다.
     `lunar` 는 매년일 때만 뜻이 있다 — 다른 규칙이면 무시한다.
     """
@@ -89,7 +92,7 @@ class RepeatSerializer(serializers.Serializer):
     weekdays = serializers.ListField(
         child=serializers.IntegerField(min_value=0, max_value=6), required=False, default=list
     )
-    until = serializers.DateField()
+    until = serializers.DateField(required=False, allow_null=True, default=None)
     lunar = serializers.BooleanField(required=False, default=False)
 
     def validate(self, attrs):
@@ -136,6 +139,10 @@ class EventListSerializer(CanEditMixin, serializers.ModelSerializer):
         ]
 
     def get_alerts(self, event) -> dict:
+        # 규칙으로 펼친 날은 알림 행이 없다. 코드 수가 곧 예약 수다
+        codes = getattr(event, "virtual_codes", None)
+        if codes is not None:
+            return {"total": len(codes), "sent": 0}
         items = list(event.alerts.all())
         return {
             "total": len(items),
@@ -200,7 +207,7 @@ class EventWriteSerializer(serializers.ModelSerializer):
     starred = serializers.BooleanField(required=False, write_only=True)
     # 보류도 마찬가지. `held: false` 는 "다시 잡는다" 는 뜻이라 새 날짜와 함께 온다
     held = serializers.BooleanField(required=False, write_only=True)
-    # 등록할 때만. 반복 규칙은 만든 뒤에 바꾸지 않는다(`EventSeries`)
+    # 등록할 때, 그리고 반복 일정을 "이후 모두" 로 고칠 때. 고치면 이 날에서 새 규칙이 선다
     repeat = RepeatSerializer(required=False, write_only=True)
 
     class Meta:
@@ -295,39 +302,32 @@ class EventWriteSerializer(serializers.ModelSerializer):
 
     def _check_repeat(self, attrs) -> None:
         """
-        반복은 등록할 때만 받는다. 끝나는 날과 개수를 여기서 본다 — 시작일과 함께
+        반복은 등록할 때만 받는다. 끝나는 날과 첫날을 여기서 본다 — 시작일과 함께
         봐야 알 수 있어서 `RepeatSerializer` 혼자서는 검사할 수 없다.
         """
         repeat = attrs.get("repeat")
         if repeat is None:
             return
-        if self.instance is not None:
+        # 고칠 때는 "이후 모두" 로만 바꾼다. 규칙은 이 날에서 새로 선다(`series.split`) —
+        # 이 날만 다른 규칙을 가질 수는 없고, 반복이 아닌 일정을 반복으로 바꾸는 길도 두지 않는다.
+        if self.instance is not None and (self.instance.series_id is None or self.scope != "following"):
             raise serializers.ValidationError(
-                {"repeat": "반복 규칙은 바꿀 수 없어요. 이후 일정을 지우고 새로 만들어 주세요."}
+                {"repeat": "반복 규칙은 반복 일정에서 '이후 모두' 로만 바꿀 수 있어요."}
             )
 
-        start = attrs["event_date"]
+        start = attrs.get("event_date") or self.instance.event_date
         until = repeat["until"]
-        if until < start:
+        if until is not None and until < start:
             raise serializers.ValidationError({"repeat": "반복이 끝나는 날은 시작일보다 뒤여야 해요."})
-        try:
-            limit = start.replace(year=start.year + MAX_REPEAT_YEARS)
-        except ValueError:  # 2월 29일
-            limit = start.replace(year=start.year + MAX_REPEAT_YEARS, day=28)
-        if until > limit:
-            raise serializers.ValidationError(
-                {"repeat": f"반복은 {MAX_REPEAT_YEARS}년 안에서만 정할 수 있어요."}
-            )
 
-        dates = repeat_dates(start, repeat["freq"], until, repeat["weekdays"], repeat["lunar"])
-        if not dates:
+        # 첫날. 매주인데 시작일의 요일을 안 골랐으면 시작일 뒤의 첫 요일이다.
+        # 끝이 없으면 두 해 안에서 찾는다 — 매년(음력이어도)이 한 번은 들어오는 폭이다.
+        last = until or start + dt.timedelta(days=800)
+        first = next(rule_dates(start, repeat["freq"], repeat["weekdays"], repeat["lunar"], start, last), None)
+        if first is None:
             raise serializers.ValidationError({"repeat": "이 규칙으로는 만들어질 날이 없어요."})
-        if len(dates) > MAX_REPEAT_COUNT:
-            raise serializers.ValidationError(
-                {"repeat": f"한 번에 {MAX_REPEAT_COUNT}개까지 반복할 수 있어요. 끝나는 날을 앞당겨 주세요."}
-            )
-        # `create` 가 다시 계산하지 않도록 들고 간다
-        repeat["dates"] = dates
+        # `create` 가 다시 찾지 않도록 들고 간다
+        repeat["first"] = first
 
     def _check_resume(self, attrs) -> None:
         """
@@ -370,26 +370,28 @@ class EventWriteSerializer(serializers.ModelSerializer):
             event.sync_alerts(codes)
             return event
 
-        # 반복이면 날마다 한 건씩 만든다. 여러 날짜리는 걸치는 길이를 그대로 옮긴다.
+        # 반복이면 규칙을 세우고 가까운 날만 일정으로 만든다(`EventSeries`). 그 뒤는
+        # 조회할 때 펼친다. 여러 날짜리는 걸치는 길이를 본보기에 담는다.
+        start = validated_data.pop("event_date")
+        end = validated_data.pop("end_date", None) or start
         series = EventSeries.objects.create(
             freq=repeat["freq"],
             weekdays=",".join(str(day) for day in repeat["weekdays"]),
-            until=repeat["until"],
             lunar=repeat["lunar"],
+            start=start,
+            until=repeat["until"],
+            zone=validated_data["zone"],
+            title=validated_data["title"],
+            content=validated_data.get("content", ""),
+            event_hour=validated_data.get("event_hour"),
+            span_days=(end - start).days + 1,
+            alert_codes=list(dict.fromkeys(codes)),
+            filled_until=start - dt.timedelta(days=1),
         )
-        start = validated_data.pop("event_date")
-        end = validated_data.pop("end_date", None) or start
-        span = end - start
-
-        first = None
-        for day in repeat["dates"]:
-            event = Event.objects.create(
-                **validated_data, series=series, event_date=day, end_date=day + span
-            )
-            event.sync_alerts(codes)
-            first = first or event
-        # 응답은 첫 번째 일정이다. 웹은 목록을 통째로 다시 받는다.
-        return first
+        series_ops.fill(series)
+        # 응답은 첫 번째 일정이다. 첫날이 채우는 폭보다 멀면 그 날 하나만 만든다.
+        # 웹은 목록을 통째로 다시 받는다.
+        return series_ops.materialize(series, repeat["first"])
 
     @property
     def scope(self) -> str:
@@ -402,14 +404,18 @@ class EventWriteSerializer(serializers.ModelSerializer):
     @transaction.atomic
     def update(self, instance, validated_data):
         scope = self.scope
+        series = instance.series if scope == "following" else None
+        # 규칙에서 이 일정이 차지하는 날. 옮기기 **전에** 잡아둔다
+        cut = instance.series_date or instance.event_date
         # "이후 모두" 에 옮겨 적을 것. instance 를 고치기 **전의** 날짜로 뒤따르는 것을 찾는다.
         following = (
             list(
-                Event.objects.filter(
-                    series_id=instance.series_id, event_date__gt=instance.event_date
-                ).order_by("event_date")
+                Event.objects.filter(series=series)
+                .filter(Q(series_date__gt=cut) | Q(series_date__isnull=True, event_date__gt=cut))
+                .exclude(pk=instance.pk)
+                .order_by("event_date")
             )
-            if scope == "following" and instance.series_id
+            if series is not None
             else []
         )
         shared = {
@@ -425,6 +431,8 @@ class EventWriteSerializer(serializers.ModelSerializer):
         span_before = instance.end_date - instance.event_date
 
         codes = validated_data.pop("alerts", None)
+        # 바꿀 규칙. `_check_repeat` 이 "이후 모두" 일 때만 들여보낸다
+        rule = validated_data.pop("repeat", None)
         completed = validated_data.pop("completed", None)
         canceled = validated_data.pop("canceled", None)
         starred = validated_data.pop("starred", None)
@@ -468,15 +476,36 @@ class EventWriteSerializer(serializers.ModelSerializer):
         if resumed:
             instance.revive_alerts()
 
-        self._apply_to_following(following, instance, shared, codes, moved_by, span_before)
+        if series is not None:
+            if moved_by or rule is not None:
+                # 날짜를 옮기거나 규칙을 바꾸면 규칙째 새로 세운다 — 아직 안 만든 날까지
+                # 옮기거나 바꿔야 해서다
+                series_ops.split(series, instance, moved_by, cut, rule)
+            else:
+                self._apply_to_following(following, instance, shared, codes, span_before)
+                self._update_template(series, instance)
         return instance
 
     @staticmethod
-    def _apply_to_following(following, instance, shared, codes, moved_by, span_before) -> None:
+    def _update_template(series, instance) -> None:
+        """"이후 모두" 로 고친 모양을 본보기에도 적는다. 아직 안 만든 날이 이 모양으로 생긴다."""
+        series.zone_id = instance.zone_id
+        series.title = instance.title
+        series.content = instance.content
+        series.event_hour = instance.event_hour
+        series.span_days = instance.span_days
+        # 미리 읽어둔 알림(prefetch)은 고치기 전 것이다. 새로 읽는다
+        series.alert_codes = sorted(set(instance.alerts.values_list("code", flat=True)))
+        series.save(
+            update_fields=["zone", "title", "content", "event_hour", "span_days", "alert_codes"]
+        )
+
+    @staticmethod
+    def _apply_to_following(following, instance, shared, codes, span_before) -> None:
         """
-        "이후 모두 고치기". 제목·내용·시각·공간·알림은 그대로 옮겨 적고, 날짜는 옮긴
-        만큼 함께 민다 — 매주 수요일을 목요일로 옮기면 뒤따르는 것도 다 목요일이 된다.
-        기간(며칠짜리인지)도 새 길이를 따른다.
+        "이후 모두 고치기" 에서 날짜는 그대로일 때. 제목·내용·시각·공간·알림은 그대로
+        옮겨 적고, 기간(며칠짜리인지)도 새 길이를 따른다. 날짜를 옮기는 쪽은
+        `series.split` 이 맡는다.
 
         **완료·보류는 옮기지 않는다.** 그 날 한 번의 일이다. 이미 완료한 날도 제목은
         바뀐다 — 기록을 남기려면 "이 일정만" 을 고르면 된다.
@@ -487,8 +516,7 @@ class EventWriteSerializer(serializers.ModelSerializer):
         for event in following:
             for field, value in shared.items():
                 setattr(event, field, value)
-            if moved_by or span != span_before:
-                event.event_date += moved_by
+            if span != span_before:
                 event.end_date = event.event_date + span
             event.save()
             event.sync_alerts(codes if codes is not None else [a.code for a in event.alerts.all()])

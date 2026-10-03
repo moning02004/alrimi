@@ -1,4 +1,4 @@
-from django.urls import path
+from django.urls import path, register_converter
 
 from .views import (
     BulkDeleteEventsView,
@@ -7,11 +7,28 @@ from .views import (
     EventListCreateView,
     StarredEventsView,
     SendEventAlertView,
+    SeriesListView,
     list_due_alerts,
     push_due_alerts,
     list_weekly,
     update_alert,
 )
+
+class SignedIntConverter:
+    """
+    음수도 받는 id. 반복을 규칙으로 펼친 날은 id 가 음수다(`notices.series.virtual_id`).
+    """
+
+    regex = "-?[0-9]+"
+
+    def to_python(self, value):
+        return int(value)
+
+    def to_url(self, value):
+        return str(value)
+
+
+register_converter(SignedIntConverter, "sint")
 
 #  경로가 `/events` 다. 예전 이름은 `/notices` 였는데, 그때는 하루짜리 알림 하나가
 #  단위여서 "알려야 할 것" 이라는 뜻이 맞았다. 지금은 며칠에 걸치는 일정이 한 건으로
@@ -36,7 +53,7 @@ urlpatterns = [
     # 등록 폼이 제목 칸 아래에 놓을 즐겨찾기. 여기도 `<int:event_id>` 보다 먼저다.
     path("events/starred", StarredEventsView.as_view(), name="event-starred"),
 
-    path("events/<int:event_id>", EventDetailView.as_view(), name="event-detail"),
+    path("events/<sint:event_id>", EventDetailView.as_view(), name="event-detail"),
     # 알림은 일정에 딸린 것이라 경로도 그 아래에 둔다. 발송 단위는 EventAlert 하나다.
     path(
         "events/<int:event_id>/alerts/<int:event_alert_id>/send",
@@ -45,4 +62,6 @@ urlpatterns = [
     ),
 
     path("calendar", CalendarView.as_view(), name="calendar"),
+    # 끝나지 않은 반복들. 지난 일정·보류와 같은 화면의 탭이 쓴다
+    path("series", SeriesListView.as_view(), name="series-list"),
 ]

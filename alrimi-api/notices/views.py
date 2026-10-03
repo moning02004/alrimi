@@ -6,6 +6,7 @@ from datetime import timedelta
 from django.conf import settings
 from django.db import transaction
 from django.db.models import Case, F, IntegerField, Max, Q, When
+from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_date as parse_date_string
@@ -20,8 +21,9 @@ from rest_framework.views import APIView
 from accounts.permissions import HasAPIKey
 from zones.models import editable_zones, recipients, visible_zones
 
-from .filters import FILTERS, filter_q, ordering_for
-from .models import FINISHED, EventAlert, Event, Priority
+from . import series as series_ops
+from .filters import FILTERS, filter_q, ordering_for, upcoming_end
+from .models import FINISHED, EventAlert, Event, EventSeries, Priority
 from .notify import new_event as notify_new_event
 from .ntfy import NtfyError, send_alert
 from .webpush import send_alert as push_alert, send_to_user
@@ -41,6 +43,20 @@ def visible_events(user):
     보는 사람은 보기와 알림만 함께한다(`zones.models.Sharing`).
     """
     return Event.objects.filter(zone__in=visible_zones(user))
+
+
+def visible_series(user):
+    """볼 수 있는 반복 규칙. 규칙으로 펼친 날(`series.virtual_events`)도 일정과 같은 공간을 따른다."""
+    return EventSeries.objects.filter(zone__in=visible_zones(user)).select_related("zone")
+
+
+def is_finished(event) -> bool:
+    return event.completed_at is not None or event.canceled_at is not None
+
+
+def hour_key(event) -> tuple[bool, int]:
+    """시각을 안 정한 것이 그 날 맨 앞이다(`HOUR_ORDER` 와 같다)."""
+    return event.event_hour is not None, event.event_hour or 0
 
 
 def deletable_events(user):
@@ -200,6 +216,21 @@ class EventListCreateView(generics.ListCreateAPIView):
             .order_by(*ordering)
         )
 
+    def with_virtual(self, rows, lo: dt.date, hi: dt.date, key):
+        """
+        실제 일정에 규칙으로 펼친 날(`series.virtual_events`)을 섞는다. 펼친 것이 없으면
+        DB 가 세운 순서를 그대로 두고, 있으면 같은 순서를 `key` 로 다시 세운다.
+        """
+        series = visible_series(self.request.user).filter(
+            zone_filter(self.request),
+            Q(until__isnull=True) | Q(until__gte=lo),
+            start__lte=hi,
+        )
+        virtual = series_ops.virtual_events(series, lo, hi)
+        if not virtual:
+            return rows
+        return sorted([*rows, *virtual], key=key)
+
     def search(self, raw: str):
         """
         제목·내용에서 찾는다. 띄어 쓴 말은 **모두** 들어 있어야 한다("소풍 도시락").
@@ -225,6 +256,24 @@ class EventListCreateView(generics.ListCreateAPIView):
             .prefetch_related("alerts")
         )
         upcoming = list(queryset.filter(end_date__gte=today).order_by("event_date", "id")[:SEARCH_LIMIT])
+
+        # 반복은 가까운 날만 일정으로 있다. 매년 생신을 찾으면 다음 생신이 몇 달 뒤라도
+        # 나와야 해서, 앞으로의 일정이 하나도 안 걸린 규칙은 다음 날 하나를 펼쳐 넣는다.
+        found = {event.series_id for event in upcoming if event.series_id}
+        series_condition = Q()
+        for term in terms:
+            series_condition &= Q(title__icontains=term) | Q(content__icontains=term)
+        for series in (
+            visible_series(self.request.user)
+            .filter(zone_filter(self.request), series_condition)
+            .filter(Q(until__isnull=True) | Q(until__gte=today))
+            .exclude(id__in=found)
+        ):
+            nearest = series_ops.virtual_events([series], today, today + dt.timedelta(days=800))
+            if nearest:
+                upcoming.append(nearest[0])
+        upcoming = sorted(upcoming, key=lambda event: (event.event_date, event.id))[:SEARCH_LIMIT]
+
         past = list(
             queryset.filter(end_date__lt=today).order_by("-event_date", "-id")[: SEARCH_LIMIT - len(upcoming)]
         )
@@ -242,10 +291,13 @@ class EventListCreateView(generics.ListCreateAPIView):
             day = parse_date(params["date"], "date")
             # 그 날 시작하는 것만이 아니라 그 날에 걸치는 것 전부.
             # 여행 둘째 날 아침에 열었을 때 비어 있으면 안 된다.
-            return self.rows(
+            rows = self.rows(
                 Q(event_date__lte=day, end_date__gte=day),
                 [FINISHED_ORDER, HOUR_ORDER, "zone_id", "id"],
                 hide_completed=False,
+            )
+            return self.with_virtual(
+                rows, day, day, lambda e: (is_finished(e), hour_key(e), e.zone_id, e.id)
             )
 
         # 주간 스트립은 앞뒤로 넘길 수 있어서 창이 오늘에 고정되지 않는다.
@@ -257,22 +309,38 @@ class EventListCreateView(generics.ListCreateAPIView):
             window = Q(end_date__gte=start)
             if end is not None:
                 window &= Q(event_date__lte=end)
-            return self.rows(
+            rows = self.rows(
                 window, ["event_date", FINISHED_ORDER, HOUR_ORDER, "zone_id", "id"], hide_completed=False
+            )
+            # 끝을 안 주면 "앞으로 전부" 인데, 끝 없는 반복은 펼칠 끝이 없다. 범위 한도에서 끊는다
+            last = end or start + dt.timedelta(days=MAX_RANGE_DAYS)
+            return self.with_virtual(
+                rows, start, last, lambda e: (e.event_date, is_finished(e), hour_key(e), e.zone_id, e.id)
             )
 
         name = params.get("filter", "upcoming")
         if name not in FILTERS:
             name = "upcoming"
         held = name == "held"
+        today = timezone.localdate()
         # 보류함은 날짜가 아니라 보류 여부로 가른다. 여기 담기는 것은 전부
         # "지금은 일정이 아닌 것" 이라 앞으로의 목록처럼 완료를 걸러낼 것도 없다.
-        return self.rows(
-            filter_q(name, timezone.localdate()),
+        rows = self.rows(
+            filter_q(name, today),
             ordering_for(name),
             hide_completed=not held,
             held=held,
         )
+        # 앞을 보는 창에만 펼친 날을 섞는다. 지난 날은 이미 다 일정으로 만들어졌고
+        # (`series.fill`), 보류함에는 규칙이 낼 날이 없다.
+        if name == "upcoming":
+            lo, hi = today, upcoming_end(today)
+        elif name == "later":
+            # 끝 없는 반복은 펼칠 끝이 없다. 범위 한도에서 끊는다
+            lo, hi = upcoming_end(today) + dt.timedelta(days=1), today + dt.timedelta(days=MAX_RANGE_DAYS)
+        else:
+            return rows
+        return self.with_virtual(rows, lo, hi, lambda e: (e.event_date, hour_key(e), e.zone_id, e.id))
 
 
 class CalendarView(APIView):
@@ -330,6 +398,15 @@ class CalendarView(APIView):
             )
         )
 
+        # 규칙으로 펼친 날도 띠로 선다. 아직 일정이 아니라 끝나거나 취소된 것이 없다
+        series = visible_series(request.user).filter(
+            zone_filter(request), Q(until__isnull=True) | Q(until__gte=start), start__lte=end
+        )
+        rows = list(rows) + [
+            (e.id, e.event_date, e.end_date, e.zone_id, e.zone.color, e.title, None, None)
+            for e in series_ops.virtual_events(series, start, end)
+        ]
+
         # 긴 것이 먼저 와야 웹이 띠를 쌓을 때 위 줄부터 채운다. 짧은 것이 위에
         # 앉으면 긴 띠가 그 아래에서 여러 줄로 꺾여 보인다. 날짜끼리 빼는 정렬이라
         # DB 에 맡기지 않고 여기서 한다 — 창 하나치라 길어야 수십 줄이다.
@@ -383,22 +460,53 @@ class EventDetailView(generics.RetrieveUpdateDestroyAPIView):
             .prefetch_related("alerts")
         )
 
+    def get_object(self):
+        """
+        음수 id 는 규칙으로 펼친 날이다(`series.virtual_id`). **여기서 그 날을 일정으로
+        만든다** — 열어 보든 고치든 지우든, 그 다음부터는 여느 일정과 같은 길로 간다.
+
+        권한을 먼저 본다. 고칠 수 없는 사람의 PATCH 로 일정이 생기면 안 된다.
+        """
+        event_id = self.kwargs["event_id"]
+        if event_id >= 0:
+            return super().get_object()
+
+        series_id, day = series_ops.parse_virtual_id(event_id)
+        series = get_object_or_404(visible_series(self.request.user), pk=series_id)
+        event = series_ops.resolve(series, day)
+        if event is None:
+            raise Http404
+        self.check_object_permissions(self.request, event)
+        if event.pk < 0:
+            event = series_ops.materialize(series, day)
+        return self.get_queryset().get(pk=event.pk)
+
     def perform_destroy(self, instance):
         """
         `?scope=following` 이면 같은 반복의 뒤따르는 일정까지 지운다. 앞선 날은
-        남는다 — 지난 기록이거나, 이미 따로 챙기고 있는 날이다.
+        남는다 — 지난 기록이거나, 이미 따로 챙기고 있는 날이다. 규칙도 그 앞에서
+        끝난다. 안 그러면 아직 안 만든 날이 계속 펼쳐진다.
+
+        하나만 지우면 규칙에 그 날을 건너뛰라고 적는다(`EventSeries.skip`).
         """
         scope = self.request.query_params.get("scope", "this")
         if scope not in ("this", "following"):
             raise ValidationError({"scope": "this 또는 following 이어야 합니다."})
 
-        if scope == "following" and instance.series_id:
+        series = instance.series
+        if scope == "following" and series is not None:
+            cut = instance.series_date or instance.event_date
             with transaction.atomic():
-                Event.objects.filter(
-                    series_id=instance.series_id, event_date__gte=instance.event_date
+                Event.objects.filter(series=series).filter(
+                    Q(series_date__gte=cut) | Q(series_date__isnull=True, event_date__gte=instance.event_date)
                 ).delete()
+                series.until = cut - dt.timedelta(days=1)
+                series.save(update_fields=["until"])
             return
-        instance.delete()
+        with transaction.atomic():
+            instance.delete()
+            if series is not None and instance.series_date is not None:
+                series.skip(instance.series_date)
 
 
 #  즐겨찾기로 내줄 개수. 사람이 손으로 넣는 목록이라 스스로 짧게 유지되지만, 폼 아래에
@@ -468,6 +576,84 @@ class StarredEventsView(APIView):
         )
 
 
+class SeriesListView(APIView):
+    """
+    GET /series → 아직 끝나지 않은 반복들. 다음에 오는 날 순.
+
+      [{"id": 3, "title": "엄마 생신", "zone_id": 1, "zone_name": "가족", "zone_color": "#…",
+        "freq": "yearly", "weekdays": [], "lunar": true, "start": "2026-10-03", "until": null,
+        "event_hour": null, "next_date": "2027-09-23", "next_event_id": -300009761, "can_edit": true}]
+
+    반복은 가까운 날만 일정으로 있어서 목록·달력으로는 "무엇이 반복되고 있나" 를 한눈에 볼
+    수 없다. 몇 달 뒤 생신이 걸려 있는지, 학기 끝에 멈춘 체육복이 아직 도는지를 여기서 본다.
+
+    `next_event_id` 는 다음 날의 일정 id 다. 아직 일정이 아니면 음수(`series.virtual_id`)라,
+    웹은 여느 일정처럼 열면 된다.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        today = timezone.localdate()
+        series_list = list(
+            visible_series(request.user)
+            .filter(zone_filter(request))
+            .filter(Q(until__isnull=True) | Q(until__gte=today))
+        )
+
+        # 다음 날. 이미 일정으로 있으면 그것이 — 날짜를 옮겼거나 보류했을 수 있다 — 기준이다.
+        # 완료·취소한 날은 지나간 셈이라 그 다음을 본다.
+        made = defaultdict(list)
+        for event in Event.objects.filter(
+            series__in=series_list, end_date__gte=today, held_at__isnull=True
+        ).exclude(FINISHED).order_by("event_date", "id"):
+            made[event.series_id].append(event)
+        # 이미 일정으로 만들어진 날. 남은 것은 위에서 담았고, 끝났거나 보류한 것은 지나간 셈이다.
+        # 어느 쪽이든 그 날을 다시 펼치지 않는다.
+        taken = set(
+            Event.objects.filter(series__in=series_list, series_date__gte=today).values_list(
+                "series_id", "series_date"
+            )
+        )
+
+        editable = set(editable_zones(request.user).values_list("id", flat=True))
+        rows = []
+        for series in series_list:
+            upcoming = made[series.id]
+            candidates = [(event.event_date, event.id) for event in upcoming[:1]]
+            # 아직 일정이 아닌 날 중 가장 가까운 것. 두 해면 매년(음력이어도)이 한 번은 든다
+            lo = max(today, series.filled_until + dt.timedelta(days=1))
+            for day in series.dates_between(lo, lo + dt.timedelta(days=800)):
+                if (series.id, day) in taken:
+                    continue
+                candidates.append((day, series_ops.virtual_id(series.id, day)))
+                break
+            if not candidates:
+                continue
+            next_date, next_event_id = min(candidates)
+            rows.append(
+                {
+                    "id": series.id,
+                    "title": series.title,
+                    "zone_id": series.zone_id,
+                    "zone_name": series.zone.name,
+                    "zone_color": series.zone.color,
+                    "freq": series.freq,
+                    "weekdays": series.weekday_list,
+                    "lunar": series.lunar,
+                    "start": series.start,
+                    "until": series.until,
+                    "event_hour": series.event_hour,
+                    "next_date": next_date,
+                    "next_event_id": next_event_id,
+                    "can_edit": series.zone_id in editable,
+                }
+            )
+
+        rows.sort(key=lambda row: (row["next_date"], row["event_hour"] is not None, row["event_hour"] or 0, row["id"]))
+        return Response(rows)
+
+
 class BulkDeleteEventsView(APIView):
     """
     POST /events/bulk-delete  {"ids": [1, 2, 3]} → {"deleted": 3}
@@ -498,10 +684,42 @@ class BulkDeleteEventsView(APIView):
             raise ValidationError({"ids": f"한 번에 {self.MAX_IDS}개까지 지울 수 있습니다."})
 
         with transaction.atomic():
-            events = deletable_events(request.user).filter(id__in=set(ids))
+            # 음수 id 는 규칙으로 펼친 날이다(`series.virtual_id`). 화면을 받은 뒤에 그 날이
+            # 일정으로 만들어졌을 수 있어서, 있으면 그 일정을 지우고 없으면 건너뛰라고만 적는다.
+            virtual = [series_ops.parse_virtual_id(i) for i in set(ids) if i < 0]
+            made = Q()
+            for series_id, day in virtual:
+                made |= Q(series_id=series_id, series_date=day)
+            events = deletable_events(request.user).filter(
+                Q(id__in={i for i in ids if i > 0}) | (made if virtual else Q(pk__in=[]))
+            )
+            # 반복으로 만든 것은 규칙에 그 날을 건너뛰라고 적는다 — 안 그러면 다시 펼쳐진다
+            skips = set(
+                events.filter(series__isnull=False, series_date__isnull=False).values_list(
+                    "series_id", "series_date"
+                )
+            )
             deleted = events.count()
             # 일정마다 신호(구글 캘린더 반영)가 나가도록 쿼리셋 delete 를 쓴다
             events.delete()
+
+            editable = {
+                series.id: series
+                for series in EventSeries.objects.filter(
+                    id__in={series_id for series_id, _ in [*skips, *virtual]},
+                    zone__in=editable_zones(request.user),
+                )
+            }
+            for series_id, day in skips:
+                if series_id in editable:
+                    editable[series_id].skip(day)
+            for series_id, day in virtual:
+                series = editable.get(series_id)
+                # 이미 일정이었던 날은 위에서 셌다. 남의 규칙이거나 규칙에 없는 날은 건너뛴다
+                if series is None or (series_id, day) in skips or day not in set(series.dates_between(day, day)):
+                    continue
+                series.skip(day)
+                deleted += 1
 
         return Response({"deleted": deleted})
 
@@ -592,6 +810,9 @@ def list_weekly(request):
     토픽은 여전히 사람마다 하나다(`accounts.User.ntfy_topic`). 여러 통이라도
     같은 폰으로 가고, 어느 공간인지는 제목의 `[공간]` 이 말한다.
     """
+
+    # 다음 주가 아직 일정으로 안 채워졌을 수 있다(일꾼이 하루 한 번 채운다)
+    series_ops.fill_due()
 
     start_date, end_date = next_week()
     rows = (
@@ -841,6 +1062,9 @@ def list_due_alerts(request):
     `ids` 는 묶기 전의 예약 전부다 — 통이 몇 개로 묶였는지와 상관없이 낱개로
     남아야 다음 두 걸음이 같은 것을 가리킨다.
     """
+    # 매시 도는 자리라 반복을 채우는 일도 여기서 한 번 더 본다. 일꾼(`housekeeping`)이
+    # 하루를 거르면 60일 앞 알림이 그 날을 놓친다.
+    series_ops.fill_due()
     groups = due_alert_groups(due_alerts())
 
     return Response({

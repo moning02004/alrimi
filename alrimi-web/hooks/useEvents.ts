@@ -11,6 +11,7 @@ import type {
   EventDetail,
   EventListItem,
   EventPayload,
+  SeriesItem,
   StarredEvent,
 } from "@/types";
 
@@ -132,6 +133,15 @@ export function useHold(eventId: number) {
       qc.invalidateQueries({ queryKey: eventKeys.detail(eventId) });
       invalidateAll(qc);
     },
+  });
+}
+
+/** 끝나지 않은 반복들. 일정을 고치고 지울 때마다 다음 날이 바뀌므로 `invalidateAll` 이 함께 무른다 */
+export function useSeries(scope: ZoneScope, enabled = true) {
+  return useQuery({
+    queryKey: ["events", "series", scope],
+    queryFn: () => api.get<SeriesItem[]>(apiUrl.series(scope)),
+    enabled,
   });
 }
 

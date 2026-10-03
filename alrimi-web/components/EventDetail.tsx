@@ -510,8 +510,10 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
 
       <BottomSheet open={deleting} onOpenChange={setDeleting} title="반복 일정 삭제">
         <p className="px-1 text-sm">어디까지 지울까요?</p>
-        <p className="mt-1 px-1 text-xs text-muted">
-          앞선 날은 남아요. 예약된 알림도 함께 사라지고 되돌릴 수 없어요.
+        {/* 이후 모두는 일정만이 아니라 **반복이 끝난다** — 아직 안 만든 날까지 다시 안 나온다 */}
+        <p className="mt-1 px-1 text-xs leading-relaxed text-muted">
+          이후 모두 삭제하면 반복이 이 날 앞에서 끝나요. 앞선 날은 남아요. 예약된 알림도 함께
+          사라지고 되돌릴 수 없어요.
         </p>
         <div className="my-3 flex flex-col gap-2">
           <button
@@ -520,14 +522,14 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
             className="rounded-xl border border-red-300 py-3 text-sm font-medium text-red-600
                        disabled:opacity-60"
           >
-            이 일정만 삭제
+            이 날만 삭제
           </button>
           <button
             onClick={() => removeScoped("following")}
             disabled={remove.isPending}
             className="rounded-xl bg-red-600 py-3 text-sm font-medium text-white disabled:opacity-60"
           >
-            이 일정과 이후 모두 삭제
+            이 날부터 이후 모두 삭제
           </button>
           <button onClick={() => setDeleting(false)} className="py-2 text-sm text-muted">
             취소
@@ -535,7 +537,7 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
         </div>
       </BottomSheet>
 
-      <BottomSheet open={editing} onOpenChange={setEditing} title="일정 수정">
+      <BottomSheet open={editing} onOpenChange={setEditing} title={event.series_id ? "반복 일정 수정" : "일정 수정"}>
         <EventForm event={event} onDone={() => setEditing(false)} />
       </BottomSheet>
 

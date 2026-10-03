@@ -73,6 +73,9 @@ export const apiUrl = {
   sendAlert: (eventId: number, alertId: number) =>
     `/events/${eventId}/alerts/${alertId}/send`,
 
+  // 끝나지 않은 반복들. 지난 일정·보류 화면의 "반복" 탭이 쓴다
+  series: (scope: ZoneScope) => (scope === null ? "/series" : `/series?zones=${scope.join(",")}`),
+
   calendar: (from: string, to: string, scope: ZoneScope) =>
     withZone(`/calendar?from=${from}&to=${to}`, scope),
 

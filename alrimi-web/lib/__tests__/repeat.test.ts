@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_REPEAT_COUNT, defaultUntil, latestUntil, repeatDates, repeatLabel, serverWeekday } from "../repeat";
+import { defaultUntil, repeatDates, ruleOn, repeatLabel, serverWeekday } from "../repeat";
 
 describe("repeatDates — 서버 repeat_dates 와 같은 날을 센다", () => {
   it("매일", () => {
@@ -36,9 +36,10 @@ describe("repeatDates — 서버 repeat_dates 와 같은 날을 센다", () => {
     expect(repeatDates("2026-09-17", { freq: "daily", weekdays: [], until: "2026-09-16" })).toEqual([]);
   });
 
-  it("한도를 넘으면 조금 넘긴 채 멈춘다 — 넘었는지만 알면 된다", () => {
-    const dates = repeatDates("2026-01-01", { freq: "daily", weekdays: [], until: "2030-12-31" });
-    expect(dates.length).toBe(MAX_REPEAT_COUNT + 1);
+  it("끝이 없으면 첫날이 있는지만 볼 만큼 센다", () => {
+    const dates = repeatDates("2026-09-17", { freq: "yearly", weekdays: [], until: null, lunar: true });
+    expect(dates[0]).toBe("2026-09-17");
+    expect(dates.length).toBeGreaterThanOrEqual(2);
   });
 });
 
@@ -54,21 +55,14 @@ describe("serverWeekday — 월=0 … 일=6", () => {
 });
 
 describe("defaultUntil", () => {
-  it("매월은 석 달 뒤", () => expect(defaultUntil("2026-09-17", "monthly")).toBe("2026-12-17"));
-  it("매년은 3년 뒤", () => expect(defaultUntil("2026-09-17", "yearly")).toBe("2029-09-17"));
-  it("2월 29일 매년은 다음 윤년이 들어오게 한도까지", () => {
-    const until = defaultUntil("2028-02-29", "yearly");
-    expect(until).toBe("2033-02-28");
-    expect(repeatDates("2028-02-29", { freq: "yearly", weekdays: [], until })).toEqual([
-      "2028-02-29",
-      "2032-02-29",
-    ]);
+  it("매일·매주는 석 달 뒤", () => {
+    expect(defaultUntil("2026-09-17", "daily")).toBe("2026-12-17");
+    expect(defaultUntil("2026-09-17", "weekly")).toBe("2026-12-17");
   });
-});
-
-describe("latestUntil", () => {
-  it("5년 뒤 같은 날", () => expect(latestUntil("2026-09-17")).toBe("2031-09-17"));
-  it("2월 29일은 28일로 당긴다", () => expect(latestUntil("2028-02-29")).toBe("2033-02-28"));
+  it("매월·매년은 끝이 없다", () => {
+    expect(defaultUntil("2026-09-17", "monthly")).toBeNull();
+    expect(defaultUntil("2028-02-29", "yearly")).toBeNull();
+  });
 });
 
 describe("repeatLabel", () => {
@@ -77,6 +71,11 @@ describe("repeatLabel", () => {
     expect(repeatLabel({ freq: "weekly", weekdays: [4, 2], until: `${year}-12-31` })).toBe(
       "매주 수·금 · 12월 31일까지",
     );
+  });
+
+  it("끝이 없으면 끝을 안 적는다", () => {
+    expect(repeatLabel({ freq: "yearly", weekdays: [], until: null, lunar: true })).toBe("매년 음력");
+    expect(repeatLabel({ freq: "monthly", weekdays: [], until: null })).toBe("매월");
   });
 
   it("매년 음력은 음력이라고 적는다", () => {
@@ -91,5 +90,25 @@ describe("repeatLabel", () => {
     expect(repeatLabel({ freq: "monthly", weekdays: [], until: `${next}-03-01` })).toBe(
       `매월 · ${next}년 3월 1일까지`,
     );
+  });
+});
+
+describe("ruleOn — 이후 모두 옮기면 앞으로의 규칙", () => {
+  const rule = (freq: "daily" | "weekly" | "monthly" | "yearly", weekdays: number[] = [], lunar = false) => ({
+    freq,
+    weekdays,
+    until: null,
+    lunar,
+  });
+
+  it("매주는 요일을 옮긴 만큼 민다", () => {
+    // 2026-10-07 은 수요일(2). 하루 미루면 목요일
+    expect(ruleOn(rule("weekly", [2]), "2026-10-07", "2026-10-08")).toBe("매주 목");
+    expect(ruleOn(rule("weekly", [0, 2]), "2026-10-07", "2026-10-06")).toBe("매주 화·일");
+  });
+  it("매월·매년은 옮긴 날", () => {
+    expect(ruleOn(rule("monthly"), "2026-10-07", "2026-10-09")).toBe("매월 9일");
+    expect(ruleOn(rule("yearly"), "2026-10-07", "2026-10-09")).toBe("매년 10월 9일");
+    expect(ruleOn(rule("yearly", [], true), "2026-10-03", "2026-10-04")).toBe("매년 음력 8월 24일");
   });
 });

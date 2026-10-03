@@ -53,8 +53,8 @@ export interface Repeat {
   freq: RepeatFreq;
   /** 매주일 때만. 다른 규칙은 빈 배열 */
   weekdays: number[];
-  /** 마지막으로 반복할 수 있는 날 (YYYY-MM-DD, 포함) */
-  until: string;
+  /** 마지막으로 반복할 수 있는 날 (YYYY-MM-DD, 포함). null 이면 끝이 없다 */
+  until: string | null;
   /** 매년일 때 음력 날짜로 되풀이한다(부모님 생신처럼). 다른 규칙이면 무시된다 */
   lunar?: boolean;
 }
@@ -79,6 +79,11 @@ export interface AlertItem {
 }
 
 export interface EventListItem {
+  /**
+   * 음수면 반복 규칙으로 펼친 날이다 — 서버가 가까운 날만 일정으로 만들어 두고 그 뒤는
+   * 조회할 때 펼친다(서버 `notices/series.py`). **여느 id 처럼 쓰면 된다**: 열거나 고치거나
+   * 지우면 서버가 그 날을 그 자리에서 일정으로 만든다.
+   */
   id: number;
   /** 시작하는 날. 알림 시점(D-1 …)도 이 날을 기준으로 잰다 */
   event_date: string;
@@ -138,10 +143,27 @@ export interface EventPayload {
   starred?: boolean;
   held?: boolean;
   /**
-   * 등록할 때만. 날마다 한 건씩 미리 만들어진다(서버 `EventSeries`). 규칙은 나중에
-   * 바꾸지 못한다 — 바꾸려면 "이후 모두" 를 지우고 새로 만든다.
+   * 등록할 때만. 서버가 규칙으로 두고 가까운 날만 일정으로 만든다(`EventSeries`). 규칙은
+   * 나중에 바꾸지 못한다 — 바꾸려면 "이후 모두" 를 지우고 새로 만든다.
    */
   repeat?: Repeat;
+}
+
+/** 끝나지 않은 반복 하나(`GET /series`). 지난 일정·보류 화면의 "반복" 탭이 그린다 */
+export interface SeriesItem extends Repeat {
+  id: number;
+  title: string;
+  zone_id: number;
+  zone_name: string;
+  zone_color: string;
+  /** 첫날 (YYYY-MM-DD) */
+  start: string;
+  event_hour: number | null;
+  /** 다음에 오는 날 */
+  next_date: string;
+  /** 그 날의 일정 id. 아직 일정이 아니면 음수다 — 그대로 열면 된다 */
+  next_event_id: number;
+  can_edit: boolean;
 }
 
 /**

@@ -2459,14 +2459,18 @@ class RepeatEventTests(ApiTestCase):
 
     def test_매년_음력_반복(self):
         start = self.start
-        res = self.create(repeat={"freq": "yearly", "lunar": True, "until": str(start.replace(year=start.year + 3))})
+        res = self.create(repeat={"freq": "yearly", "lunar": True, "until": None})
 
         self.assertEqual(res.status_code, 201)
         self.assertTrue(res.json()["repeat"]["lunar"])
-        dates = [e.event_date for e in self.series_events()]
-        self.assertEqual(dates[0], start)
+        self.assertIsNone(res.json()["repeat"]["until"])
+        # 일정으로는 첫날 하나뿐이다. 이듬해는 조회할 때 펼친다
+        self.assertEqual([e.event_date for e in self.series_events()], [start])
+        later = start + dt.timedelta(days=330)
+        rows = self.get(reverse("event-list") + f"?from={later}&to={later + dt.timedelta(days=70)}").json()
+        self.assertEqual(len(rows), 1)
         # 음력이면 양력 날짜는 해마다 다르다(같은 날은 19년에 한 번꼴)
-        self.assertNotEqual(dates[1], start.replace(year=start.year + 1))
+        self.assertNotEqual(rows[0]["event_date"], str(start.replace(year=start.year + 1)))
 
     def test_음력은_매년이_아니면_버린다(self):
         res = self.create(repeat={"freq": "weekly", "weekdays": [self.start.weekday()], "lunar": True, "until": str(self.start + dt.timedelta(days=7))})
@@ -2481,18 +2485,28 @@ class RepeatEventTests(ApiTestCase):
         cases = {
             "끝이_앞섬": {"freq": "daily", "until": str(self.today)},
             "요일_없음": {"freq": "weekly", "weekdays": [], "until": str(self.start + dt.timedelta(days=7))},
-            "너무_많음": {"freq": "daily", "until": str(self.start + dt.timedelta(days=400))},
-            "너무_멂": {"freq": "yearly", "until": str(self.start.replace(year=self.start.year + 6))},
+            # 매월 31일인데 끝나는 날까지 31일이 다시 안 오는 것은 첫날이 있으니 괜찮다.
+            # 매주인데 첫날부터 끝나는 날까지 고른 요일이 하나도 없으면 막는다
+            "날이_없음": {
+                "freq": "weekly",
+                "weekdays": [(self.start.weekday() + 1) % 7],
+                "until": str(self.start),
+            },
         }
         for name, repeat in cases.items():
             with self.subTest(name):
                 self.assertEqual(self.create(repeat=repeat).status_code, 400)
         self.assertFalse(Event.objects.exists())
 
-    def test_반복_규칙은_나중에_못_바꾼다(self):
+    def test_반복_규칙은_이_일정만으로는_못_바꾼다(self):
         self.create()
         first = self.series_events()[0]
         res = self.patch(first, {"repeat": {"freq": "daily", "until": str(self.start)}})
+        self.assertEqual(res.status_code, 400)
+
+    def test_반복이_아닌_일정은_반복으로_못_바꾼다(self):
+        event = Event.objects.create(zone=self.zone, event_date=self.start, title="소풍")
+        res = self.patch(event, {"repeat": {"freq": "daily", "until": None}}, scope="following")
         self.assertEqual(res.status_code, 400)
 
     def test_이_일정만_고치면_나머지는_그대로다(self):
@@ -2603,3 +2617,329 @@ class SearchTests(ApiTestCase):
     def test_빈_말은_막는다(self):
         self.assertEqual(self.search("   ").status_code, 400)
         self.assertEqual(self.search("가" * 51).status_code, 400)
+
+
+class SeriesRuleTests(ApiTestCase):
+    """
+    반복은 규칙으로 두고 가까운 날만 일정으로 만든다(`EventSeries`). 그 뒤는 조회할 때
+    펼쳐 음수 id 로 내보내고, 열거나 고치면 그 날 하나만 만든다.
+    """
+
+    def create(self, **repeat):
+        body = {
+            "zone": self.zone.id,
+            "event_date": str(self.start),
+            "title": "관리비",
+            "alerts": ["D-1 20:00"],
+            "repeat": {"freq": "monthly", "until": None, **repeat},
+        }
+        res = self.post(reverse("event-list"), body)
+        self.assertEqual(res.status_code, 201, res.content)
+        return res
+
+    def setUp(self):
+        super().setUp()
+        # 31일이면 건너뛰는 달이 생겨 개수를 세기 어렵다
+        self.start = self.today.replace(day=10) + dt.timedelta(days=32)
+        self.start = self.start.replace(day=10)
+
+    @property
+    def series(self):
+        from .models import EventSeries
+
+        return EventSeries.objects.get()
+
+    def listed(self, lo, hi):
+        return self.get(reverse("event-list") + f"?from={lo}&to={hi}").json()
+
+    def far(self, months=8):
+        """채우는 폭(60여 일) 너머의 그 달 10일."""
+        year, month = divmod(self.start.month - 1 + months, 12)
+        return self.start.replace(year=self.start.year + year, month=month + 1)
+
+    def test_끝_없는_반복은_가까운_날만_일정이다(self):
+        from .models import FILL_AHEAD_DAYS
+
+        self.create()
+        horizon = self.today + dt.timedelta(days=FILL_AHEAD_DAYS)
+        made = list(Event.objects.values_list("event_date", flat=True))
+        self.assertTrue(made)
+        self.assertTrue(all(day <= horizon for day in made))
+        self.assertTrue(all(e.alerts.count() == 1 for e in Event.objects.all()))
+
+    def test_먼_날은_음수_id_로_펼친다(self):
+        self.create()
+        far = self.far()
+        rows = self.listed(far, far)
+        self.assertEqual(len(rows), 1)
+        self.assertLess(rows[0]["id"], 0)
+        self.assertEqual(rows[0]["event_date"], str(far))
+        self.assertEqual(rows[0]["alerts"], {"total": 1, "sent": 0})
+        self.assertEqual(rows[0]["series_id"], self.series.id)
+
+        calendar = self.get(reverse("calendar") + f"?from={far}&to={far}").json()
+        self.assertEqual([row["id"] for row in calendar], [rows[0]["id"]])
+
+        day = self.get(reverse("event-list") + f"?date={far}").json()
+        self.assertEqual([row["id"] for row in day], [rows[0]["id"]])
+
+    def test_열면_그_날만_일정이_된다(self):
+        self.create()
+        far = self.far()
+        virtual = self.listed(far, far)[0]["id"]
+        before = Event.objects.count()
+
+        res = self.get(reverse("event-detail", args=[virtual]))
+
+        self.assertEqual(res.status_code, 200)
+        real = res.json()["id"]
+        self.assertGreater(real, 0)
+        self.assertEqual(Event.objects.count(), before + 1)
+        self.assertEqual([a["code"] for a in res.json()["alerts"]], ["D-1 20:00"])
+        # 다시 열어도 같은 일정이고, 목록에는 이제 실제 id 로 나온다
+        self.assertEqual(self.get(reverse("event-detail", args=[virtual])).json()["id"], real)
+        self.assertEqual([row["id"] for row in self.listed(far, far)], [real])
+
+    def test_펼친_날을_완료하면_그_날만이다(self):
+        self.create()
+        far = self.far()
+        virtual = self.listed(far, far)[0]["id"]
+        res = self.client.patch(
+            reverse("event-detail", args=[virtual]), {"completed": True},
+            content_type="application/json", headers=self.auth,
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertIsNotNone(res.json()["completed_at"])
+        nxt = self.far(9)
+        self.assertLess(self.listed(nxt, nxt)[0]["id"], 0)
+
+    def test_펼친_날_하나만_지우면_다시_안_나온다(self):
+        self.create()
+        far = self.far()
+        virtual = self.listed(far, far)[0]["id"]
+        res = self.client.delete(reverse("event-detail", args=[virtual]), headers=self.auth)
+        self.assertEqual(res.status_code, 204)
+        self.assertEqual(self.listed(far, far), [])
+        self.assertEqual(len(self.listed(self.far(9), self.far(9))), 1)
+
+    def test_여럿_지우기도_펼친_날을_받는다(self):
+        self.create()
+        far = self.far()
+        virtual = self.listed(far, far)[0]["id"]
+        res = self.post(reverse("event-bulk-delete"), {"ids": [virtual]})
+        self.assertEqual(res.json(), {"deleted": 1})
+        self.assertEqual(self.listed(far, far), [])
+
+    def test_이후_모두_지우면_규칙이_끝난다(self):
+        # 매주라야 채우는 폭 안에 일정이 여럿 생긴다
+        start = self.today + dt.timedelta(days=1)
+        body = {
+            "zone": self.zone.id,
+            "event_date": str(start),
+            "title": "관리비",
+            "alerts": [],
+            "repeat": {"freq": "weekly", "weekdays": [start.weekday()], "until": None},
+        }
+        self.post(reverse("event-list"), body)
+        first, second = Event.objects.order_by("event_date")[:2]
+        res = self.client.delete(
+            reverse("event-detail", args=[second.id]) + "?scope=following", headers=self.auth
+        )
+        self.assertEqual(res.status_code, 204)
+        self.assertEqual(list(Event.objects.all()), [first])
+        self.assertEqual(self.series.until, second.event_date - dt.timedelta(days=1))
+        self.assertEqual(self.listed(self.far(), self.far(12)), [])
+
+    def test_이후_모두_고치면_아직_안_만든_날도_바뀐다(self):
+        self.create()
+        first = Event.objects.order_by("event_date").first()
+        res = self.client.patch(
+            reverse("event-detail", args=[first.id]) + "?scope=following",
+            {"title": "아파트 관리비", "alerts": ["D 09:00"]},
+            content_type="application/json", headers=self.auth,
+        )
+        self.assertEqual(res.status_code, 200)
+        far = self.far()
+        row = self.listed(far, far)[0]
+        self.assertEqual(row["title"], "아파트 관리비")
+        detail = self.get(reverse("event-detail", args=[row["id"]])).json()
+        self.assertEqual([a["code"] for a in detail["alerts"]], ["D 09:00"])
+
+    def test_이후_모두_날짜를_옮기면_규칙째_옮긴다(self):
+        start = self.today + dt.timedelta(days=1)
+        body = {
+            "zone": self.zone.id,
+            "event_date": str(start),
+            "title": "체육복",
+            "alerts": ["D-1 20:00"],
+            "repeat": {"freq": "weekly", "weekdays": [start.weekday()], "until": None},
+        }
+        self.assertEqual(self.post(reverse("event-list"), body).status_code, 201)
+        second = Event.objects.order_by("event_date")[1]
+
+        res = self.client.patch(
+            reverse("event-detail", args=[second.id]) + "?scope=following",
+            {"event_date": str(second.event_date + dt.timedelta(days=1))},
+            content_type="application/json", headers=self.auth,
+        )
+
+        self.assertEqual(res.status_code, 200)
+        far = start + dt.timedelta(days=7 * 30)
+        rows = self.listed(far, far + dt.timedelta(days=6))
+        self.assertEqual([dt.date.fromisoformat(r["event_date"]).weekday() for r in rows], [(start.weekday() + 1) % 7])
+        # 첫날은 그대로, 둘째부터 하루씩 밀렸다
+        dates = list(Event.objects.order_by("event_date").values_list("event_date", flat=True))
+        self.assertEqual(dates[0], start)
+        self.assertEqual(dates[1], second.event_date + dt.timedelta(days=1))
+        self.assertEqual(dates[2], start + dt.timedelta(days=15))
+
+    def test_이후_모두로_매월을_매주로_바꾼다(self):
+        from .models import EventSeries
+
+        self.create()
+        first = Event.objects.order_by("event_date").first()
+        res = self.client.patch(
+            reverse("event-detail", args=[first.id]) + "?scope=following",
+            {"repeat": {"freq": "weekly", "weekdays": [first.event_date.weekday()], "until": None}},
+            content_type="application/json", headers=self.auth,
+        )
+
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.json()["repeat"]["freq"], "weekly")
+        old, fresh = EventSeries.objects.order_by("id")
+        # 옛 규칙은 이 날 앞에서 끝나고, 새 규칙은 이 날에서 선다
+        self.assertEqual(old.until, first.event_date - dt.timedelta(days=1))
+        self.assertEqual((fresh.freq, fresh.start, fresh.until), ("weekly", first.event_date, None))
+        far = first.event_date + dt.timedelta(days=7 * 20)
+        rows = self.listed(far, far + dt.timedelta(days=6))
+        self.assertEqual([dt.date.fromisoformat(r["event_date"]).weekday() for r in rows], [first.event_date.weekday()])
+        self.assertEqual(rows[0]["title"], "관리비")
+        # 채우는 폭 안의 매주가 일정으로 있다
+        from . import series as series_ops
+
+        made = list(Event.objects.filter(series=fresh).values_list("event_date", flat=True))
+        expected = list(fresh.dates_between(first.event_date, series_ops.horizon()))
+        self.assertEqual(sorted(made), expected)
+        self.assertGreater(len(made), 1)
+
+    def test_규칙을_바꿀_때_끝도_정한다(self):
+        self.create()
+        first = Event.objects.order_by("event_date").first()
+        until = first.event_date + dt.timedelta(days=14)
+        res = self.client.patch(
+            reverse("event-detail", args=[first.id]) + "?scope=following",
+            {"repeat": {"freq": "weekly", "weekdays": [first.event_date.weekday()], "until": str(until)}},
+            content_type="application/json", headers=self.auth,
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(Event.objects.filter(series_id=res.json()["series_id"]).count(), 3)
+
+    def test_날이_지나면_채운다(self):
+        from . import series as series_ops
+
+        self.create()
+        made = Event.objects.count()
+        later = self.today + dt.timedelta(days=200)
+        with patch.object(series_ops, "horizon", return_value=later):
+            with patch("notices.views.notify_new_event") as notify:
+                series_ops.fill_due()
+        self.assertGreater(Event.objects.count(), made)
+        self.assertEqual(self.series.filled_until, later)
+        self.assertTrue(all(e.alerts.count() == 1 for e in Event.objects.all()))
+        notify.assert_not_called()
+        # 채운 날은 펼친 날로 다시 나오지 않는다
+        rows = self.listed(self.today, later)
+        self.assertTrue(all(row["id"] > 0 for row in rows))
+        self.assertEqual(len(rows), len({row["event_date"] for row in rows}))
+
+    def test_보는_사람은_펼친_날을_고칠_수_없다(self):
+        from zones.models import Sharing
+
+        self.create()
+        self.zone.shared = True
+        self.zone.save()
+        Sharing.objects.create(owner=self.user, viewer=self.other)
+        far = self.far()
+        virtual = self.listed(far, far)[0]["id"]
+        before = Event.objects.count()
+
+        res = self.client.post(
+            reverse("obtain-token"),
+            {"username": "nam", "password": "pw-strong-1234"},
+            content_type="application/json",
+        )
+        viewer = {"authorization": f"Bearer {res.json()['access_token']}"}
+        res = self.client.patch(
+            reverse("event-detail", args=[virtual]), {"title": "x"},
+            content_type="application/json", headers=viewer,
+        )
+        self.assertEqual(res.status_code, 403)
+        self.assertEqual(Event.objects.count(), before)
+
+    def test_남의_규칙은_못_연다(self):
+        self.create()
+        far = self.far()
+        virtual = self.listed(far, far)[0]["id"]
+        res = self.client.post(
+            reverse("obtain-token"),
+            {"username": "nam", "password": "pw-strong-1234"},
+            content_type="application/json",
+        )
+        stranger = {"authorization": f"Bearer {res.json()['access_token']}"}
+        self.assertEqual(self.client.get(reverse("event-detail", args=[virtual]), headers=stranger).status_code, 404)
+
+    def test_규칙에_없는_날은_없다(self):
+        from . import series as series_ops
+
+        self.create()
+        wrong = series_ops.virtual_id(self.series.id, self.far() + dt.timedelta(days=1))
+        self.assertEqual(self.get(reverse("event-detail", args=[wrong])).status_code, 404)
+
+    def test_반복_목록은_다음_날을_알려준다(self):
+        start = self.today + dt.timedelta(days=100)
+        body = {
+            "zone": self.zone.id,
+            "event_date": str(start),
+            "title": "엄마 생신",
+            "alerts": [],
+            "repeat": {"freq": "yearly", "lunar": True, "until": None},
+        }
+        self.assertEqual(self.post(reverse("event-list"), body).status_code, 201)
+        self.create()
+
+        rows = self.get(reverse("series-list")).json()
+
+        self.assertEqual([row["title"] for row in rows], ["관리비", "엄마 생신"])
+        birthday = rows[1]
+        self.assertTrue(birthday["lunar"])
+        self.assertIsNone(birthday["until"])
+        self.assertEqual(birthday["next_date"], str(start))
+        self.assertTrue(birthday["can_edit"])
+        # 첫날은 채우는 폭 너머라도 만들어 둔다(등록 응답이 그 일정이다)
+        self.assertGreater(birthday["next_event_id"], 0)
+
+    def test_반복_목록에서_끝난_것은_빠진다(self):
+        self.create(until=str(self.start))
+        self.client.delete(
+            reverse("event-detail", args=[Event.objects.get().id]), headers=self.auth
+        )
+        self.assertEqual(self.get(reverse("series-list")).json(), [])
+
+    def test_검색은_다음_반복을_펼쳐_담는다(self):
+        start = self.today + dt.timedelta(days=100)
+        body = {
+            "zone": self.zone.id,
+            "event_date": str(start),
+            "title": "엄마 생신",
+            "alerts": [],
+            "repeat": {"freq": "yearly", "until": None},
+        }
+        self.post(reverse("event-list"), body)
+        Event.objects.all().delete()
+
+        rows = self.get(reverse("event-list") + "?q=생신").json()
+
+        self.assertEqual(len(rows), 1)
+        self.assertLess(rows[0]["id"], 0)
+        # 첫날은 채우는 폭 너머라 일정이 지워지면 규칙으로 다시 펼쳐진다
+        self.assertEqual(rows[0]["event_date"], str(start))

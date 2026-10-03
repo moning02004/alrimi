@@ -64,3 +64,12 @@ def sweep(now=None) -> None:
             )
     except Exception:  # noqa: BLE001 — 청소가 실패해도 보낼 일은 계속 가야 한다
         logger.exception("housekeeping failed")
+
+    # 반복의 가까운 날을 일정으로 채운다(`notices.series`). 치우는 일은 아니지만 하루 한 번이면
+    # 되는 일이라 같은 길에 얹는다. 알림 크론도 매시 한 번 더 본다.
+    from notices.series import fill_due
+
+    try:
+        fill_due()
+    except Exception:  # noqa: BLE001
+        logger.exception("series fill failed")
