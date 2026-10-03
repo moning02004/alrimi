@@ -4,6 +4,7 @@ from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils import timezone
+from korean_lunar_calendar import KoreanLunarCalendar
 
 from zones.models import Zone
 
@@ -106,10 +107,15 @@ class EventSeries(models.Model):
         help_text="매주일 때 요일들. 월=0 … 일=6 을 쉼표로 (\"0,2,4\"). 다른 규칙은 비운다.",
     )
     until = models.DateField(help_text="마지막으로 반복할 수 있는 날 (포함)")
+    lunar = models.BooleanField(
+        default=False,
+        help_text="매년일 때 음력 날짜로 되풀이한다(부모님 생신처럼). 다른 규칙은 늘 거짓.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self) -> str:
-        return f"{self.get_freq_display()} ~{self.until}"
+        lunar = " 음력" if self.lunar else ""
+        return f"{self.get_freq_display()}{lunar} ~{self.until}"
 
     @property
     def weekday_list(self) -> list[int]:
@@ -121,8 +127,43 @@ def _add_months(year: int, month: int, months: int) -> tuple[int, int]:
     return index // 12, index % 12 + 1
 
 
+def _lunar_yearly_dates(start: dt.date, until: dt.date) -> list[dt.date]:
+    """
+    매년 음력. 첫날의 음력 월·일을 해마다 양력으로 옮긴다.
+
+    - **음력 30일이 없는 해(작은달)는 29일로 당긴다.** 양력 2월 29일처럼 건너뛰면
+      음력 30일 생신은 두 해에 한 번꼴로 사라진다. 음력은 양력 날짜가 해마다 달라
+      "날이 틀렸다" 고 읽힐 일도 없다 — 그믐에 챙기는 것이 관습이기도 하다.
+    - **윤달에 시작했으면 이듬해부터는 평달이다.** 윤달은 몇 해에 한 번이라 그 달을
+      기다리면 몇 해씩 비고, 윤달 생일도 평달에 챙긴다.
+    - 표(한국천문연구원, 2050년까지)가 닿지 않는 해에서 멈춘다.
+    """
+    calendar = KoreanLunarCalendar()
+    if not calendar.setSolarDate(start.year, start.month, start.day):
+        return []
+    year, month, day = calendar.lunarYear, calendar.lunarMonth, calendar.lunarDay
+
+    dates = [start]
+    while True:
+        year += 1
+        calendar = KoreanLunarCalendar()
+        if not calendar.setLunarDate(year, month, day, False):
+            # 작은달이면 그믐으로. 그래도 안 되면 표 밖이다
+            if day != 30 or not calendar.setLunarDate(year, month, 29, False):
+                break
+        solar = dt.date(calendar.solarYear, calendar.solarMonth, calendar.solarDay)
+        if solar > until:
+            break
+        dates.append(solar)
+    return dates
+
+
 def repeat_dates(
-    start: dt.date, freq: str, until: dt.date, weekdays: list[int] | None = None
+    start: dt.date,
+    freq: str,
+    until: dt.date,
+    weekdays: list[int] | None = None,
+    lunar: bool = False,
 ) -> list[dt.date]:
     """
     반복 규칙이 만드는 시작일들. `start` 부터 `until` 까지(둘 다 포함).
@@ -130,6 +171,7 @@ def repeat_dates(
     - 매주는 고른 요일에 해당하는 날만이다. 시작일의 요일을 안 골랐으면 시작일도 빠진다.
     - **매월 31일·매년 2월 29일은 그 날이 없는 달·해를 건너뛴다.** 말일로 당기면
       "31일" 이라고 적어둔 일이 30일에 오고, 사람은 규칙이 틀렸다고 읽는다.
+    - 매년 음력은 `_lunar_yearly_dates` 가 센다.
     - 개수가 `MAX_REPEAT_COUNT` 를 넘어도 여기서 자르지 않는다 — 넘었는지는 부르는
       쪽이 보고 거절한다. 조용히 자르면 끝나는 날까지 반복된다고 믿게 된다.
     """
@@ -147,6 +189,9 @@ def repeat_dates(
                     break
             day += dt.timedelta(days=1)
         return dates
+
+    if freq == EventSeries.Freq.YEARLY and lunar:
+        return _lunar_yearly_dates(start, until)
 
     step = 12 if freq == EventSeries.Freq.YEARLY else 1
     months = 0

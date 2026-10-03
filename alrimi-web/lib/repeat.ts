@@ -1,4 +1,5 @@
 import { addDays, toDate, toISO } from "./date";
+import { lunarYearlyDates } from "./lunar";
 import type { Repeat, RepeatFreq } from "@/types";
 
 /**
@@ -29,7 +30,12 @@ export const serverWeekday = (d: Date) => (d.getDay() + 6) % 7;
 /** 기본 끝나는 날. 석 달이면 한 학기의 반쯤이라 대개 한 번 더 늘리거나 그대로 끝난다 */
 export function defaultUntil(start: string, freq: RepeatFreq) {
   const d = toDate(start);
-  if (freq === "yearly") return toISO(new Date(d.getFullYear() + 3, d.getMonth(), d.getDate()));
+  if (freq === "yearly") {
+    const until = new Date(d.getFullYear() + 3, d.getMonth(), d.getDate());
+    // 2월 29일은 3년 안에 다음 윤년이 없어 한 번만 생긴다. 한도까지 늘려 한 번은 더 오게 한다
+    if (until.getMonth() !== d.getMonth()) return latestUntil(start);
+    return toISO(until);
+  }
   return toISO(new Date(d.getFullYear(), d.getMonth() + 3, d.getDate()));
 }
 
@@ -47,6 +53,7 @@ export function latestUntil(start: string) {
  * 매일 5년치를 끝까지 세며 멈칫할 까닭이 없다.
  *
  * 매월 31일·매년 2월 29일은 그 날이 없는 달·해를 건너뛴다(말일로 당기지 않는다).
+ * 매년 음력은 `lunarYearlyDates` 가 센다.
  */
 export function repeatDates(start: string, repeat: Repeat): string[] {
   const dates: string[] = [];
@@ -64,6 +71,8 @@ export function repeatDates(start: string, repeat: Repeat): string[] {
     return dates;
   }
 
+  if (freq === "yearly" && repeat.lunar) return lunarYearlyDates(start, until);
+
   const first = toDate(start);
   const step = freq === "yearly" ? 12 : 1;
   for (let months = 0; ; months += step) {
@@ -79,7 +88,7 @@ export function repeatDates(start: string, repeat: Repeat): string[] {
   return dates;
 }
 
-/** "매주 수·금 · 12월 31일까지" */
+/** "매주 수·금 · 12월 31일까지" · "매년 음력 · 2029년 10월 3일까지" */
 export function repeatLabel(repeat: Repeat) {
   const until = toDate(repeat.until);
   const days =
@@ -87,5 +96,6 @@ export function repeatLabel(repeat: Repeat) {
       ? ` ${[...repeat.weekdays].sort().map((day) => WEEKDAY_NAMES[day]).join("·")}`
       : "";
   const year = until.getFullYear() !== new Date().getFullYear() ? `${until.getFullYear()}년 ` : "";
-  return `${FREQ_LABEL[repeat.freq]}${days} · ${year}${until.getMonth() + 1}월 ${until.getDate()}일까지`;
+  const lunar = repeat.freq === "yearly" && repeat.lunar ? " 음력" : "";
+  return `${FREQ_LABEL[repeat.freq]}${days}${lunar} · ${year}${until.getMonth() + 1}월 ${until.getDate()}일까지`;
 }

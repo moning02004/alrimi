@@ -55,6 +55,8 @@ export interface Repeat {
   weekdays: number[];
   /** 마지막으로 반복할 수 있는 날 (YYYY-MM-DD, 포함) */
   until: string;
+  /** 매년일 때 음력 날짜로 되풀이한다(부모님 생신처럼). 다른 규칙이면 무시된다 */
+  lunar?: boolean;
 }
 
 /** 반복 일정을 고치거나 지울 때 어디까지 닿는가 */

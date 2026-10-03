@@ -82,6 +82,7 @@ class RepeatSerializer(serializers.Serializer):
     등록할 때만 받는 반복 규칙. `{"freq": "weekly", "weekdays": [2], "until": "2026-12-31"}`
 
     요일은 월=0 … 일=6 이다(파이썬 `weekday()`). 매주가 아니면 요일은 무시한다.
+    `lunar` 는 매년일 때만 뜻이 있다 — 다른 규칙이면 무시한다.
     """
 
     freq = serializers.ChoiceField(choices=EventSeries.Freq.choices)
@@ -89,8 +90,11 @@ class RepeatSerializer(serializers.Serializer):
         child=serializers.IntegerField(min_value=0, max_value=6), required=False, default=list
     )
     until = serializers.DateField()
+    lunar = serializers.BooleanField(required=False, default=False)
 
     def validate(self, attrs):
+        if attrs["freq"] != EventSeries.Freq.YEARLY:
+            attrs["lunar"] = False
         if attrs["freq"] == EventSeries.Freq.WEEKLY:
             if not attrs["weekdays"]:
                 raise serializers.ValidationError({"weekdays": "반복할 요일을 골라주세요."})
@@ -154,6 +158,7 @@ class EventDetailSerializer(CanEditMixin, serializers.ModelSerializer):
             "freq": series.freq,
             "weekdays": series.weekday_list,
             "until": series.until,
+            "lunar": series.lunar,
         }
 
     class Meta:
@@ -314,7 +319,7 @@ class EventWriteSerializer(serializers.ModelSerializer):
                 {"repeat": f"반복은 {MAX_REPEAT_YEARS}년 안에서만 정할 수 있어요."}
             )
 
-        dates = repeat_dates(start, repeat["freq"], until, repeat["weekdays"])
+        dates = repeat_dates(start, repeat["freq"], until, repeat["weekdays"], repeat["lunar"])
         if not dates:
             raise serializers.ValidationError({"repeat": "이 규칙으로는 만들어질 날이 없어요."})
         if len(dates) > MAX_REPEAT_COUNT:
@@ -370,6 +375,7 @@ class EventWriteSerializer(serializers.ModelSerializer):
             freq=repeat["freq"],
             weekdays=",".join(str(day) for day in repeat["weekdays"]),
             until=repeat["until"],
+            lunar=repeat["lunar"],
         )
         start = validated_data.pop("event_date")
         end = validated_data.pop("end_date", None) or start

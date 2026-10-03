@@ -2365,10 +2365,10 @@ class SendAlertFallbackTests(ApiTestCase):
 class RepeatDatesTests(TestCase):
     """반복 규칙이 만드는 날들. 모델 함수 하나라 요청 없이 본다."""
 
-    def dates(self, start, freq, until, weekdays=None):
+    def dates(self, start, freq, until, weekdays=None, lunar=False):
         from .models import repeat_dates
 
-        return repeat_dates(start, freq, until, weekdays)
+        return repeat_dates(start, freq, until, weekdays, lunar)
 
     def test_매일(self):
         self.assertEqual(
@@ -2393,6 +2393,31 @@ class RepeatDatesTests(TestCase):
         self.assertEqual(
             self.dates(dt.date(2028, 2, 29), "yearly", dt.date(2033, 1, 1)),
             [dt.date(2028, 2, 29), dt.date(2032, 2, 29)],
+        )
+
+    def test_매년_음력은_해마다_양력_날짜가_바뀐다(self):
+        # 2026-10-03 은 음력 8월 23일
+        self.assertEqual(
+            self.dates(dt.date(2026, 10, 3), "yearly", dt.date(2029, 12, 31), lunar=True),
+            [dt.date(2026, 10, 3), dt.date(2027, 9, 23), dt.date(2028, 10, 11), dt.date(2029, 9, 30)],
+        )
+
+    def test_음력_30일은_작은달이면_29일로(self):
+        # 2026 음력 1월 30일(3월 18일). 2027 음력 1월은 29일까지다
+        dates = self.dates(dt.date(2026, 3, 18), "yearly", dt.date(2027, 12, 31), lunar=True)
+        self.assertEqual(dates, [dt.date(2026, 3, 18), dt.date(2027, 3, 7)])
+
+    def test_윤달에_시작하면_이듬해부터_평달(self):
+        # 2025-07-25 는 음력 윤6월 1일. 2026 음력 6월 1일은 7월 14일
+        self.assertEqual(
+            self.dates(dt.date(2025, 7, 25), "yearly", dt.date(2026, 12, 31), lunar=True),
+            [dt.date(2025, 7, 25), dt.date(2026, 7, 14)],
+        )
+
+    def test_음력은_매년에서만(self):
+        self.assertEqual(
+            self.dates(dt.date(2026, 10, 3), "monthly", dt.date(2026, 11, 3), lunar=True),
+            [dt.date(2026, 10, 3), dt.date(2026, 11, 3)],
         )
 
     def test_끝나는_날이_앞서면_비어_있다(self):
@@ -2431,6 +2456,22 @@ class RepeatEventTests(ApiTestCase):
         self.assertTrue(all(e.alerts.count() == 1 for e in events))
         self.assertEqual(res.json()["id"], events[0].id)
         self.assertEqual(res.json()["repeat"]["freq"], "weekly")
+
+    def test_매년_음력_반복(self):
+        start = self.start
+        res = self.create(repeat={"freq": "yearly", "lunar": True, "until": str(start.replace(year=start.year + 3))})
+
+        self.assertEqual(res.status_code, 201)
+        self.assertTrue(res.json()["repeat"]["lunar"])
+        dates = [e.event_date for e in self.series_events()]
+        self.assertEqual(dates[0], start)
+        # 음력이면 양력 날짜는 해마다 다르다(같은 날은 19년에 한 번꼴)
+        self.assertNotEqual(dates[1], start.replace(year=start.year + 1))
+
+    def test_음력은_매년이_아니면_버린다(self):
+        res = self.create(repeat={"freq": "weekly", "weekdays": [self.start.weekday()], "lunar": True, "until": str(self.start + dt.timedelta(days=7))})
+        self.assertEqual(res.status_code, 201)
+        self.assertFalse(res.json()["repeat"]["lunar"])
 
     def test_여러_날짜리는_길이를_지킨다(self):
         self.create(end_date=str(self.start + dt.timedelta(days=1)))

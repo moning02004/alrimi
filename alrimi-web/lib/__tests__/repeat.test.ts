@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_REPEAT_COUNT, latestUntil, repeatDates, repeatLabel, serverWeekday } from "../repeat";
+import { MAX_REPEAT_COUNT, defaultUntil, latestUntil, repeatDates, repeatLabel, serverWeekday } from "../repeat";
 
 describe("repeatDates — 서버 repeat_dates 와 같은 날을 센다", () => {
   it("매일", () => {
@@ -53,6 +53,19 @@ describe("serverWeekday — 월=0 … 일=6", () => {
   });
 });
 
+describe("defaultUntil", () => {
+  it("매월은 석 달 뒤", () => expect(defaultUntil("2026-09-17", "monthly")).toBe("2026-12-17"));
+  it("매년은 3년 뒤", () => expect(defaultUntil("2026-09-17", "yearly")).toBe("2029-09-17"));
+  it("2월 29일 매년은 다음 윤년이 들어오게 한도까지", () => {
+    const until = defaultUntil("2028-02-29", "yearly");
+    expect(until).toBe("2033-02-28");
+    expect(repeatDates("2028-02-29", { freq: "yearly", weekdays: [], until })).toEqual([
+      "2028-02-29",
+      "2032-02-29",
+    ]);
+  });
+});
+
 describe("latestUntil", () => {
   it("5년 뒤 같은 날", () => expect(latestUntil("2026-09-17")).toBe("2031-09-17"));
   it("2월 29일은 28일로 당긴다", () => expect(latestUntil("2028-02-29")).toBe("2033-02-28"));
@@ -63,6 +76,13 @@ describe("repeatLabel", () => {
     const year = new Date().getFullYear();
     expect(repeatLabel({ freq: "weekly", weekdays: [4, 2], until: `${year}-12-31` })).toBe(
       "매주 수·금 · 12월 31일까지",
+    );
+  });
+
+  it("매년 음력은 음력이라고 적는다", () => {
+    const year = new Date().getFullYear();
+    expect(repeatLabel({ freq: "yearly", weekdays: [], until: `${year}-12-31`, lunar: true })).toBe(
+      "매년 음력 · 12월 31일까지",
     );
   });
 

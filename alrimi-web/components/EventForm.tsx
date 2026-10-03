@@ -32,6 +32,7 @@ import {
     repeatDates,
     serverWeekday,
 } from "@/lib/repeat";
+import {toLunar} from "@/lib/lunar";
 import {useCreateEvent, useStarredEvents, useUpdateEvent} from "@/hooks/useEvents";
 import {useZoneMark, useZones} from "@/hooks/useZones";
 import {ZoneMark} from "./ZoneMark";
@@ -270,6 +271,8 @@ export function EventForm({event, initialDate, initialTitle, initialContent, res
     const [repeatFreq, setRepeatFreq] = useState<RepeatFreq | null>(null);
     const [weekdays, setWeekdays] = useState<number[]>([]);
     const [until, setUntil] = useState("");
+    // 매년일 때 양력·음력. 생신처럼 집집마다 달리 챙기는 날이 있다
+    const [lunar, setLunar] = useState(false);
     /*
       반복 일정을 고칠 때 어디까지 닿을지. 고를 수 있는 자리를 늘 보여준다 — 저장을
       누른 뒤 한 번 더 묻는 창을 띄우면, 그 창을 읽기 전에 손이 먼저 "확인" 을 누른다.
@@ -360,7 +363,7 @@ export function EventForm({event, initialDate, initialTitle, initialContent, res
     // 반복이 만들 날들. 저장 전에 몇 개가 생기는지 보여주고 한도를 넘으면 미리 막는다
     const repeatPlan =
         repeatFreq && eventDate && until
-            ? repeatDates(eventDate, {freq: repeatFreq, weekdays, until})
+            ? repeatDates(eventDate, {freq: repeatFreq, weekdays, until, lunar})
             : [];
 
     const create = useCreateEvent();
@@ -394,6 +397,7 @@ export function EventForm({event, initialDate, initialTitle, initialContent, res
         if (!freq) {
             setWeekdays([]);
             setUntil("");
+            setLunar(false);
             return;
         }
         if (freq === "weekly" && weekdays.length === 0 && eventDate) {
@@ -470,7 +474,14 @@ export function EventForm({event, initialDate, initialTitle, initialContent, res
             // 예약까지 되살려 새 날짜로 다시 건다.
             ...(resume ? {held: false} : {}),
             ...(repeatFreq && !editing
-                ? {repeat: {freq: repeatFreq, weekdays: repeatFreq === "weekly" ? weekdays : [], until}}
+                ? {
+                      repeat: {
+                          freq: repeatFreq,
+                          weekdays: repeatFreq === "weekly" ? weekdays : [],
+                          until,
+                          lunar: repeatFreq === "yearly" && lunar,
+                      },
+                  }
                 : {}),
         };
 
@@ -726,6 +737,46 @@ export function EventForm({event, initialDate, initialTitle, initialContent, res
                                                         }`}
                                                     >
                                                         {name}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+
+                                    {/*
+                                      매년이면 양력·음력. 첫날이 각각 무슨 날인지 적어 두어 고르는
+                                      순간 무엇이 되풀이되는지 보이게 한다.
+                                    */}
+                                    {repeatFreq === "yearly" && (
+                                        <div
+                                            className="mb-1 flex flex-wrap items-center gap-x-4 pl-1.5 text-xs text-muted"
+                                            role="group"
+                                            aria-label="양력·음력"
+                                        >
+                                            {[false, true].map((on) => {
+                                                const lunarDay = on && eventDate ? toLunar(eventDate) : null;
+                                                const day = !eventDate
+                                                    ? ""
+                                                    : on
+                                                    ? lunarDay
+                                                        ? ` ${lunarDay.leap ? "윤" : ""}${lunarDay.month}월 ${lunarDay.day}일`
+                                                        : ""
+                                                    : ` ${toDate(eventDate).getMonth() + 1}월 ${toDate(eventDate).getDate()}일`;
+                                                return (
+                                                    <button
+                                                        key={String(on)}
+                                                        type="button"
+                                                        aria-pressed={lunar === on}
+                                                        onClick={() => {
+                                                            setError(null);
+                                                            setLunar(on);
+                                                        }}
+                                                        className={`shrink-0 transition-colors hover:text-pine ${
+                                                            lunar === on ? "font-medium text-pine" : ""
+                                                        }`}
+                                                    >
+                                                        {on ? "음력" : "양력"}
+                                                        {day}
                                                     </button>
                                                 );
                                             })}

@@ -5,6 +5,7 @@ import { DeleteSelected, SelectToggle } from "./SelectionActions";
 import { ErrorBlock, LoadingBlock } from "./Loading";
 import { useSelection } from "@/store/ui";
 import { fullLabel, sectionLabel } from "@/lib/date";
+import { lunarLabel } from "@/lib/lunar";
 import type { DayMark } from "@/lib/marks";
 import type { EventListItem } from "@/types";
 
@@ -50,6 +51,8 @@ export function DayPanel({
 }: Props) {
   const big = size === "lg";
   const selecting = useSelection((s) => s.active);
+  // 특일 뒤에 흐리게 — 날짜를 눌러 펼친 자리에서만 보이고 달력 칸에는 넣지 않는다
+  const lunar = lunarLabel(date);
 
   return (
     <section>
@@ -69,6 +72,7 @@ export function DayPanel({
                   {mark.name}
                 </span>
               ))}
+              {lunar && <span className="ml-2 text-xs font-normal text-muted">{lunar}</span>}
               <span className="ml-2 text-sm font-normal text-muted">
                 {items.length > 0 ? `${items.length}건` : "비어 있음"}
               </span>
@@ -82,6 +86,7 @@ export function DayPanel({
                   {mark.name}
                 </span>
               ))}
+              {lunar && <span className="font-normal opacity-70">{` · ${lunar}`}</span>}
             </p>
           )}
         </div>
