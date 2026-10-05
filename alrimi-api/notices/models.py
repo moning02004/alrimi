@@ -1,4 +1,6 @@
 import datetime as dt
+import threading
+from functools import lru_cache
 
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
@@ -170,6 +172,37 @@ def _add_months(year: int, month: int, months: int) -> tuple[int, int]:
     return index // 12, index % 12 + 1
 
 
+#  음력 표. 인스턴스를 만들 때마다 오늘 날짜를 한 번 바꿔 보면서 기준 해(1000년)부터 날 수를
+#  다시 센다 — 한 번에 1ms 가까이 든다. 셈은 인스턴스 안에 쌓이므로 하나를 계속 쓰면 열 몇
+#  µs 다. 값을 바꿔 가며 쓰는 객체라 스레드마다 하나씩 둔다(일꾼 스레드·runserver).
+_lunar = threading.local()
+
+
+def _lunar_calendar() -> KoreanLunarCalendar:
+    calendar = getattr(_lunar, "calendar", None)
+    if calendar is None:
+        calendar = _lunar.calendar = KoreanLunarCalendar()
+    return calendar
+
+
+@lru_cache(maxsize=4096)
+def to_lunar(day: dt.date) -> tuple[int, int, int] | None:
+    """양력 → 음력 (해, 달, 날). 표 밖이면 None. 음력은 바뀌지 않는 값이라 담아 둔다."""
+    calendar = _lunar_calendar()
+    if not calendar.setSolarDate(day.year, day.month, day.day):
+        return None
+    return calendar.lunarYear, calendar.lunarMonth, calendar.lunarDay
+
+
+@lru_cache(maxsize=4096)
+def from_lunar(year: int, month: int, day: int) -> dt.date | None:
+    """음력(평달) → 양력. 그 해에 그 날이 없거나 표 밖이면 None."""
+    calendar = _lunar_calendar()
+    if not calendar.setLunarDate(year, month, day, False):
+        return None
+    return dt.date(calendar.solarYear, calendar.solarMonth, calendar.solarDay)
+
+
 def _lunar_yearly(start: dt.date, lo: dt.date, hi: dt.date):
     """
     매년 음력. 첫날의 음력 월·일을 해마다 양력으로 옮긴다.
@@ -181,22 +214,22 @@ def _lunar_yearly(start: dt.date, lo: dt.date, hi: dt.date):
       기다리면 몇 해씩 비고, 윤달 생일도 평달에 챙긴다.
     - 표(한국천문연구원, 2050년까지)가 닿지 않는 해에서 멈춘다.
     """
-    calendar = KoreanLunarCalendar()
-    if not calendar.setSolarDate(start.year, start.month, start.day):
+    lunar = to_lunar(start)
+    if lunar is None:
         return
-    year, month, day = calendar.lunarYear, calendar.lunarMonth, calendar.lunarDay
+    year, month, day = lunar
 
     if lo <= start <= hi:
         yield start
     # 음력 해는 양력 해와 한 해 안쪽으로 어긋난다. 창보다 한 해 앞에서부터 센다
     year = max(year + 1, lo.year - 1)
     while True:
-        calendar = KoreanLunarCalendar()
-        if not calendar.setLunarDate(year, month, day, False):
-            # 작은달이면 그믐으로. 그래도 안 되면 표 밖이다
-            if day != 30 or not calendar.setLunarDate(year, month, 29, False):
-                return
-        solar = dt.date(calendar.solarYear, calendar.solarMonth, calendar.solarDay)
+        solar = from_lunar(year, month, day)
+        # 작은달이면 그믐으로. 그래도 안 되면 표 밖이다
+        if solar is None and day == 30:
+            solar = from_lunar(year, month, 29)
+        if solar is None:
+            return
         if solar > hi:
             return
         if solar >= lo:
