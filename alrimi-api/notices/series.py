@@ -225,3 +225,31 @@ def split(
     at.save(update_fields=["series", "series_date", "updated_at"])
     fill(fresh)
     return fresh
+
+
+def start(event: Event, rule: dict) -> EventSeries:
+    """
+    반복이 아니던 일정을 반복으로 바꾼다. 이 일정이 첫날이고, 본보기는 이 일정의 모양이다.
+
+    새로 등록하는 것과 같은 규칙을 세우되 첫날을 새로 만들지 않고 이 일정을 그 자리에 앉힌다
+    — 이미 걸린 알림·완료·별표가 그대로 남는다.
+    """
+    series = EventSeries.objects.create(
+        freq=rule["freq"],
+        weekdays=",".join(str(day) for day in rule["weekdays"]),
+        lunar=rule["lunar"],
+        start=event.event_date,
+        until=rule["until"],
+        zone_id=event.zone_id,
+        title=event.title,
+        content=event.content,
+        event_hour=event.event_hour,
+        span_days=event.span_days,
+        alert_codes=sorted(set(event.alerts.values_list("code", flat=True))),
+        filled_until=event.event_date,
+    )
+    event.series = series
+    event.series_date = event.event_date
+    event.save(update_fields=["series", "series_date", "updated_at"])
+    fill(series)
+    return series

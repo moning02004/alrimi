@@ -2477,9 +2477,46 @@ class RepeatEventTests(ApiTestCase):
         self.assertEqual(res.status_code, 201)
         self.assertFalse(res.json()["repeat"]["lunar"])
 
-    def test_여러_날짜리는_길이를_지킨다(self):
-        self.create(end_date=str(self.start + dt.timedelta(days=1)))
-        self.assertTrue(all(e.span_days == 2 for e in self.series_events()))
+    def test_여러_날짜리는_반복할_수_없다(self):
+        res = self.create(end_date=str(self.start + dt.timedelta(days=1)))
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("end_date", res.json())
+        self.assertFalse(Event.objects.exists())
+
+    def test_반복_일정을_여러_날로_늘릴_수_없다(self):
+        self.create()
+        first = self.series_events()[0]
+        for scope in ("this", "following"):
+            with self.subTest(scope):
+                res = self.patch(first, {"end_date": str(first.event_date + dt.timedelta(days=2))}, scope=scope)
+                self.assertEqual(res.status_code, 400)
+        self.assertTrue(all(e.span_days == 1 for e in self.series_events()))
+
+    def test_반복이_아닌_일정을_반복으로_바꾼다(self):
+        event = Event.objects.create(zone=self.zone, event_date=self.start, title="관리비")
+        event.sync_alerts(["D-1 20:00"])
+        res = self.patch(event, {"repeat": {"freq": "weekly", "weekdays": [self.start.weekday()], "until": None}})
+
+        self.assertEqual(res.status_code, 200, res.content)
+        event.refresh_from_db()
+        self.assertIsNotNone(event.series_id)
+        self.assertEqual(event.series_date, self.start)
+        self.assertEqual(res.json()["repeat"]["freq"], "weekly")
+        events = self.series_events()
+        # 이 일정이 첫날이다 — 새로 만든 것이 아니라 그 자리에 앉았다
+        self.assertEqual(events[0].pk, event.pk)
+        self.assertEqual([e.event_date for e in events[:3]], [self.start + dt.timedelta(days=7 * n) for n in range(3)])
+        self.assertTrue(all([a.code for a in e.alerts.all()] == ["D-1 20:00"] for e in events))
+
+    def test_여러_날짜리는_반복으로_못_바꾼다(self):
+        event = Event.objects.create(
+            zone=self.zone, event_date=self.start, end_date=self.start + dt.timedelta(days=1), title="여행"
+        )
+        res = self.patch(
+            event,
+            {"repeat": {"freq": "yearly", "until": None}, "end_date": str(event.end_date)},
+        )
+        self.assertEqual(res.status_code, 400)
 
     def test_지킬_수_없는_규칙은_막는다(self):
         cases = {
@@ -2502,11 +2539,6 @@ class RepeatEventTests(ApiTestCase):
         self.create()
         first = self.series_events()[0]
         res = self.patch(first, {"repeat": {"freq": "daily", "until": str(self.start)}})
-        self.assertEqual(res.status_code, 400)
-
-    def test_반복이_아닌_일정은_반복으로_못_바꾼다(self):
-        event = Event.objects.create(zone=self.zone, event_date=self.start, title="소풍")
-        res = self.patch(event, {"repeat": {"freq": "daily", "until": None}}, scope="following")
         self.assertEqual(res.status_code, 400)
 
     def test_이_일정만_고치면_나머지는_그대로다(self):

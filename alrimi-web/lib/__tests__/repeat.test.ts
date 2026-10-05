@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultUntil, repeatDates, ruleOn, repeatLabel, serverWeekday } from "../repeat";
+import { repeatDates, ruleOn, repeatLabel, serverWeekday } from "../repeat";
 
 describe("repeatDates — 서버 repeat_dates 와 같은 날을 센다", () => {
   it("매일", () => {
@@ -51,17 +51,6 @@ describe("serverWeekday — 월=0 … 일=6", () => {
   ])("%s → %i", (iso, expected) => {
     const [y, m, d] = iso.split("-").map(Number);
     expect(serverWeekday(new Date(y, m - 1, d))).toBe(expected);
-  });
-});
-
-describe("defaultUntil", () => {
-  it("매일·매주는 석 달 뒤", () => {
-    expect(defaultUntil("2026-09-17", "daily")).toBe("2026-12-17");
-    expect(defaultUntil("2026-09-17", "weekly")).toBe("2026-12-17");
-  });
-  it("매월·매년은 끝이 없다", () => {
-    expect(defaultUntil("2026-09-17", "monthly")).toBeNull();
-    expect(defaultUntil("2028-02-29", "yearly")).toBeNull();
   });
 });
 

@@ -96,6 +96,10 @@ class RepeatSerializer(serializers.Serializer):
     lunar = serializers.BooleanField(required=False, default=False)
 
     def validate(self, attrs):
+        # PATCH(partial)에서는 DRF 가 안쪽 칸의 기본값을 채우지 않는다. 등록과 같게 맞춘다
+        attrs.setdefault("weekdays", [])
+        attrs.setdefault("until", None)
+        attrs.setdefault("lunar", False)
         if attrs["freq"] != EventSeries.Freq.YEARLY:
             attrs["lunar"] = False
         if attrs["freq"] == EventSeries.Freq.WEEKLY:
@@ -281,6 +285,7 @@ class EventWriteSerializer(serializers.ModelSerializer):
         """
         self._check_resume(attrs)
         self._check_repeat(attrs)
+        self._check_repeat_span(attrs)
 
         end = attrs.get("end_date")
         if end is None:
@@ -308,11 +313,11 @@ class EventWriteSerializer(serializers.ModelSerializer):
         repeat = attrs.get("repeat")
         if repeat is None:
             return
-        # 고칠 때는 "이후 모두" 로만 바꾼다. 규칙은 이 날에서 새로 선다(`series.split`) —
-        # 이 날만 다른 규칙을 가질 수는 없고, 반복이 아닌 일정을 반복으로 바꾸는 길도 두지 않는다.
-        if self.instance is not None and (self.instance.series_id is None or self.scope != "following"):
+        # 반복 일정의 규칙은 "이후 모두" 로만 바꾼다. 규칙은 이 날에서 새로 선다(`series.split`)
+        # — 이 날 하나만 다른 규칙을 가질 수는 없다. 반복이 아닌 일정은 이 날에서 반복을 시작한다.
+        if self.instance is not None and self.instance.series_id and self.scope != "following":
             raise serializers.ValidationError(
-                {"repeat": "반복 규칙은 반복 일정에서 '이후 모두' 로만 바꿀 수 있어요."}
+                {"repeat": "반복 규칙은 '이 날부터 이후 모두' 로만 바꿀 수 있어요."}
             )
 
         start = attrs.get("event_date") or self.instance.event_date
@@ -328,6 +333,26 @@ class EventWriteSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"repeat": "이 규칙으로는 만들어질 날이 없어요."})
         # `create` 가 다시 찾지 않도록 들고 간다
         repeat["first"] = first
+
+    def _check_repeat_span(self, attrs) -> None:
+        """
+        반복은 하루짜리만이다. 여러 날과 반복이 겹치면 "며칠부터 며칠까지를 매주" 가 되는데,
+        그 끝이 다음 반복과 겹치는지·알림을 언제 세는지를 사람이 읽어낼 수 없다. 폼도 둘 중
+        하나만 켜게 한다.
+
+        예전에 만든 여러 날짜리 반복은 그 길이 그대로 고치는 것까지는 막지 않는다.
+        """
+        repeating = attrs.get("repeat") is not None or getattr(self.instance, "series_id", None)
+        if not repeating:
+            return
+        start = attrs.get("event_date") or getattr(self.instance, "event_date", None)
+        end = attrs.get("end_date")
+        if start is None or end is None or end <= start:
+            return
+        if self.instance is not None and attrs.get("repeat") is None:
+            if end - start == self.instance.end_date - self.instance.event_date:
+                return
+        raise serializers.ValidationError({"end_date": "반복 일정은 하루짜리만 돼요."})
 
     def _check_resume(self, attrs) -> None:
         """
@@ -476,7 +501,10 @@ class EventWriteSerializer(serializers.ModelSerializer):
         if resumed:
             instance.revive_alerts()
 
-        if series is not None:
+        if rule is not None and series is None and instance.series_id is None:
+            # 반복이 아니던 일정을 반복으로. 이 일정이 첫날이 된다
+            series_ops.start(instance, rule)
+        elif series is not None:
             if moved_by or rule is not None:
                 # 날짜를 옮기거나 규칙을 바꾸면 규칙째 새로 세운다 — 아직 안 만든 날까지
                 # 옮기거나 바꿔야 해서다

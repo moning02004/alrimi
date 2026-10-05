@@ -6,8 +6,8 @@ import type { Repeat, RepeatFreq } from "@/types";
  * 반복 일정. 서버(`notices/models.py` rule_dates)와 같은 규칙으로 날을 센다.
  *
  * 서버는 규칙만 두고 가까운 날만 일정으로 만든다(`EventSeries`). 그래서 길이에 한도가
- * 없고, 끝나는 날을 비우면 끝이 없다. 폼은 끝나는 날이 있을 때 몇 번인지를 보여주고,
- * 규칙으로 만들어질 날이 하나도 없으면 미리 막는다. 규칙이 한쪽만 바뀌면 폼은 괜찮다는데
+ * 없고, 폼은 끝나는 날을 묻지 않는다 — 반복은 끝이 없다. 규칙으로 만들어질 날이 하나도
+ * 없으면 미리 막는다. 규칙이 한쪽만 바뀌면 폼은 괜찮다는데
  * 저장에서 되돌려받으므로 두 곳을 함께 고친다.
  */
 
@@ -23,16 +23,6 @@ export const WEEKDAY_NAMES = ["월", "화", "수", "목", "금", "토", "일"];
 
 /** JS 의 `getDay()`(일=0) 를 서버 순서(월=0)로 */
 export const serverWeekday = (d: Date) => (d.getDay() + 6) % 7;
-
-/**
- * 기본 끝나는 날. 매일·매주는 석 달 — 한 학기의 반쯤이라 대개 한 번 더 늘리거나 그대로
- * 끝난다(체육복·학원). 매월·매년은 **끝이 없다** — 관리비·생신은 끝나는 날이 없는 일이다.
- */
-export function defaultUntil(start: string, freq: RepeatFreq): string | null {
-  if (freq === "monthly" || freq === "yearly") return null;
-  const d = toDate(start);
-  return toISO(new Date(d.getFullYear(), d.getMonth() + 3, d.getDate()));
-}
 
 /** 끝이 없을 때 첫날을 찾는 폭. 두 해면 매년(음력이어도)이 한 번은 든다 — 서버와 같다 */
 const FIRST_WITHIN_DAYS = 800;
