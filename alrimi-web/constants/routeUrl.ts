@@ -73,7 +73,7 @@ export const apiUrl = {
   sendAlert: (eventId: number, alertId: number) =>
     `/events/${eventId}/alerts/${alertId}/send`,
 
-  // 끝나지 않은 반복들. 지난 일정·보류 화면의 "반복" 탭이 쓴다
+  // 끝나지 않은 반복들. 내 정보의 "반복 일정" 화면이 쓴다
   series: (scope: ZoneScope) => (scope === null ? "/series" : `/series?zones=${scope.join(",")}`),
 
   calendar: (from: string, to: string, scope: ZoneScope) =>
@@ -100,6 +100,7 @@ export const pageUrl = {
   // 설정 안쪽 화면
   settingsSharing: "/settings/sharing",
   settingsUsers: "/settings/users",
+  settingsRepeats: "/settings/repeats",
   search: "/search",
   // 다른 앱의 공유가 들어오는 문. manifest 의 share_target 과 같은 주소여야 한다
   share: "/share",

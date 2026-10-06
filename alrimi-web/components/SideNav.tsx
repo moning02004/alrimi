@@ -6,12 +6,12 @@ import type { IconType } from "react-icons";
 import { LuPanelLeftClose, LuPanelLeftOpen, LuSearch } from "react-icons/lu";
 import {
   HiClock,
-  HiCog6Tooth,
   HiHome,
   HiOutlineClock,
-  HiOutlineCog6Tooth,
+  HiOutlineUser,
   HiOutlineHome,
   HiPlus,
+  HiUser,
 } from "react-icons/hi2";
 import { Logo } from "./Logo";
 import { pageUrl } from "@/constants/routeUrl";
@@ -122,11 +122,11 @@ export function SideNav() {
         />
         <Item
           href={pageUrl.settings}
-          label="설정"
+          label="내 정보"
           active={pathname.startsWith(pageUrl.settings)}
           collapsed={collapsed}
-          On={HiCog6Tooth}
-          Off={HiOutlineCog6Tooth}
+          On={HiUser}
+          Off={HiOutlineUser}
         />
       </nav>
 

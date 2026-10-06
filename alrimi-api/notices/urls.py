@@ -62,6 +62,6 @@ urlpatterns = [
     ),
 
     path("calendar", CalendarView.as_view(), name="calendar"),
-    # 끝나지 않은 반복들. 지난 일정·보류와 같은 화면의 탭이 쓴다
+    # 끝나지 않은 반복들. 웹의 내 정보 › 반복 일정이 쓴다
     path("series", SeriesListView.as_view(), name="series-list"),
 ]

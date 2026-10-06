@@ -5,8 +5,9 @@ import DatePicker from "react-datepicker";
 import {ko} from "date-fns/locale";
 import toast from "react-hot-toast";
 import {
-    DAY_OPTIONS,
     HOUR_OPTIONS,
+    SIDE_OPTIONS,
+    dayCountError,
     PRESETS,
     codeLabel,
     makeCode,
@@ -37,6 +38,7 @@ import {useCreateEvent, useStarredEvents, useUpdateEvent} from "@/hooks/useEvent
 import {useZoneMark, useZones} from "@/hooks/useZones";
 import {ZoneMark} from "./ZoneMark";
 import {Picker} from "./Picker";
+import type {AlertSide} from "@/lib/alerts";
 import type {EditScope, EventDetail, Repeat, RepeatFreq, StarredEvent} from "@/types";
 import {LuCalendar} from "react-icons/lu";
 import {HiStar} from "react-icons/hi2";
@@ -252,7 +254,10 @@ export function EventForm({event, initialDate, initialTitle, initialContent, res
     // 다시 잡을 때는 비워서 연다. 옛 날짜가 적혀 있으면 그대로 저장을 눌렀다가
     // 서버에서 되돌려받는데, 그 칸이 왜 틀렸는지가 화면에 안 보인다.
     const [eventDate, setEventDate] = useState(
-        resume ? "" : (event?.event_date ?? initialDate ?? ""),
+        // 새로 등록할 때는 오늘이 기본이다 — 달력에서 날을 누르고 들어오면 그 날이고, 그냥
+        // 열면 대개 오늘이나 가까운 날 일이라 빈 칸에서 시작할 까닭이 없다. 다시 잡을 때만
+        // 비워 둔다. 새 날을 고르는 것이 그 폼의 할 일이다.
+        resume ? "" : (event?.event_date ?? initialDate ?? toISO(startOfDay(new Date()))),
     );
     /*
       여러 날에 걸치는 일정(여행·행사). 대부분은 하루짜리라 기본은 꺼짐이고,
@@ -347,7 +352,9 @@ export function EventForm({event, initialDate, initialTitle, initialContent, res
     const dateRow = useRef<HTMLDivElement>(null);
     const endRow = useRef<HTMLDivElement>(null);
 
-    const [day, setDay] = useState(1);
+    // 며칠 전·후. 숫자를 직접 적는다 — 빈 칸으로 지웠다 다시 적을 수 있게 글자로 들고 있는다
+    const [dayCount, setDayCount] = useState("1");
+    const [side, setSide] = useState<AlertSide>("before");
     const [hour, setHour] = useState(20);
     /*
       시점을 직접 고르는 줄. 대부분은 미리 짜둔 묶음(준비물용·마감용)을 그대로 쓰므로
@@ -493,7 +500,14 @@ export function EventForm({event, initialDate, initialTitle, initialContent, res
     };
 
     const addAlert = () => {
-        const code = makeCode(day, hour);
+        const days = dayCount.trim() === "" ? NaN : Number(dayCount);
+        const problem = dayCountError(days, side);
+        if (problem) {
+            setError(problem);
+            return;
+        }
+        // 0 은 앞뒤 어느 쪽이든 당일이다. offset 은 "며칠 전" 이라 뒤는 음수로 적는다
+        const code = makeCode(side === "before" ? days : -days || 0, hour);
         if (alerts.includes(code)) {
             setError("이미 추가한 시점이에요");
             return;
@@ -653,7 +667,7 @@ export function EventForm({event, initialDate, initialTitle, initialContent, res
                     */}
                     {!zonesLoading && zones.length === 0 ? (
                         <span className="text-sm text-muted">
-                            내 공간이 없어요. 설정에서 공간을 먼저 만들어 주세요.
+                            내 공간이 없어요. 내 정보에서 공간을 먼저 만들어 주세요.
                         </span>
                     ) : (
                         <>
@@ -705,11 +719,11 @@ export function EventForm({event, initialDate, initialTitle, initialContent, res
                     <div ref={dateRow} className={`${dateRowCls} py-1`}>
                         {/*
                           하루짜리에는 "날짜" 하나뿐이라 시작이라고 부를 것이 없다. 기간을 켜야
-                          비로소 시작과 끝이 생기므로, 그때 이름도 같이 바뀐다. 반복을 켜면
-                          이 날이 반복의 첫날이 된다.
+                          비로소 시작과 끝이 생기므로, 그때 이름도 같이 바뀐다. 반복을 켜도
+                          이름은 "날짜" 그대로다 — 같은 칸이 "첫날" 로 이름을 바꾸면 어색하다.
                         */}
                         <label htmlFor="date" className={labelCls}>
-                            {ranged ? "시작" : repeatFreq ? "첫날" : "날짜"}
+                            {ranged ? "시작" : "날짜"}
                         </label>
                         <DateField
                             id="date"
@@ -1121,12 +1135,39 @@ export function EventForm({event, initialDate, initialTitle, initialContent, res
                           바로 더하면 되고, 접혀 있으면 그런 길이 있다는 것부터 찾아야 한다.
                         */}
                         <div className="mt-2 flex gap-1.5">
+                            {/*
+                              며칠인지는 숫자로 적는다. 정해둔 눈금(7·5·3·2·1일)에서 고르게 했더니
+                              "열흘 전", "필터를 간 지 200일 뒤" 를 잡을 수 없었다. 0 은 당일이다.
+                              숫자 자판이 뜨도록 `inputMode` 를 주고, 숫자가 아닌 글자는 받지 않는다.
+                            */}
+                            <label
+                                className="flex w-20 shrink-0 items-center gap-1 rounded-lg border border-line bg-paper
+                                           px-2.5 py-2 text-sm focus-within:border-pine"
+                            >
+                                <input
+                                    aria-label="며칠"
+                                    inputMode="numeric"
+                                    pattern="[0-9]*"
+                                    value={dayCount}
+                                    onChange={(e) => {
+                                        setDayCount(e.target.value.replace(/\D/g, "").slice(0, 3));
+                                        setError(null);
+                                    }}
+                                    onFocus={(e) => e.target.select()}
+                                    className="w-full min-w-0 bg-transparent text-right tabular-nums focus:outline-none"
+                                />
+                                <span className="shrink-0 text-muted">일</span>
+                            </label>
+
                             <Picker
-                                ariaLabel="며칠 전"
-                                value={day}
-                                options={DAY_OPTIONS}
-                                onPick={setDay}
-                                className="min-w-0 flex-1 rounded-lg border border-line bg-paper px-2.5 py-2
+                                ariaLabel="일정 전인지 후인지"
+                                value={side}
+                                options={SIDE_OPTIONS}
+                                onPick={(picked) => {
+                                    setSide(picked);
+                                    setError(null);
+                                }}
+                                className="w-16 shrink-0 rounded-lg border border-line bg-paper px-2.5 py-2
                                            text-sm focus:border-pine focus:outline-none"
                             />
 

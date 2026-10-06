@@ -985,7 +985,10 @@ def due_alerts(*, ids: list[int] | None = None):
         # 보류한 일정의 예약은 나가지 않는다. 다시 잡을 때 `revive_alerts` 가
         # 새 날짜로 되살리므로, 여기서 빼도 알림이 영영 사라지지는 않는다.
     ).filter(
-        event__completed_at__isnull=True,
+        # 완료한 일정의 알림은 나가지 않는다 — **뒤로 잡은 것(D+n)만 빼고.** "필터를 간 지
+        # 200일 뒤", "다녀와서 사진 정리" 는 일정을 끝낸 뒤에 올 알림이다. 완료했다고 멈추면
+        # 그 알림은 잡아둔 뜻이 없다. 취소·보류는 그 일이 없던 것이라 뒤의 알림도 없다.
+        Q(event__completed_at__isnull=True) | Q(code__startswith="D+"),
         event__canceled_at__isnull=True,
         event__held_at__isnull=True,
     )

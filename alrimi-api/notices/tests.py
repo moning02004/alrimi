@@ -36,6 +36,9 @@ class CodeTests(TestCase):
         """
         self.assertEqual(parse_code("D+3 20:00"), (-3, 20))
         self.assertEqual(parse_code("D+1 07:00"), (-1, 7))
+        # 뒤로는 한 해까지 — "필터를 간 지 200일 뒤"
+        self.assertEqual(parse_code("D+200 09:00"), (-200, 9))
+        self.assertEqual(parse_code("D+365 09:00"), (-365, 9))
 
     def test_bad_codes_are_rejected(self):
         from django.core.exceptions import ValidationError
@@ -47,8 +50,8 @@ class CodeTests(TestCase):
             "D-1 25:00",
             "",
             "D1 20:00",  # 앞인지 뒤인지가 코드에 없다
-            "D+61 20:00",  # 두 달을 넘겨 잡는다
-            "D-61 20:00",
+            "D-61 20:00",  # 두 달을 넘겨 미리 잡는다
+            "D+366 20:00",  # 한 해를 넘겨 뒤로 잡는다
         ]
         for bad in bad_codes:
             with self.assertRaises(ValidationError, msg=bad):
@@ -1573,6 +1576,22 @@ class CronEndpointTests(TestCase):
 
     def ready(self) -> dict:
         return self.client.get("/events/alerts", headers={"x-api-key": "k"}).json()
+
+    @override_settings(N8N_API_KEY="k")
+    def test_완료해도_뒤로_잡은_알림은_나간다(self):
+        """
+        "필터를 간 지 200일 뒤" 는 끝낸 뒤에 올 알림이다. 완료했다고 멈추면 잡아둔 뜻이 없다.
+        미리 잡은 알림은 완료하면 멈춘다. 취소·보류는 뒤의 알림도 멈춘다.
+        """
+        long_ago = timezone.localdate() - dt.timedelta(days=200)
+        after = self.due(self.zone, "정수기 필터", on=long_ago, code="D+200 09:00")
+        before = self.due(self.zone, "소풍", code="D 08:00")
+        canceled = self.due(self.zone, "취소한 것", on=long_ago, code="D+200 09:00")
+        for alert in (after, before):
+            alert.event.set_completed(True)
+        canceled.event.set_canceled(True)
+
+        self.assertEqual(self.ready()["ids"], [after.id])
 
     @override_settings(N8N_API_KEY="k")
     def test_같은_공간의_예약은_한_통으로_묶인다(self):

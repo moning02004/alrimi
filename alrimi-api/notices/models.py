@@ -15,9 +15,14 @@ CODE_HELP = (
     "처럼 일 오프셋과 정각 시각으로 적는다."
 )
 
-#  앞뒤로 이만큼까지. 두 달을 넘겨 잡을 일은 없고, 오타 한 번에 엉뚱한 날로
-#  예약이 잡히는 것을 여기서 막는다.
+#  앞으로는 이만큼까지. 두 달을 넘겨 미리 알릴 일은 없고, 오타 한 번에 엉뚱한 날로
+#  예약이 잡히는 것을 여기서 막는다. 반복 일정을 얼마나 미리 만들어 둘지도 이 값이
+#  정한다(`FILL_AHEAD_DAYS`) — 늘리면 그만큼 일정이 미리 쌓인다.
 MAX_ALERT_OFFSET_DAYS = 60
+
+#  뒤로는 한 해까지. "정수기 필터를 간 지 200일 뒤" 처럼 일정이 **지난 뒤**를 세는 알림이
+#  있다. 뒤로 잡는 것은 미리 만들어 둘 것이 없어(그 일정은 이미 지나 있다) 넉넉히 둔다.
+MAX_ALERT_AFTER_DAYS = 365
 
 
 class Priority(models.IntegerChoices):
@@ -54,7 +59,8 @@ def parse_code(code: str) -> tuple[int, int]:
         not day.startswith("D")
         # 부호 없는 "D1" 은 받지 않는다. 앞인지 뒤인지가 코드에 드러나야 한다.
         or (len(day) > 1 and day[1] not in "+-")
-        or abs(offset) > MAX_ALERT_OFFSET_DAYS
+        or offset > MAX_ALERT_OFFSET_DAYS
+        or -offset > MAX_ALERT_AFTER_DAYS
         or not (0 <= hour <= 23)
         or minute != 0
     ):
@@ -358,7 +364,11 @@ class Event(models.Model):
     completed_at = models.DateTimeField(
         null=True,
         blank=True,
-        help_text="완료 표시한 시각. 완료하면 목록·달력에서 빠지고 남은 알림도 나가지 않는다.",
+        help_text=(
+            "완료 표시한 시각. 완료하면 목록·달력에서 빠지고 남은 알림도 나가지 않는다. "
+            "**뒤로 잡은 알림(D+n)은 그대로 나간다** — '교체한 지 200일 뒤' 는 끝낸 뒤에 올 "
+            "알림이라, 완료했다고 멈추면 잡아둔 뜻이 없다(`views.due_alerts`)."
+        ),
     )
     canceled_at = models.DateTimeField(
         null=True,

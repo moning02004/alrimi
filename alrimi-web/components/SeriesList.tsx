@@ -18,6 +18,9 @@ import type { SeriesItem, ZoneScope } from "@/types";
  * 목록·달력으로는 "무엇이 반복되고 있나" 가 한눈에 안 보인다 — 몇 달 뒤 생신이 걸려
  * 있는지, 학기 끝에 멈춘 체육복이 아직 도는지는 여기서 본다.
  *
+ * 내 정보의 안쪽 화면이다(`app/(main)/settings/repeats`). 지난 일정·보류 화면의 탭이었는데,
+ * 그 화면은 지나갔거나 치워둔 것을 찾는 자리라 앞으로 올 것이 거기 있는 것이 어색했다.
+ *
  * 줄을 누르면 **다음 날의 일정**이 열린다. 반복을 고치거나 끝내는 것은 거기서 "이후 모두"
  * 로 한다 — 규칙만 따로 고치는 자리를 두면 이미 만들어진 날과 어긋나는 길이 하나 더 생긴다.
  */
@@ -80,6 +83,8 @@ function SeriesCard({ series }: { series: SeriesItem }) {
       <div className="shrink-0 text-right">
         <p className="text-xs text-muted">다음</p>
         <p className="text-sm tabular-nums">
+          {/* 해가 다르면 연도를 적는다 — 매년 반복은 다음 날이 내년인 것이 보통이다 */}
+          {next.getFullYear() !== new Date().getFullYear() && `${next.getFullYear()}년 `}
           {monthDayLabel(series.next_date)} {dayName(next)}
           {hour}
         </p>

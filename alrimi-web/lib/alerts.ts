@@ -10,22 +10,39 @@ export interface ParsedCode {
 }
 
 /*
-  일정이 끝난 뒤로도 잡을 수 있다 — 다녀와서 사진 정리하기, 제출한 서류 확인하기
-  처럼 "그 다음"에 할 일이 딸려 오는 일정이 있다. 앞뒤를 같은 눈금으로 둔다.
+  며칠 전·후인지는 숫자로 직접 적는다. 예전에는 7·5·3·2·1일 가운데서 골랐는데, "열흘 전",
+  "필터를 간 지 200일 뒤" 같은 것은 고를 수 없었다.
+
+  일정이 끝난 뒤로도 잡는다 — 다녀와서 사진 정리하기, 제출한 서류 확인하기처럼 "그 다음" 에
+  할 일이 딸려 오는 일정이 있다. 뒤로 잡은 알림은 일정을 완료해도 나간다(서버 `due_alerts`).
+
+  한도는 서버와 같다(`notices/models.py` MAX_ALERT_OFFSET_DAYS · MAX_ALERT_AFTER_DAYS).
+  앞은 두 달, 뒤는 한 해다 — 앞을 늘리면 반복 일정을 그만큼 미리 만들어 둬야 한다.
 */
-export const DAY_OPTIONS = [
-  { value: 7, label: "7일 전" },
-  { value: 5, label: "5일 전" },
-  { value: 3, label: "3일 전" },
-  { value: 2, label: "2일 전" },
-  { value: 1, label: "1일 전" },
-  { value: 0, label: "당일" },
-  { value: -1, label: "1일 후" },
-  { value: -2, label: "2일 후" },
-  { value: -3, label: "3일 후" },
-  { value: -5, label: "5일 후" },
-  { value: -7, label: "7일 후" },
+export const MAX_BEFORE_DAYS = 60;
+export const MAX_AFTER_DAYS = 365;
+
+export type AlertSide = "before" | "after";
+
+export const SIDE_OPTIONS: { value: AlertSide; label: string }[] = [
+  { value: "before", label: "전" },
+  { value: "after", label: "후" },
 ];
+
+/**
+ * 적은 날 수가 쓸 수 있는 값인가. 못 쓰면 까닭을, 쓸 수 있으면 null 을 돌려준다.
+ * 0 은 앞뒤 어느 쪽이든 "당일" 이다.
+ */
+export function dayCountError(days: number, side: AlertSide): string | null {
+  if (!Number.isInteger(days) || days < 0) return "며칠인지 숫자로 적어주세요";
+  const limit = side === "before" ? MAX_BEFORE_DAYS : MAX_AFTER_DAYS;
+  if (days > limit) {
+    return side === "before"
+      ? `미리 알림은 ${MAX_BEFORE_DAYS}일 전까지 돼요`
+      : `지난 뒤 알림은 ${MAX_AFTER_DAYS}일 후까지 돼요`;
+  }
+  return null;
+}
 
 /** 06:00 ~ 23:00 정각 */
 export const HOUR_OPTIONS = Array.from({ length: 18 }, (_, i) => i + 6);

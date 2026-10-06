@@ -9,6 +9,7 @@ import Link from "next/link";
 import { apiUrl, pageUrl } from "@/constants/routeUrl";
 import { useAuthStore } from "@/store/auth";
 import { useReceivedSharing, useSharing, useZoneMark, useZones } from "@/hooks/useZones";
+import { useSeries } from "@/hooks/useEvents";
 import { ZoneMark } from "@/components/ZoneMark";
 import { ZoneCreateSheet } from "@/components/ZoneCreateSheet";
 import { ZoneEditSheet } from "@/components/ZoneEditSheet";
@@ -40,6 +41,8 @@ export default function SettingsPage() {
   const { status: googleStatus } = useGoogleCalendar();
 
   const { data: me } = useMe();
+  // 반복이 몇 개 돌고 있는지. 공간 필터와 상관없이 전부 센다 — 이 화면은 무엇이 있는지 보는 자리다
+  const { data: series } = useSeries(null);
 
   /**
    * 딥링크를 눌러본 뒤, 앱이 열렸는지 지켜본다.
@@ -145,14 +148,19 @@ export default function SettingsPage() {
   return (
     <>
       <header className="sticky top-0 z-20 border-b border-line bg-card px-4 py-3">
-        <h1 className="mx-auto w-full max-w-2xl text-base font-semibold">설정</h1>
+        {/*
+          이름은 "내 정보" 다. 예전에는 "설정" 이었는데, 여기 모이는 것이 켜고 끄는 값만이
+          아니라 **내가 가진 것들**(공간·함께 보는 사람·반복·계정)이라 그렇게 부른다.
+          주소(/settings)는 그대로 둔다 — 알림과 저장해 둔 링크가 이 주소를 가리킨다.
+        */}
+        <h1 className="mx-auto w-full max-w-2xl text-base font-semibold">내 정보</h1>
       </header>
 
       {/*
         한 화면에 섹션으로 묶어 다 펼친다. 섹션마다 한 번 더 들어가게 했더니 알림 하나 켜는
         데도 두 번씩 눌러야 했다. 줄 하나로 끝나는 설정은 그 자리에서 바꾼다.
 
-        **함께 보기와 사용자 관리만 안쪽 화면이다.** 둘 다 사람 목록이라 펼치면 설정을 채우고,
+        **함께 보기·반복·사용자 관리만 안쪽 화면이다.** 모두 목록이라 펼치면 이 화면을 채우고,
         한 번 정하면 자주 열지 않는다.
 
         목록을 읽는 화면이라 PC 에서도 넓히지 않는다 — 한 줄이 길수록 읽기 나쁘다.
@@ -210,6 +218,26 @@ export default function SettingsPage() {
             <p className="shrink-0 text-sm">함께 보기</p>
             <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted">
               <span className="truncate">{sharingSummary}</span>
+              <span aria-hidden="true">›</span>
+            </span>
+          </Link>
+        </div>
+
+        {/*
+          반복. 가까운 날만 일정으로 있고 그 뒤는 조회할 때 펼쳐져서(서버 `EventSeries`), 목록·
+          달력으로는 무엇이 반복되고 있는지 한눈에 안 보인다. 그것을 모아 보는 자리다.
+
+          지난 일정·보류 화면의 탭이었는데, 그 화면은 "지나갔거나 치워둔 것" 을 찾는 자리라
+          앞으로 계속 올 것이 거기 있는 것이 어색했다. 반복은 내가 걸어 둔 것이라 여기에 둔다.
+        */}
+        <SectionTitle>일정</SectionTitle>
+        <div className={`${groupCls} mt-2`}>
+          <Link href={pageUrl.settingsRepeats} className={`${rowCls} w-full gap-3`}>
+            <p className="shrink-0 text-sm">반복 일정</p>
+            <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted">
+              <span className="truncate">
+                {series === undefined ? "" : series.length > 0 ? `${series.length}개` : "없음"}
+              </span>
               <span aria-hidden="true">›</span>
             </span>
           </Link>

@@ -63,7 +63,7 @@ function SharedZone({ zone }: { zone: Zone }) {
       <p className="px-1 pt-3 text-xs leading-relaxed text-muted">
         {zone.writable
           ? `${zone.owner_name}님이 허락해서 이 공간의 일정을 추가·수정할 수 있어요. 공간 이름·색은 ${zone.owner_name}님만 바꿔요.`
-          : `${zone.owner_name}님이 보여주는 공간이라 일정을 고칠 수 없어요.`} 그만 보려면 설정 › 함께
+          : `${zone.owner_name}님이 보여주는 공간이라 일정을 고칠 수 없어요.`} 그만 보려면 내 정보 › 함께
         보기의 &lsquo;나에게 보여주는 사람&rsquo;에서 {zone.owner_name}님을 빼세요.
       </p>
     </div>

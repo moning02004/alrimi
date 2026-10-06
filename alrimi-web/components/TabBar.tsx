@@ -5,14 +5,14 @@ import { usePathname } from "next/navigation";
 import type { IconType } from "react-icons";
 import {
   HiClock,
-  HiCog6Tooth,
   HiHome,
   HiOutlineClock,
-  HiOutlineCog6Tooth,
+  HiOutlineUser,
   HiOutlineHome,
   HiMagnifyingGlass,
   HiOutlineMagnifyingGlass,
   HiPlus,
+  HiUser,
 } from "react-icons/hi2";
 import { pageUrl } from "@/constants/routeUrl";
 import { useAddSheet } from "@/store/ui";
@@ -21,7 +21,7 @@ import { useAddSheet } from "@/store/ui";
  * 등록 버튼을 탭바 가운데에 둔다.
  * 플로팅 버튼은 목록 마지막 항목을 가려서 쓰지 않는다.
  *
- * **다섯 칸이다** — 홈·검색·＋·기록·설정. 검색과 지난 일정은 늘 같은 자리에 있어야 찾아갈 수
+ * **다섯 칸이다** — 홈·검색·＋·기록·내 정보. 검색과 지난 일정은 늘 같은 자리에 있어야 찾아갈 수
  * 있는데, 달력 머리글이나 필터 줄에 끼워 넣으면 그 화면의 조작처럼 읽혔다. 양옆을 둘씩 두면
  * 등록 버튼도 가운데에 그대로 선다.
  *
@@ -73,10 +73,10 @@ export function TabBar() {
       />
       <Tab
         href={pageUrl.settings}
-        label="설정"
+        label="내 정보"
         active={pathname.startsWith(pageUrl.settings)}
-        On={HiCog6Tooth}
-        Off={HiOutlineCog6Tooth}
+        On={HiUser}
+        Off={HiOutlineUser}
       />
     </div>
   );

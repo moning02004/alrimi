@@ -149,7 +149,7 @@ export interface EventPayload {
   repeat?: Repeat;
 }
 
-/** 끝나지 않은 반복 하나(`GET /series`). 지난 일정·보류 화면의 "반복" 탭이 그린다 */
+/** 끝나지 않은 반복 하나(`GET /series`). 내 정보의 "반복 일정" 화면이 그린다 */
 export interface SeriesItem extends Repeat {
   id: number;
   title: string;
