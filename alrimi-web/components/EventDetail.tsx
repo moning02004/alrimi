@@ -243,12 +243,35 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
           이 화면에 저장할 것이 있는 것처럼 읽혔다.
         */}
         <div className="mt-1.5 flex items-start gap-2">
-          <h1
-            className={`min-w-0 flex-1 text-xl font-semibold tracking-tight ${
-              done ? "text-muted" : ""
-            } ${canceled ? "text-muted line-through" : ""}`}
-          >
-            {event.title}
+          {/*
+            어느 공간의 일정인지를 **제목 앞에 둔다** — 내용 아래 딱지 줄에 있었는데, 무슨
+            일인지보다 누구네 일인지가 먼저 읽혀야 하고(목록 카드도 딱지가 제목 앞이다),
+            내용이 길면 그 아래로 밀려 안 보였다.
+
+            딱지와 제목을 한 줄에 **가운데로 맞춰** 세운다. 딱지를 글줄 안에 흘려 넣었더니
+            글자 기준선에 맞춰져 제목과 높이가 어긋났다. 폭이 모자라면 제목이 통째로 다음
+            줄로 내려간다 — 공간 이름이 길다고 제목 칸이 좁아지지 않는다.
+
+            취소선·흐림은 제목 글자에만 건다. 줄 전체에 걸면 딱지까지 그어진다.
+          */}
+          <h1 className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
+            <span
+              // 제목 한 줄(28px)보다 낮게 둔다. 더 높으면 줄이 그만큼 커져 오른쪽 별·동그라미가
+              // 제목 가운데에서 벗어난다
+              className="flex shrink-0 items-center gap-1.5 rounded-full border border-line
+                         py-0.5 pl-0.5 pr-2.5 text-xs font-normal text-muted"
+            >
+              <ZoneMark mark={zoneMark} color={zoneInfo?.color ?? event.zone_color} size="sm" round={zoneInfo?.received} />
+              {/* 받은 공간은 누구의 것인지까지 — 목록 제목의 [아빠_어린이집] 과 같은 이름이다 */}
+              {zoneInfo?.label ?? event.zone_name}
+            </span>
+            <span
+              className={`min-w-0 break-words text-xl font-semibold tracking-tight ${
+                done ? "text-muted" : ""
+              } ${canceled ? "text-muted line-through" : ""}`}
+            >
+              {event.title}
+            </span>
           </h1>
 
           {/*
@@ -316,8 +339,26 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
             </button>
           )}
         </div>
-        {event.content && <p className="mt-2 text-base text-muted">{event.content}</p>}
+        {/*
+          내용. **적은 줄바꿈 그대로 보여준다**(`whitespace-pre-wrap`) — 준비물을 줄마다 적어
+          두었는데 한 줄로 이어 붙으면 어디서 끊기는지 읽을 수 없다. 띄어쓰기 없는 긴 글(주소·
+          링크)은 칸을 넘지 않게 꺾는다.
 
+          칸으로 두른다. 제목 바로 아래에 흐린 글씨로만 있으면 제목의 꼬리처럼 읽혀서, 어디까지가
+          내용인지 배경으로 가른다. 한 줄짜리여도 칸이 납작해 보이지 않게 최소 높이를 둔다.
+          내용이 없으면 칸도 없다 — 빈 칸이 "적을 것이 있었나" 하고 묻게 된다.
+        */}
+        {event.content && (
+          <p
+            className="mt-3 min-h-20 whitespace-pre-wrap break-words rounded-xl border border-line
+                       bg-card px-4 py-3 text-base leading-relaxed"
+          >
+            {event.content}
+          </p>
+        )}
+
+        {/* 상태·반복 딱지. 하나도 없으면 줄도 없다 — 빈 줄이 여백만 남긴다 */}
+        {(held || done || canceled || event.repeat || readOnly) && (
         <div className="mt-3 flex flex-wrap gap-1.5">
           {held && (
             <span className="rounded-full bg-amberlt px-2.5 py-1 text-xs text-amber">보류 중</span>
@@ -359,11 +400,6 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
               )}
             </span>
           )}
-          <span className="flex items-center gap-1.5 rounded-full border border-line py-1 pl-1 pr-2.5 text-xs text-muted">
-            <ZoneMark mark={zoneMark} color={zoneInfo?.color ?? event.zone_color} size="sm" round={zoneInfo?.received} />
-            {/* 받은 공간은 누구의 것인지까지 — 목록 제목의 [아빠_어린이집] 과 같은 이름이다 */}
-            {zoneInfo?.label ?? event.zone_name}
-          </span>
           {/* 반복 규칙. 고치거나 지울 때 "이후 모두" 가 무엇을 가리키는지 여기서 읽는다 */}
           {event.repeat && (
             <span className="rounded-full border border-line px-2.5 py-1 text-xs text-muted">
@@ -377,6 +413,7 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
             </span>
           )}
         </div>
+        )}
 
         <p className="mb-2 mt-6 text-xs font-medium text-muted">
           {pending.length > 0 ? `알림 ${pending.length}개` : "알림"}
