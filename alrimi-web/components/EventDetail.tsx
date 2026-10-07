@@ -339,6 +339,14 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
           )}
         </div>
         {/*
+          받은 공간의 일정이면 누가 보여주는 것인지를 제목 아래 작게 적는다. 딱지와 공간 이름은
+          내 공간과 똑같이 그리므로(`useZoneMark`), 남의 일정이라는 것은 이 한 줄이 말한다.
+          목록에서는 안 보이고 들어와서야 보인다 — 궁금할 때만 읽으면 되는 정보다.
+        */}
+        {sharedZone && (
+          <p className="mt-1 text-xs text-muted">shared by {sharedZone.owner_name}</p>
+        )}
+        {/*
           내용. **적은 줄바꿈 그대로 보여준다**(`whitespace-pre-wrap`) — 준비물을 줄마다 적어
           두었는데 한 줄로 이어 붙으면 어디서 끊기는지 읽을 수 없다. 띄어쓰기 없는 긴 글(주소·
           링크)은 칸을 넘지 않게 꺾는다.
@@ -405,11 +413,9 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
               {repeatLabel(event.repeat)}
             </span>
           )}
-          {/* 남의 공간이다. 왜 고치는 자리가 없는지를 이것이 말한다 */}
+          {/* 왜 고치는 자리가 없는지를 이것이 말한다. 누구의 것인지는 제목 아래에 적혀 있다 */}
           {readOnly && (
-            <span className="rounded-full bg-paper px-2.5 py-1 text-xs text-muted">
-              {sharedZone ? `${sharedZone.owner_name}님이 공유 · 보기 전용` : "보기 전용"}
-            </span>
+            <span className="rounded-full bg-paper px-2.5 py-1 text-xs text-muted">보기 전용</span>
           )}
         </div>
         )}
