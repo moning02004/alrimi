@@ -12,25 +12,33 @@ export interface AddDraft {
 
 interface AddSheetState {
   open: boolean;
-  /** 달력에서 빈 날을 눌러 열면 그 날짜가 채워진 채 뜬다 */
+  /** 폼에 채워져 뜨는 날. 따로 주지 않으면 `focusDate` 가 들어간다 */
   initialDate: string | null;
   /** 제목·내용을 미리 채워 열 때. 날짜와 달리 대개 비어 있다 */
   draft: AddDraft | null;
+  /**
+   * 날짜 없이 열 때(탭바·옆 기둥의 ＋) 채울 날. 달력이 지금 보고 있는 자리를 여기에
+   * 적어 둔다(`app/(main)/home/page.tsx`). 달력이 없는 화면에서는 null 이라 오늘이 된다.
+   */
+  focusDate: string | null;
+  setFocusDate: (focusDate: string | null) => void;
   openAdd: (initialDate?: string, draft?: AddDraft) => void;
   closeAdd: () => void;
 }
 
-export const useAddSheet = create<AddSheetState>((set) => ({
+export const useAddSheet = create<AddSheetState>((set, get) => ({
   open: false,
   initialDate: null,
   draft: null,
+  focusDate: null,
+  setFocusDate: (focusDate) => set({ focusDate }),
   openAdd: (initialDate, draft) => {
     // 오프라인은 읽기 전용이다. 다 적고 저장에서 막히면 적은 것이 헛수고가 되므로 열기 전에 막는다.
     if (isOffline()) {
       toast("오프라인이라 지금은 등록할 수 없어요");
       return;
     }
-    set({ open: true, initialDate: initialDate ?? null, draft: draft ?? null });
+    set({ open: true, initialDate: initialDate ?? get().focusDate, draft: draft ?? null });
   },
   closeAdd: () => set({ open: false, initialDate: null, draft: null }),
 }));

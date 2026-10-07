@@ -22,9 +22,6 @@ interface Props {
   isLoading: boolean;
   isError?: boolean;
   onRetry?: () => void;
-  /** 지난 날에는 등록을 열지 않는다 — 알림 시각이 이미 지나 저장하자마자 다 나간다 */
-  canAdd: boolean;
-  onAdd: () => void;
   /** PC 2단에서 카드를 누르면 옆 칸에 펼친다. 없으면 상세 페이지로 이동한다 */
   onSelect?: (eventId: number) => void;
   /** PC 2단의 오른쪽 칸은 이 화면의 주인공이라 머리글을 크게 쓴다 */
@@ -44,8 +41,6 @@ export function DayPanel({
   isLoading,
   isError,
   onRetry,
-  canAdd,
-  onAdd,
   onSelect,
   size = "sm",
 }: Props) {
@@ -92,9 +87,9 @@ export function DayPanel({
         </div>
 
         {/*
-          오른쪽은 지금 할 수 있는 **다음 걸음**이다 — 고르는 중이면 지우기, 아니면
-          이 날에 하나 더 얹기. 고르는 중에 "+ 추가" 를 감추는 것은, 지울 것을 고르는
-          동안 새로 만드는 길까지 열어두면 손이 엉키기 때문이다.
+          오른쪽은 지금 할 수 있는 **다음 걸음**이다 — 고르는 중이면 지우기.
+          이 날에 하나 더 얹는 길은 여기 두지 않는다. 탭바·옆 기둥의 ＋ 가 고른 날을
+          채워 열어서(`store/ui.ts` focusDate), 등록으로 가는 문은 그것 하나다.
         */}
         <div className="flex shrink-0 items-center gap-2">
           {selecting && <DeleteSelected />}
@@ -113,22 +108,8 @@ export function DayPanel({
             ))}
           </div>
 
-          {canAdd && !selecting ? (
-            // 비어 있을 때만이 아니라 항상 둔다. 그 날에 하나 더 얹는 일이 흔한데
-            // 탭바의 + 로 열면 날짜가 비어 있어 다시 골라야 한다.
-            <button
-              onClick={onAdd}
-              className={`w-full rounded-xl border border-dashed border-line bg-card text-sm
-                          text-muted transition-colors hover:border-pine/50 hover:text-pine ${
-                            items.length === 0 ? "py-8" : "mt-1.5 py-3"
-                          }`}
-            >
-              {items.length === 0 ? "이 날은 비어 있어요 · 일정 추가" : "이 날에 일정 추가"}
-            </button>
-          ) : (
-            items.length === 0 && (
-              <p className="py-8 text-center text-sm text-muted">등록된 일정이 없어요</p>
-            )
+          {items.length === 0 && (
+            <p className="py-8 text-center text-sm text-muted">등록된 일정이 없어요</p>
           )}
         </>
       )}

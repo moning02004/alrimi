@@ -45,7 +45,7 @@ function Home() {
     const {scope} = useZones();
     const router = useRouter();
     const searchParams = useSearchParams();
-    const openAdd = useAddSheet((s) => s.openAdd);
+    const setFocusDate = useAddSheet((s) => s.setFocusDate);
     const stopSelecting = useSelection((s) => s.stop);
     const selecting = useSelection((s) => s.active);
     const isDesktop = useIsDesktop();
@@ -149,8 +149,27 @@ function Home() {
       안 하게 된다. 그때는 오늘 칸 대신 아래 안내 한 줄이 낫다.
     */
     const nothingInWindow = groups.every((group) => group.items.length === 0);
-    // 지난 날에는 등록을 열지 않는다. 알림 시각이 이미 지나 저장하자마자 다 나가버린다.
-    const canAddOnSelected = selectedDate >= todayISO;
+    /**
+     * 탭바·옆 기둥의 ＋ 가 채울 날.
+     *
+     * 월간에서는 고른 날이다 — 날을 눌러 놓고 ＋ 를 누르면 그 날에 적으려는 것인데,
+     * 오늘이 채워져 나와서 매번 날짜를 고쳐야 했다.
+     *
+     * 주간에는 고른 날이 없다(스트립은 목록의 미리보기다). 이번 주면 오늘이고, › 로
+     * 넘겨 보는 중이면 그 주의 첫날이다. 일부러 넘긴 것이라 그 주에 적을 일인데,
+     * 오늘에서 시작하면 날짜 고르는 달력을 몇 주씩 넘겨야 한다.
+     *
+     * 어느 쪽이든 오늘보다 앞이면 오늘이다. 지난 날에는 등록을 열지 않는다 — 알림
+     * 시각이 이미 지나 저장하자마자 다 나가버린다.
+     */
+    const viewing = monthMode ? selectedDate : from;
+    const addDate = viewing > todayISO ? viewing : todayISO;
+
+    useEffect(() => {
+        setFocusDate(addDate);
+        // 이 화면을 떠나면 달력도 없다. 남겨 두면 다른 화면의 ＋ 가 보이지 않는 날을 채운다.
+        return () => setFocusDate(null);
+    }, [addDate, setFocusDate]);
 
     const moveTo = (next: Date) => {
         setAnchor(startOfDay(next));
@@ -311,8 +330,6 @@ function Home() {
                                 isLoading={day.isLoading}
                                 isError={day.isError}
                                 onRetry={() => day.refetch()}
-                                canAdd={canAddOnSelected}
-                                onAdd={() => openAdd(selectedDate)}
                                 onSelect={setOpenEventId}
                                 size="lg"
                             />
@@ -360,8 +377,6 @@ function Home() {
                         isLoading={day.isLoading}
                         isError={day.isError}
                         onRetry={() => day.refetch()}
-                        canAdd={canAddOnSelected}
-                        onAdd={() => openAdd(selectedDate)}
                     />
                 ) : (
                     <>
