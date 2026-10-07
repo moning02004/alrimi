@@ -99,3 +99,17 @@ export function sharersOf(zones: Zone[]): Sharer[] {
 export function listLabel(zone: Pick<Zone, "role" | "name" | "owner_name">): string {
   return zone.role === "member" ? `${zone.owner_name}_${zone.name}` : zone.name;
 }
+
+/**
+ * 이 공간에 있는 일정을 옮겨 갈 수 있는 공간들.
+ *
+ * 내 공간의 일정은 넣을 수 있는 공간 어디로든 간다 — 받은 공간으로 보내는 것도 된다.
+ * 받은 공간의 일정은 **그 주인의** 공간 안에서만 옮긴다. 함께 고치는 공간이라도 일정을
+ * 빼가면 주인의 목록과 알림에서 사라진다(서버도 같은 선에서 막는다).
+ *
+ * `from` 이 없으면(공간 목록이 아직 안 왔으면) 거르지 않는다.
+ */
+export function movableZones(writable: Zone[], from: Zone | undefined): Zone[] {
+  if (!from || from.role === "owner") return writable;
+  return writable.filter((zone) => zone.owner_id === from.owner_id);
+}

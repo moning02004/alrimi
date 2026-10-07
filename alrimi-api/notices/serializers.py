@@ -241,11 +241,21 @@ class EventWriteSerializer(serializers.ModelSerializer):
 
     def validate_zone(self, zone):
         """
-        다른 사람의 공간으로는 옮기지 못한다. 함께 고치는 공간이라도 일정을 내 공간으로 빼가면
-        주인의 목록과 알림에서 사라진다 — 고칠 수 있다는 것이 가져갈 수 있다는 뜻은 아니다.
+        다른 사람의 공간에 있는 일정은 그 사람의 공간 밖으로 빼가지 못한다. 함께 고치는
+        공간이라도 일정을 내 공간으로 빼가면 주인의 목록과 알림에서 사라진다 — 고칠 수 있다는
+        것이 가져갈 수 있다는 뜻은 아니다.
+
+        **내 공간의 일정을 받은 공간으로 보내는 것은 된다.** 거기에 새로 적을 수 있는 사람이
+        이미 적어둔 것을 옮기지 못할 까닭이 없다 — 막으면 지우고 다시 적게 될 뿐이다. 넣을 수
+        있는 공간인지는 위에서 좁힌 queryset 이 본다.
         """
-        if self.instance is not None and zone.owner_id != self.instance.zone.owner_id:
-            raise serializers.ValidationError("다른 사람의 공간으로는 옮길 수 없어요.")
+        if self.instance is None:
+            return zone
+        owner_id = self.instance.zone.owner_id
+        request = self.context.get("request")
+        mine = request is not None and owner_id == request.user.id
+        if zone.owner_id != owner_id and not mine:
+            raise serializers.ValidationError("받은 공간의 일정은 그 사람의 공간 안에서만 옮길 수 있어요.")
         return zone
 
     def validate_title(self, value):

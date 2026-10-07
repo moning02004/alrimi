@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { listLabel, sharersOf, zoneMarks } from "../zone";
+import { listLabel, movableZones, sharersOf, zoneMarks } from "../zone";
 import type { Zone } from "@/types";
 
 const zone = (id: number, name: string, over: Partial<Zone> = {}): Zone => ({
@@ -65,5 +65,25 @@ describe("zoneMarks — 머리글자 딱지", () => {
 
   it("이름이 완전히 같으면 번호를 붙인다", () => {
     expect(marks("어린이집", "어린이집")).toEqual(["어", "어2"]);
+  });
+});
+
+describe("movableZones — 일정을 옮겨 갈 수 있는 공간", () => {
+  const home = zone(1, "우리집");
+  const work = zone(2, "회사");
+  const kids = zone(3, "어린이집", { role: "member", owner_id: 11, owner_name: "아빠" });
+  const farm = zone(4, "텃밭", { role: "member", owner_id: 12, owner_name: "할머니" });
+  const writable = [home, work, kids, farm];
+
+  it("내 공간의 일정은 받은 공간으로도 보낼 수 있다", () => {
+    expect(movableZones(writable, home)).toEqual(writable);
+  });
+
+  it("받은 공간의 일정은 그 주인의 공간 안에서만 옮긴다", () => {
+    expect(movableZones(writable, kids)).toEqual([kids]);
+  });
+
+  it("공간 목록이 아직 안 왔으면 거르지 않는다", () => {
+    expect(movableZones(writable, undefined)).toEqual(writable);
   });
 });

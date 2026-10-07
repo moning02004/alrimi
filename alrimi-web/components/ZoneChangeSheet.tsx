@@ -6,6 +6,7 @@ import { ZoneMark } from "./ZoneMark";
 import { firstError } from "@/lib/api";
 import { useUpdateEvent } from "@/hooks/useEvents";
 import { useZoneMark, useZones } from "@/hooks/useZones";
+import { movableZones } from "@/lib/zone";
 import { useZoneSheet } from "@/store/ui";
 
 /**
@@ -35,13 +36,9 @@ export function ZoneChangeSheet() {
 }
 
 function ZonePicker({ event, onDone }: { event: EventForPicker; onDone: () => void }) {
-  /*
-    옮겨 갈 수 있는 것은 **같은 주인의** 고칠 수 있는 공간뿐이다. 함께 고치는 공간이라도
-    일정을 다른 사람의 공간으로 빼가면 주인의 목록과 알림에서 사라진다(서버도 막는다).
-  */
+  // 어디로 옮길 수 있는지는 `movableZones` 가 정한다 — 수정 폼도 같은 것을 쓴다
   const { writableZones, zones: allZones } = useZones();
-  const ownerId = allZones.find((zone) => zone.id === event.zone_id)?.owner_id;
-  const zones = writableZones.filter((zone) => zone.owner_id === ownerId);
+  const zones = movableZones(writableZones, allZones.find((zone) => zone.id === event.zone_id));
   const markOf = useZoneMark();
   const update = useUpdateEvent(event.id);
 

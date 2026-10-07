@@ -427,6 +427,34 @@ class SharingTests(TestCase):
         )
         self.assertEqual(res.status_code, 400)
 
+    def test_허락받은_공간으로_내_일정을_보낼_수_있다(self):
+        """내 공간에 적어둔 일정을 받은 공간으로 옮긴다. 거기에 새로 적을 수 있는 사람이다."""
+        self.share()
+        self.allow_edit()
+        own = Zone.objects.create(owner=self.viewer, name="아빠 회사")
+        mine = Event.objects.create(
+            zone=own, event_date=self.today + dt.timedelta(days=1), title="소풍"
+        )
+        res = self.client.patch(
+            reverse("event-detail", args=[mine.id]), {"zone": self.zone.id},
+            content_type="application/json", headers=self.login("dad"),
+        )
+        self.assertEqual(res.status_code, 200)
+        mine.refresh_from_db()
+        self.assertEqual(mine.zone_id, self.zone.id)
+
+    def test_허락받지_않은_공간으로는_내_일정도_못_보낸다(self):
+        self.share()
+        own = Zone.objects.create(owner=self.viewer, name="아빠 회사")
+        mine = Event.objects.create(
+            zone=own, event_date=self.today + dt.timedelta(days=1), title="소풍"
+        )
+        res = self.client.patch(
+            reverse("event-detail", args=[mine.id]), {"zone": self.zone.id},
+            content_type="application/json", headers=self.login("dad"),
+        )
+        self.assertEqual(res.status_code, 400)
+
     def test_함께_보기를_끄면_허락도_소용없다(self):
         self.share()
         Zone.objects.filter(pk=self.zone.pk).update(viewers_can_edit=True, shared=False)

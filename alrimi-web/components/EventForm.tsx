@@ -34,6 +34,7 @@ import {
     serverWeekday,
 } from "@/lib/repeat";
 import {toLunar} from "@/lib/lunar";
+import {movableZones} from "@/lib/zone";
 import {useCreateEvent, useStarredEvents, useUpdateEvent} from "@/hooks/useEvents";
 import {useZoneMark, useZones} from "@/hooks/useZones";
 import {ZoneMark} from "./ZoneMark";
@@ -244,7 +245,11 @@ interface Props {
 export function EventForm({event, initialDate, initialTitle, initialContent, resume = false, onDone}: Props) {
     const editing = Boolean(event);
     // 일정을 넣을 수 있는 공간만 — 내 공간과, 주인이 일정 추가·수정을 허락한 받은 공간
-    const {writableZones: zones, defaultZone, isLoading: zonesLoading} = useZones();
+    const {writableZones, zones: allZones, defaultZone, isLoading: zonesLoading} = useZones();
+    // 고칠 때는 옮겨 갈 수 있는 공간만 낸다. 받은 공간의 일정은 그 주인의 공간 밖으로 못 나간다
+    const zones = event
+        ? movableZones(writableZones, allZones.find((zone) => zone.id === event.zone_id))
+        : writableZones;
     const markOf = useZoneMark();
 
     // 공간 목록이 아직 안 왔으면 기본 공간도 정할 수 없다. 직접 고르기 전까지는
