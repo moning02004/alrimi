@@ -38,6 +38,7 @@ import {movableZones} from "@/lib/zone";
 import {useCreateEvent, useStarredEvents, useUpdateEvent} from "@/hooks/useEvents";
 import {useZoneMark, useZones} from "@/hooks/useZones";
 import {ZoneMark} from "./ZoneMark";
+import {ZoneShareIcon} from "./ZoneShareIcon";
 import {Picker} from "./Picker";
 import type {AlertSide} from "@/lib/alerts";
 import type {EditScope, EventDetail, Repeat, RepeatFreq, StarredEvent} from "@/types";
@@ -688,7 +689,6 @@ export function EventForm({event, initialDate, initialTitle, initialContent, res
                                     const info = markOf(zone.id);
                                     return {
                                         value: zone.id,
-                                        // 받은 공간은 누구의 것인지까지 — 목록 카드와 같은 이름이다
                                         label: info?.label ?? zone.name,
                                         /*
                                           딱지를 칸 **안**에 둔다. 목록 카드가 쓰는 것과 같은 딱지라,
@@ -698,8 +698,13 @@ export function EventForm({event, initialDate, initialTitle, initialContent, res
                                             <ZoneMark
                                                 mark={info?.mark ?? ""}
                                                 color={info?.color ?? zone.color}
-                                                round={info?.received}
                                                 size="sm"
+                                            />
+                                        ),
+                                        trailing: (
+                                            <ZoneShareIcon
+                                                received={zone.role === "member"}
+                                                shared={zone.shared}
                                             />
                                         ),
                                     };
@@ -1057,7 +1062,6 @@ export function EventForm({event, initialDate, initialTitle, initialContent, res
                                                         <ZoneMark
                                                             mark={info?.mark ?? ""}
                                                             color={info?.color ?? "var(--color-line)"}
-                                                            round={info?.received}
                                                             size="sm"
                                                         />
                                                     </span>

@@ -5,11 +5,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { apiUrl } from "@/constants/routeUrl";
 import { useZoneStore } from "@/store/zone";
-import { listLabel, sharersOf, zoneMarks, type Sharer } from "@/lib/zone";
+import { zoneMarks } from "@/lib/zone";
 import type { UserSummary, Zone, ZoneScope } from "@/types";
 
 export function useZones() {
-  const { hiddenZoneIds, toggleZone, toggleZones, showAll, hideAll } = useZoneStore();
+  const { hiddenZoneIds, toggleZone, showAll, hideAll } = useZoneStore();
 
   const query = useQuery({
     queryKey: ["zones"],
@@ -18,7 +18,6 @@ export function useZones() {
 
   // query.data가 없을 때 매 렌더 새 배열을 만들면 아래 useMemo 들이 계속 돈다
   const zones = useMemo(() => query.data ?? [], [query.data]);
-  const sharers = useMemo(() => sharersOf(zones), [zones]);
 
   /*
     지금 켜둔 공간들. 끈 것만 저장하므로(`store/zone.ts`) 새로 만든 공간은 저절로 켜져 있다.
@@ -55,7 +54,6 @@ export function useZones() {
   return {
     ...query,
     zones,
-    sharers,
     writableZones,
     /** 서버에 보낼 필터. `null` 이면 전부다 */
     scope,
@@ -63,57 +61,45 @@ export function useZones() {
     selectedIds,
     allOn,
     toggleZone,
-    toggleZones,
     showAll,
     hideAll,
     defaultZone,
   };
 }
 
-/** 사람 딱지의 색. 공간 색과 겹치지 않는 중립색이고, 모양(동그라미)으로도 공간과 갈린다 */
-export const SHARER_COLOR = "#6B7B87";
-
 /**
  * 공간 id 로 표시(머리글자·색·이름)를 찾는다.
  *
- * **받은 공간의 일정은 공간이 아니라 사람 딱지다** — 칩이 사람마다 하나라, 카드도 같은 딱지를
- * 써야 칩이 범례가 된다. 어느 공간인지는 카드가 제목 앞에 `[공간 이름]` 으로 적는다.
+ * **받은 공간도 내 공간과 똑같이 그린다** — 같은 네모 딱지에 그 공간의 색과 이름이다.
+ * 누구의 것인지는 화면마다 적지 않는다. 달력을 볼 때 궁금한 것은 "무슨 일인가" 이고,
+ * 누가 보여주는 공간인지는 내 정보에서 확인한다.
  *
  * 머리글자는 목록 전체를 봐야 정해진다(겹치면 두 글자로 늘린다). 카드마다 따로 계산하면
- * 같은 공간이 다른 글자로 보일 수 있으므로 한곳에서 만든다. 공간 딱지와 사람 딱지는
- * 모양이 달라 따로 센다.
+ * 같은 공간이 다른 글자로 보일 수 있으므로 한곳에서 만든다. 받은 공간도 같이 센다 —
+ * 내 "어린이집" 과 받은 "어린이집" 이 같은 글자로 나오면 안 된다.
  */
 export function useZoneMark() {
-  const { zones, sharers } = useZones();
+  const { zones } = useZones();
 
   return useMemo(() => {
-    const zoneMarkById = zoneMarks(zones.filter((zone) => zone.role === "owner"));
-    const sharerMarks = sharerMarksOf(sharers);
+    const marks = zoneMarks(zones);
     const byId = new Map(zones.map((zone) => [zone.id, zone]));
 
     return (zoneId: number) => {
       const zone = byId.get(zoneId);
       // 목록보다 카드가 먼저 그려질 수 있다. 그때는 색만으로 버틴다.
       if (!zone) return null;
-      const received = zone.role === "member";
       return {
-        /** 받은 공간이면 사람 딱지다 */
-        received,
-        mark: received ? (sharerMarks.get(zone.owner_id) ?? "") : (zoneMarkById.get(zone.id) ?? ""),
-        color: received ? SHARER_COLOR : zone.color,
-        /** 공간 이름 — 받은 공간 카드가 제목 앞에 적는다 */
-        zoneName: zone.name,
-        /** 누구의 어느 공간인지. 낭독 이름·상세 표시 */
-        label: listLabel(zone),
-        shared: received || zone.shared,
+        /** 남이 보여주는 공간인가. 그리는 데는 안 쓰고, 할 수 있는 일을 가를 때만 본다 */
+        received: zone.role === "member",
+        mark: marks.get(zone.id) ?? "",
+        color: zone.color,
+        /** 공간 이름. 낭독 이름·상세 표시 */
+        label: zone.name,
+        shared: zone.role === "member" || zone.shared,
       };
     };
-  }, [zones, sharers]);
-}
-
-/** 사람 딱지 머리글자. 공간 딱지와 같은 규칙(겹치면 갈라지는 글자)을 사람 이름에 쓴다 */
-export function sharerMarksOf(sharers: Sharer[]): Map<number, string> {
-  return zoneMarks(sharers.map((sharer) => ({ id: sharer.id, name: sharer.name }) as Zone));
+  }, [zones]);
 }
 
 /** 고를 수 있는 색. 서버가 정하고 웹은 견본만 그린다 */

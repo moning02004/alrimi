@@ -3,6 +3,7 @@
 import toast from "react-hot-toast";
 import { BottomSheet } from "./BottomSheet";
 import { ZoneMark } from "./ZoneMark";
+import { ZoneShareIcon } from "./ZoneShareIcon";
 import { firstError } from "@/lib/api";
 import { useUpdateEvent } from "@/hooks/useEvents";
 import { useZoneMark, useZones } from "@/hooks/useZones";
@@ -80,6 +81,7 @@ function ZonePicker({ event, onDone }: { event: EventForPicker; onDone: () => vo
               <span className="flex min-w-0 items-center gap-2.5">
                 <ZoneMark mark={mark?.mark ?? ""} color={zone.color} />
                 <span className="truncate text-sm">{zone.name}</span>
+                <ZoneShareIcon received={zone.role === "member"} shared={zone.shared} />
               </span>
               {/* 지금 공간에도 표시를 둔다 — 무엇을 바꾸는지 보이지 않으면 고를 수가 없다 */}
               {on && <span className="shrink-0 text-xs text-pine">지금 공간</span>}

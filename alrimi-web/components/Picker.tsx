@@ -22,6 +22,8 @@ export interface PickerOption<T> {
   label: string;
   /** 이름 앞에 서는 표시(공간 딱지 등). 고른 것은 칸 안에도 함께 선다 */
   leading?: React.ReactNode;
+  /** 이름 뒤에 서는 작은 표시(받은 공간 등). 고른 것은 칸 안에도 함께 선다 */
+  trailing?: React.ReactNode;
 }
 
 interface Props<T> {
@@ -113,6 +115,7 @@ export function Picker<T extends string | number | null>({
         <span className="flex min-w-0 items-center gap-1.5">
           {picked?.leading}
           <span className="truncate">{picked ? picked.label : placeholder}</span>
+          {picked?.trailing}
         </span>
         <HiChevronDown
           className={`h-4 w-4 shrink-0 opacity-60 transition-transform ${open ? "rotate-180" : ""}`}
@@ -159,6 +162,7 @@ export function Picker<T extends string | number | null>({
                   <span className="flex min-w-0 items-center gap-1.5">
                     {option.leading}
                     <span className="truncate">{option.label}</span>
+                    {option.trailing}
                   </span>
                   {on && <HiCheck className="h-4 w-4 shrink-0" aria-hidden="true" />}
                 </button>

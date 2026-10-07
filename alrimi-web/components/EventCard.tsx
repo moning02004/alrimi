@@ -91,13 +91,9 @@ export function EventCard({
   const dayMark = span < 2 ? null : nth ? `${nth}/${span}` : `${span}일간`;
   const zoneColor = zone?.color ?? event.zone_color;
 
-  /*
-    누구의 무슨 공간인지는 딱지가 말하고, 필터 목록(`ZoneFilter`)이 범례다. 내 일정은 공간
-    딱지(네모), 받은 일정은 사람 딱지(동그라미) — 필터가 받은 공간을 사람마다 하나로 묶기 때문이다. 받은 일정은 대신
-    제목 앞에 `[공간 이름]` 을 적는다(아래 `body`).
-  */
+  // 무슨 공간인지는 딱지가 말하고, 필터 목록(`ZoneFilter`)이 범례다. 받은 공간도 같은 딱지다
   const mark = zone ? (
-    <ZoneMark mark={zone.mark} color={zone.color} name={zone.label} round={zone.received} />
+    <ZoneMark mark={zone.mark} color={zone.color} name={zone.label} />
   ) : (
     // 공간 목록이 아직 안 왔을 때. 자리를 비워두면 제목 줄이 흔들린다.
     <span className="h-6 w-6 shrink-0 rounded-lg" style={{ background: zoneColor }} />
@@ -115,12 +111,7 @@ export function EventCard({
           {hourLabel(event.event_hour)}
         </span>
       )}
-      {/*
-        받은 공간의 일정은 딱지가 사람이라, 그 사람의 어느 공간인지를 제목 앞에 적는다.
-        내 공간은 딱지가 곧 공간이라 적지 않는다.
-      */}
       <span className={`truncate font-medium ${canceled ? "line-through" : ""}`}>
-        {zone?.received && <span className="font-normal text-muted">[{zone.zoneName}] </span>}
         {event.title}
       </span>
     </>
@@ -217,7 +208,7 @@ export function EventCard({
         흔한데, 고치러 상세 → 수정까지 가지 않게. 링크 안에 버튼을 넣을 수는 없어 나란히 둔다.
       */}
       {/*
-        받은 공간의 딱지는 사람이라 누를 자리가 아니다 — 여기서 공간을 바꾸는 것은 내 일정만이다
+        받은 공간의 딱지는 누를 자리가 아니다 — 여기서 공간을 바꾸는 것은 내 일정만이다
         (받은 공간의 일정은 그 주인의 공간 밖으로 못 나간다. 안에서 옮기려면 수정으로 간다).
       */}
       {editable && !zone?.received ? (

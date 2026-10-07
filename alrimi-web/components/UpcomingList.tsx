@@ -82,10 +82,8 @@ export function UpcomingList({
                     color={zone?.color ?? event.zone_color}
                     name={zone?.label}
                     size="sm"
-                    round={zone?.received}
                   />
                   <span className="min-w-0 flex-1 truncate text-sm">
-                    {zone?.received && <span className="text-muted">[{zone.zoneName}] </span>}
                     {event.title}
                   </span>
                   <span className="shrink-0 text-[11px] tabular-nums text-muted">

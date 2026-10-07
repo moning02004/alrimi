@@ -9,8 +9,6 @@ interface ZoneState {
    */
   hiddenZoneIds: number[];
   toggleZone: (zoneId: number, on: boolean) => void;
-  /** 여러 개를 한꺼번에 (사람 줄 하나가 그 사람의 공간 전부를 켜고 끈다) */
-  toggleZones: (zoneIds: number[], on: boolean) => void;
   showAll: () => void;
   hideAll: (zoneIds: number[]) => void;
 }
@@ -24,12 +22,6 @@ export const useZoneStore = create<ZoneState>()(
           hiddenZoneIds: on
             ? s.hiddenZoneIds.filter((id) => id !== zoneId)
             : [...s.hiddenZoneIds, zoneId],
-        })),
-      toggleZones: (zoneIds, on) =>
-        set((s) => ({
-          hiddenZoneIds: on
-            ? s.hiddenZoneIds.filter((id) => !zoneIds.includes(id))
-            : [...s.hiddenZoneIds.filter((id) => !zoneIds.includes(id)), ...zoneIds],
         })),
       showAll: () => set({ hiddenZoneIds: [] }),
       hideAll: (zoneIds) => set({ hiddenZoneIds: [...zoneIds] }),

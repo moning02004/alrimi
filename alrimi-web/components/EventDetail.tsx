@@ -261,8 +261,7 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
               className="flex shrink-0 items-center gap-1.5 rounded-full border border-line
                          py-0.5 pl-0.5 pr-2.5 text-xs font-normal text-muted"
             >
-              <ZoneMark mark={zoneMark} color={zoneInfo?.color ?? event.zone_color} size="sm" round={zoneInfo?.received} />
-              {/* 받은 공간은 누구의 것인지까지 — 목록 제목의 [아빠_어린이집] 과 같은 이름이다 */}
+              <ZoneMark mark={zoneMark} color={zoneInfo?.color ?? event.zone_color} size="sm" />
               {zoneInfo?.label ?? event.zone_name}
             </span>
             <span

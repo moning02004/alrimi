@@ -65,7 +65,7 @@ function SeriesCard({ series }: { series: SeriesItem }) {
                  transition-colors hover:border-muted/40"
     >
       {zone ? (
-        <ZoneMark mark={zone.mark} color={zone.color} name={zone.label} round={zone.received} />
+        <ZoneMark mark={zone.mark} color={zone.color} name={zone.label} />
       ) : (
         // 공간 목록이 아직 안 왔을 때. 자리를 비워두면 제목 줄이 흔들린다.
         <span className="h-6 w-6 shrink-0 rounded-lg" style={{ background: series.zone_color }} />
@@ -73,7 +73,6 @@ function SeriesCard({ series }: { series: SeriesItem }) {
 
       <div className="min-w-0 flex-1">
         <p className="truncate font-medium">
-          {zone?.received && <span className="font-normal text-muted">[{zone.zoneName}] </span>}
           {series.title}
         </p>
         <p className="mt-0.5 truncate text-xs text-muted">{repeatLabel(series)}</p>

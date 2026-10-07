@@ -16,18 +16,19 @@ import {
   useRole,
 } from "@floating-ui/react";
 import { HiChevronDown } from "react-icons/hi2";
-import { LuCheck, LuPlus, LuUsers } from "react-icons/lu";
+import { LuCheck, LuPlus } from "react-icons/lu";
 import { ZoneCreateSheet } from "./ZoneCreateSheet";
 import { ZoneMark } from "./ZoneMark";
-import { SHARER_COLOR, sharerMarksOf, useZoneMark, useZones } from "@/hooks/useZones";
+import { ZoneShareIcon } from "./ZoneShareIcon";
+import { useZoneMark, useZones } from "@/hooks/useZones";
 
 interface Row {
   key: string;
   label: string;
-  /** 이 줄이 켜고 끄는 공간들. 사람 줄은 그 사람이 보여주는 공간 전부다 */
-  zoneIds: number[];
-  mark?: { text: string; color: string; round?: boolean };
-  shared?: boolean;
+  zoneId: number;
+  mark: { text: string; color: string };
+  shared: boolean;
+  received: boolean;
 }
 
 /**
@@ -38,13 +39,14 @@ interface Row {
  * 한 번씩 다시 골라야 했다. 끈 것만 기억하므로 나중에 만든 공간은 저절로 켜져 있다.
  *
  * **열면 범례다.** 줄마다 딱지와 이름이 나란히 있어, 카드의 `우` 가 무슨 공간인지 여기서
- * 배운다. 내 공간은 하나씩, 받은 공간은 사람마다 한 줄(동그라미 딱지)이다.
+ * 배운다. 받은 공간도 내 공간과 같은 줄이다. 함께 보는 공간에는 오른쪽 끝에 작은 표시가
+ * 서는데(`ZoneShareIcon`), 주는 쪽이든 받는 쪽이든 같다 — 누구 것인지는 내 정보에서 본다.
  *
  * 공간이 하나도 없으면 "전체" 대신 **공간을 추가해 달라고** 적는다. 빈 앱에서 "전체" 는
  * 일정이 들어갈 자리가 있다는 뜻으로 읽혀서, 등록부터 눌렀다가 막힌다.
  */
 export function ZoneFilter({ trailing }: { trailing?: React.ReactNode }) {
-  const { zones, sharers, hidden, allOn, toggleZones, showAll, hideAll } = useZones();
+  const { zones, hidden, allOn, toggleZone, showAll, hideAll } = useZones();
   const markOf = useZoneMark();
   const [adding, setAdding] = useState(false);
   const [open, setOpen] = useState(false);
@@ -88,45 +90,35 @@ export function ZoneFilter({ trailing }: { trailing?: React.ReactNode }) {
     }),
   ]);
 
-  const sharerMarks = sharerMarksOf(sharers);
-  const owned = zones.filter((zone) => zone.role === "owner");
+  const rows: Row[] = zones.map((zone) => {
+    const info = markOf(zone.id);
+    return {
+      key: `zone-${zone.id}`,
+      label: zone.name,
+      zoneId: zone.id,
+      mark: { text: info?.mark ?? "", color: zone.color },
+      shared: zone.shared,
+      received: zone.role === "member",
+    };
+  });
 
-  const ownedRows: Row[] = owned.map((zone) => ({
-    key: `zone-${zone.id}`,
-    label: zone.name,
-    zoneIds: [zone.id],
-    mark: { text: markOf(zone.id)?.mark ?? "", color: zone.color },
-    shared: zone.shared,
-  }));
-  const sharerRows: Row[] = sharers.map((sharer) => ({
-    key: `owner-${sharer.id}`,
-    label: sharer.name,
-    zoneIds: zones.filter((zone) => zone.owner_id === sharer.id).map((zone) => zone.id),
-    mark: { text: sharerMarks.get(sharer.id) ?? "", color: SHARER_COLOR, round: true },
-  }));
-  const rows = [...ownedRows, ...sharerRows];
-
-  /** 줄 하나의 상태. 그 줄이 맡은 공간이 전부 켜졌나 · 일부만인가 */
-  const stateOf = (row: Row) => {
-    const on = row.zoneIds.filter((id) => !hidden.includes(id)).length;
-    return { on: on > 0, partial: on > 0 && on < row.zoneIds.length };
-  };
+  const isOn = (row: Row) => !hidden.includes(row.zoneId);
 
   const label = (() => {
     if (empty) return "공간을 추가해주세요";
     if (allOn) return "전체";
-    const visible = rows.filter((row) => stateOf(row).on);
+    const visible = rows.filter(isOn);
     if (visible.length === 0) return "아무것도 안 봄";
     if (visible.length === 1) return visible[0].label;
     return `${visible.length}곳 보는 중`;
   })();
 
-  // 키보드로 옮겨 다니는 순서 그대로의 한 줄. 맨 위 "전체" 다음에 공간·사람 줄이 온다
+  // 키보드로 옮겨 다니는 순서 그대로의 한 줄. 맨 위 "전체" 다음에 공간 줄이 온다
   const items = [null, ...rows];
 
   const renderRow = (row: Row | null, index: number) => {
     const all = row === null;
-    const { on, partial } = all ? { on: allOn, partial: false } : stateOf(row);
+    const on = all ? allOn : isOn(row);
 
     return (
       <button
@@ -148,8 +140,7 @@ export function ZoneFilter({ trailing }: { trailing?: React.ReactNode }) {
               else showAll();
               return;
             }
-            // 일부만 켜진 사람 줄은 누르면 전부 켜진다(끄려면 한 번 더)
-            toggleZones(row.zoneIds, !on || partial);
+            toggleZone(row.zoneId, !on);
           },
         })}
       >
@@ -163,26 +154,15 @@ export function ZoneFilter({ trailing }: { trailing?: React.ReactNode }) {
             on ? "border-pine bg-pine text-white" : "border-line bg-card"
           }`}
         >
-          {on && !partial && <LuCheck className="h-3 w-3" />}
-          {partial && <span className="h-0.5 w-2 rounded-full bg-white" />}
+          {on && <LuCheck className="h-3 w-3" />}
         </span>
 
-        {!all && row.mark && (
-          <ZoneMark mark={row.mark.text} color={row.mark.color} size="sm" round={row.mark.round} />
-        )}
+        {!all && <ZoneMark mark={row.mark.text} color={row.mark.color} size="sm" />}
         <span className="min-w-0 flex-1 truncate">{all ? "전체" : row.label}</span>
-        {!all && row.shared && (
-          <LuUsers className="h-3.5 w-3.5 shrink-0 text-muted" aria-label="함께 보는 공간" role="img" />
-        )}
+        {!all && <ZoneShareIcon received={row.received} shared={row.shared} />}
       </button>
     );
   };
-
-  const groupTitle = (text: string) => (
-    <p className="px-3 pb-1 pt-2.5 text-[11px] font-medium text-muted" role="presentation">
-      {text}
-    </p>
-  );
 
   return (
     <>
@@ -246,21 +226,7 @@ export function ZoneFilter({ trailing }: { trailing?: React.ReactNode }) {
                        shadow-lg shadow-ink/10 outline-none"
             {...getFloatingProps()}
           >
-            {renderRow(null, 0)}
-
-            {ownedRows.length > 0 && (
-              <>
-                {groupTitle("내 공간")}
-                {ownedRows.map((row) => renderRow(row, items.indexOf(row)))}
-              </>
-            )}
-
-            {sharerRows.length > 0 && (
-              <>
-                {groupTitle("함께 보는 사람")}
-                {sharerRows.map((row) => renderRow(row, items.indexOf(row)))}
-              </>
-            )}
+            {items.map(renderRow)}
           </div>
         </FloatingFocusManager>
       )}

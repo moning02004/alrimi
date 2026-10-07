@@ -82,7 +82,7 @@ function HeldCard({ event }: { event: EventListItem }) {
       >
 
         {zone ? (
-          <ZoneMark mark={zone.mark} color={zone.color} name={zone.label} round={zone.received} />
+          <ZoneMark mark={zone.mark} color={zone.color} name={zone.label} />
         ) : (
           // 공간 목록이 아직 안 왔을 때. 자리를 비워두면 제목 줄이 흔들린다.
           <span className="h-6 w-6 shrink-0 rounded-lg" style={{ background: event.zone_color }} />
@@ -91,7 +91,6 @@ function HeldCard({ event }: { event: EventListItem }) {
         {/* 수정·삭제는 상세에 있다. 제목이 그리로 가는 문이다 */}
         <Link href={pageUrl.event(event.id)} className="min-w-0 flex-1">
           <p className="truncate font-medium">
-            {zone?.received && <span className="font-normal text-muted">[{zone.zoneName}] </span>}
             {event.title}
           </p>
           <p className="mt-0.5 truncate text-xs text-muted">{when}</p>

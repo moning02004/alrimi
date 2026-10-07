@@ -2,7 +2,7 @@ import type { Zone } from "@/types";
 
 /**
  * 이름의 글자들. 이모지가 앞에 오면 surrogate pair 라 slice 로 자르면 깨진다.
- * 딱지에 쓸 글자라 문장부호·공백은 뺀다 — "아빠_어린이집" 에서 "_" 가 딱지에 오면 안 된다.
+ * 딱지에 쓸 글자라 문장부호·공백은 뺀다 — "우리_집" 에서 "_" 가 딱지에 오면 안 된다.
  */
 const letters = (name: string) =>
   Array.from(name.trim()).filter((char) => /[\p{L}\p{N}\p{Extended_Pictographic}]/u.test(char));
@@ -66,38 +66,6 @@ export function zoneMarks(zones: Zone[]): Map<number, string> {
   }
 
   return marks;
-}
-
-/** 나에게 공간을 보여주는 사람 한 명. 받은 공간을 사람마다 칩 하나로 묶는 단위다 */
-export interface Sharer {
-  id: number;
-  name: string;
-}
-
-/**
- * 받은 공간의 주인들. 처음 나온 순서대로, 한 사람은 한 번만.
- *
- * 받은 공간을 공간마다 칩으로 세우면 한 사람이 셋을 보여줄 때 칩이 셋 늘어난다. 받은 쪽이
- * 알고 싶은 것은 대개 "누구 것인가" 라 칩은 사람 하나로 묶는다.
- */
-export function sharersOf(zones: Zone[]): Sharer[] {
-  const seen = new Map<number, Sharer>();
-  for (const zone of zones) {
-    if (zone.role === "member" && !seen.has(zone.owner_id)) {
-      seen.set(zone.owner_id, { id: zone.owner_id, name: zone.owner_name });
-    }
-  }
-  return [...seen.values()];
-}
-
-/**
- * 누구의 어느 공간인지 한 줄로. `어린이집` · `아빠_어린이집`
- *
- * 화면에 적는 이름이 아니라 낭독 이름·상세의 공간 표시에 쓴다. 내 공간에 내 이름을 붙이지
- * 않는 것은, 대부분이 내 것이라 같은 이름이 되풀이되기 때문이다.
- */
-export function listLabel(zone: Pick<Zone, "role" | "name" | "owner_name">): string {
-  return zone.role === "member" ? `${zone.owner_name}_${zone.name}` : zone.name;
 }
 
 /**
