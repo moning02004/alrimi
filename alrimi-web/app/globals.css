@@ -37,9 +37,11 @@
     밝은 색(#3182f6, #12b886 같은)을 넣으면 버튼 글씨와 강조 글자가 흐려진다.
     pinelt 는 흰색에 pine 을 10% 남짓 섞은 정도면 된다.
 
-    여기를 따라오지 않는 것이 둘 있다 — 브라우저 위쪽 띠 색(`app/layout.tsx` 의
-    themeColor, `public/manifest.json` 의 theme_color)과 앱 아이콘(`public/*.svg`·png).
-    색을 정했으면 그쪽도 맞춘다.
+    여기를 따라오지 않는 것이 둘 있다. 색을 바꿨으면 그쪽도 같은 값으로 맞춘다.
+      - 브라우저 위쪽 띠: `app/layout.tsx` 의 themeColor, `public/manifest.json` 의 theme_color
+      - 아이콘: `app/icon.svg`(파비콘), `public/icon-maskable.svg` 의 바탕색.
+        `public/icon-192.png`·`icon-512.png`·`icon-maskable-512.png` 는 이 두 svg 를
+        그 크기로 구운 것이라 다시 구워야 한다
   */
   --color-pine: #d6336c;
   --color-pinelt: #fdebf1;
