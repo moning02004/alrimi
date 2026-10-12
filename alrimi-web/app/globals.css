@@ -12,8 +12,37 @@
   --color-ink: #191f28;
   --color-muted: #6b7684;
   --color-line: #e9ecef;
-  --color-pine: #05805b;
-  --color-pinelt: #e3f5ee;
+
+  /*
+    ── 메인 컬러 ─────────────────────────────────────────────────────
+    **이 두 줄만 바꾸면 앱 전체가 따라온다** — 버튼, 오늘 동그라미, 켜진 칩, 링크,
+    초점 고리, 날짜 고르는 달력까지. 이름은 처음 색(솔잎 초록)에서 온 `pine` 이지만
+    뜻은 "메인 컬러" 다.
+
+      pine    진한 쪽. 버튼 바탕(흰 글씨가 얹힌다)과 강조 글자
+      pinelt  옅은 쪽. 켜진 칩·고른 줄의 바탕(그 위에 pine 글자가 얹힌다)
+
+    둘은 짝으로 바꾼다. 아래에서 한 줄을 골라 그대로 옮겨 적으면 된다.
+
+      이름      pine      pinelt
+      초록      #05805b   #e3f5ee   ← 지금
+      먹색      #191f28   #eceef1
+      파랑      #2563eb   #e8f0fe
+      남색      #4f46e5   #eceafd
+      보라      #6d4aff   #efeaff
+      분홍      #d6336c   #fdebf1
+      코랄      #c2410c   #fdeee6
+
+    직접 고를 때는 pine 을 **흰 글씨가 읽힐 만큼 짙게** 잡는다(대비 4.5:1 이상).
+    밝은 색(#3182f6, #12b886 같은)을 넣으면 버튼 글씨와 강조 글자가 흐려진다.
+    pinelt 는 흰색에 pine 을 10% 남짓 섞은 정도면 된다.
+
+    여기를 따라오지 않는 것이 둘 있다 — 브라우저 위쪽 띠 색(`app/layout.tsx` 의
+    themeColor, `public/manifest.json` 의 theme_color)과 앱 아이콘(`public/*.svg`·png).
+    색을 정했으면 그쪽도 맞춘다.
+  */
+  --color-pine: #d6336c;
+  --color-pinelt: #fdebf1;
   --color-amber: #b4741f;
   --color-amberlt: #f7eedf;
 
