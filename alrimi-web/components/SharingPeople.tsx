@@ -65,7 +65,7 @@ export function SharingPeople({ compact = false }: { compact?: boolean }) {
   return (
     <div className="space-y-2">
       {people && people.length > 0 ? (
-        <ul className="divide-y divide-line rounded-xl border border-line bg-card">
+        <ul className="divide-y divide-line rounded-2xl bg-card shadow-card">
           {people.map((person) => (
             <PersonRow
               key={person.id}
@@ -128,7 +128,7 @@ export function ReceivedSharing({ heading }: { heading: React.ReactNode }) {
   return (
     <>
       {heading}
-      <ul className="divide-y divide-line rounded-2xl border border-line bg-card">
+      <ul className="divide-y divide-line rounded-2xl bg-card shadow-card">
         {people.map((person) => (
           <PersonRow
             key={person.id}

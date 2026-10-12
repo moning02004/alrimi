@@ -4,7 +4,7 @@ import {onColor} from "@/lib/color";
 // 두고 좌우 여백을 준다 — 높이가 바뀌면 줄 간격이 흔들린다.
 const SIZES = {
     /** 카드·행 앞머리 */
-    md: "h-6 min-w-6 rounded-lg px-1 text-[11px]",
+    md: "h-7 min-w-7 rounded-[9px] px-1 text-xs",
     /** 칩 안, 알약 안 */
     sm: "h-4 min-w-4 rounded-[5px] px-0.5 text-[9px]",
     /** 달력 칸 */

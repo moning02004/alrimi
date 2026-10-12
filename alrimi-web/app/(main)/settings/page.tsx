@@ -22,9 +22,9 @@ import { useMarkStyles } from "@/hooks/useSpecialDays";
 import type { MarkStyle, Zone } from "@/types";
 
 // hover 는 `@media (hover:hover)` 안에서만 켜지므로 터치에서는 붙지 않는다
-const rowCls = "flex items-center justify-between px-4 py-3 transition-colors hover:bg-paper";
-const groupCls = "divide-y divide-line rounded-2xl border border-line bg-card";
-const headCls = "px-1 pb-2 pt-5 text-xs font-medium text-muted";
+const rowCls = "flex items-center justify-between px-4 py-3.5 transition-colors hover:bg-paper";
+const groupCls = "divide-y divide-line rounded-2xl bg-card shadow-card";
+const headCls = "px-1 pb-2 pt-6 text-[13px] font-semibold text-muted";
 
 export default function SettingsPage() {
   const router = useRouter();

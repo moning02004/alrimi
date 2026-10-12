@@ -59,7 +59,7 @@ export function SubscribeSheet({
 
       <p className="px-1 pb-1.5 pt-4 text-xs font-medium text-muted">토픽</p>
       <div className="flex items-center gap-2">
-        <code className="min-w-0 flex-1 truncate rounded-xl border border-line bg-card px-3.5 py-3 font-mono text-sm">
+        <code className="min-w-0 flex-1 truncate rounded-2xl bg-card shadow-card px-3.5 py-3 font-mono text-sm">
           {me?.ntfy_topic}
         </code>
         <button

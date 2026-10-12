@@ -57,11 +57,12 @@ const EVENT_HOURS = Array.from({length: 24}, (_, i) => i);
 const DATE_FORMAT = "yyyy-MM-dd (EEE)";
 
 /*
-  테두리는 늘 보인다. 눌렀을 때만 생기면 없던 것이 튀어나오는 것처럼 읽히고,
-  누르기 전에는 어디가 입력칸인지도 알기 어렵다. 초점에서는 색만 바뀐다.
+  칸은 늘 보인다 — 테두리 대신 옅은 바탕으로. 눌렀을 때만 생기면 없던 것이 튀어나오는
+  것처럼 읽히고, 누르기 전에는 어디가 입력칸인지도 알기 어렵다. 초점에서는 바탕이 희어지고
+  테두리 색이 선다.
 */
 const fieldCls =
-    "rounded-lg border border-line bg-card px-2.5 focus:border-pine focus:outline-none";
+    "rounded-xl border border-transparent bg-paper px-3 focus:border-pine focus:bg-card focus:outline-none";
 
 // 한 줄짜리 칸(날짜·시각·제목)은 높이를 못박아 맞춘다 — 글씨 크기가
 // 달라(16px / 14px) padding 만으로는 몇 px 씩 어긋난다. 이 높이를 공용
@@ -632,7 +633,7 @@ export function EventForm({event, initialDate, initialTitle, initialContent, res
               완료·보류는 여기서 고르지 않는다 — 그 날 한 번의 일이라 늘 이 일정만이다.
             */}
             {inSeries && event?.repeat && (
-                <div className="mb-4 rounded-2xl border border-line bg-card px-4 py-3">
+                <div className="mb-4 rounded-2xl bg-card shadow-card px-4 py-3">
                     <div className="flex items-baseline justify-between gap-3">
                         <p className="shrink-0 text-sm font-medium">반복 일정</p>
                         <p className="truncate text-xs text-muted">{repeatLabel(event.repeat)}</p>
@@ -664,7 +665,7 @@ export function EventForm({event, initialDate, initialTitle, initialContent, res
                 </div>
             )}
 
-            <div className="divide-y divide-line rounded-2xl border border-line bg-card mb-4">
+            <div className="divide-y divide-line rounded-2xl bg-card shadow-card mb-4">
                 <div className="flex items-center gap-3 px-4 py-2.5">
                     <span className="w-14 shrink-0 text-sm text-muted">공간</span>
                     {/*
@@ -1150,7 +1151,7 @@ export function EventForm({event, initialDate, initialTitle, initialContent, res
                               숫자 자판이 뜨도록 `inputMode` 를 주고, 숫자가 아닌 글자는 받지 않는다.
                             */}
                             <label
-                                className="flex w-20 shrink-0 items-center gap-1 rounded-lg border border-line bg-paper
+                                className="flex w-20 shrink-0 items-center gap-1 rounded-xl border border-transparent bg-paper
                                            px-2.5 py-2 text-sm focus-within:border-pine"
                             >
                                 <input
@@ -1176,7 +1177,7 @@ export function EventForm({event, initialDate, initialTitle, initialContent, res
                                     setSide(picked);
                                     setError(null);
                                 }}
-                                className="w-16 shrink-0 rounded-lg border border-line bg-paper px-2.5 py-2
+                                className="w-16 shrink-0 rounded-xl border border-transparent bg-paper px-2.5 py-2
                                            text-sm focus:border-pine focus:outline-none"
                             />
 
@@ -1185,7 +1186,7 @@ export function EventForm({event, initialDate, initialTitle, initialContent, res
                                 value={hour}
                                 options={HOUR_OPTIONS.map((h) => ({value: h, label: `${pad(h)}:00`}))}
                                 onPick={setHour}
-                                className="min-w-0 flex-1 rounded-lg border border-line bg-paper px-2.5 py-2
+                                className="min-w-0 flex-1 rounded-xl border border-transparent bg-paper px-2.5 py-2
                                            text-sm focus:border-pine focus:outline-none"
                             />
 
@@ -1261,7 +1262,7 @@ export function EventForm({event, initialDate, initialTitle, initialContent, res
                 <button
                     onClick={submit}
                     disabled={mutation.isPending}
-                    className="w-full rounded-xl bg-pine py-3.5 text-base font-medium text-white disabled:opacity-60"
+                    className="w-full rounded-2xl bg-pine py-4 text-base font-semibold text-white disabled:opacity-60"
                 >
                     {mutation.isPending ? "저장하는 중" : resume ? "다시 잡기" : "저장하기"}
                 </button>

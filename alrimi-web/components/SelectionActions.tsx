@@ -7,7 +7,9 @@ import { useDeleteEvents } from "@/hooks/useEvents";
 import { useSelection } from "@/store/ui";
 
 /** 목록 머리줄에 서는 작은 알약. 옆의 글자 링크와 달리 "누르는 것" 으로 읽히게 한다 */
-const chipCls = "shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] transition-colors";
+export const chipCls = "shrink-0 rounded-full px-3 py-1 text-xs font-medium transition-colors";
+/** 꺼져 있을 때의 차림. 테두리 없이 옅은 바탕만 깐다 — 종이색 위에서도 카드 위에서도 보인다 */
+export const chipOffCls = "bg-ink/[0.06] text-ink/70 hover:bg-ink/10";
 
 /**
  * 고르기를 켜고 끄는 버튼. 누르면 "선택" 이 "취소" 로 바뀌고, 다시 누르면 풀린다.
@@ -26,8 +28,8 @@ export function SelectToggle() {
       aria-pressed={active}
       className={`${chipCls} ${
         active
-          ? "border-pine bg-pinelt font-medium text-pine"
-          : "border-line bg-card text-muted hover:border-pine/50 hover:text-pine"
+          ? "bg-pine text-white"
+          : chipOffCls
       }`}
     >
       {active ? "취소" : "선택"}

@@ -1,5 +1,17 @@
 "use client";
 
+import {HiChevronDown, HiChevronLeft, HiChevronRight} from "react-icons/hi2";
+
+/**
+ * 기간을 옮기는 버튼들. 글자(‹ ›)가 아니라 **바탕이 있는 동그라미**다 — 글자만 있으면
+ * 어디까지가 누르는 자리인지 안 보이고, 손가락으로 겨냥하기에도 작았다.
+ * PC 의 달력 머리글도 같은 것을 쓴다(`app/(main)/home/page.tsx`).
+ */
+export const navButtonCls =
+    "flex h-8 w-8 items-center justify-center rounded-full bg-paper text-ink/70 transition-colors hover:bg-line";
+export const todayButtonCls =
+    "h-8 rounded-full bg-paper px-3 text-xs font-semibold text-ink/80 transition-colors hover:bg-line";
+
 interface Props {
     label: string;
     expanded: boolean;
@@ -29,23 +41,24 @@ export function PeriodNav({label, expanded, onToggle, nav}: Props) {
             <button
                 onClick={() => onToggle(!expanded)}
                 aria-expanded={expanded}
-                className="flex items-center gap-1 py-0.5 text-base font-semibold"
+                className="flex items-center gap-1 py-0.5 text-[22px] font-bold tracking-tight"
             >
                 {label}
-                <span className={`text-xs text-muted transition-transform duration-300 ${expanded ? "rotate-180" : ""}`}>
-          ▾
-        </span>
+                <HiChevronDown
+                    aria-hidden="true"
+                    className={`h-4 w-4 text-muted transition-transform duration-300 ${expanded ? "rotate-180" : ""}`}
+                />
             </button>
 
-            <div className="flex items-center gap-1 text-sm text-muted">
-                <button onClick={nav.onPrev} aria-label={nav.prevLabel} className="px-2 py-0.5">
-                    ‹
+            <div className="flex items-center gap-1.5">
+                <button onClick={nav.onPrev} aria-label={nav.prevLabel} className={navButtonCls}>
+                    <HiChevronLeft className="h-4 w-4" aria-hidden="true"/>
                 </button>
-                <button onClick={nav.onToday} className="px-1.5 py-0.5 text-xs">
+                <button onClick={nav.onToday} className={todayButtonCls}>
                     오늘
                 </button>
-                <button onClick={nav.onNext} aria-label={nav.nextLabel} className="px-2 py-0.5">
-                    ›
+                <button onClick={nav.onNext} aria-label={nav.nextLabel} className={navButtonCls}>
+                    <HiChevronRight className="h-4 w-4" aria-hidden="true"/>
                 </button>
             </div>
         </div>

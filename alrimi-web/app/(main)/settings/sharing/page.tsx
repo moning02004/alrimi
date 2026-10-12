@@ -3,7 +3,7 @@
 import { ReceivedSharing, SharingPeople } from "@/components/SharingPeople";
 import { SubPageHeader } from "@/components/SubPageHeader";
 
-const headCls = "px-1 pb-2 pt-5 text-xs font-medium text-muted";
+const headCls = "px-1 pb-2 pt-6 text-[13px] font-semibold text-muted";
 
 /**
  * 함께 보기 — 내 공간을 보여주는 사람과, 나에게 보여주는 사람.

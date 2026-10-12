@@ -28,6 +28,8 @@ import {pageUrl} from "@/constants/routeUrl";
 import {ZoneFilter} from "@/components/ZoneFilter";
 import {UpcomingList} from "@/components/UpcomingList";
 import {DeleteSelected, SelectToggle} from "@/components/SelectionActions";
+import {navButtonCls, todayButtonCls} from "@/components/PeriodNav";
+import {HiChevronLeft, HiChevronRight} from "react-icons/hi2";
 import {useAddSheet, useSelection} from "@/store/ui";
 import {useDoubleBackToExit} from "@/hooks/useDoubleBackToExit";
 
@@ -291,33 +293,33 @@ function Home() {
                 <aside className="flex w-[340px] shrink-0 flex-col gap-3">
                     {/* 달력 위다 — 달력의 점·띠도 이 필터를 따른다(모바일도 같은 자리) */}
 
-                    <div className="rounded-2xl border border-line bg-card p-3">
-                        <div className="mb-2 border-b pb-2 border-line">
+                    <div className="rounded-3xl bg-card p-4 shadow-card">
+                        <div className="mb-4">
                             <ZoneFilter/>
                         </div>
                         <div className="flex items-center justify-between px-1">
-                            <h1 className="text-base font-semibold">{monthLabel(anchor)}</h1>
-                            <div className="flex items-center gap-0.5 text-sm text-muted">
+                            <h1 className="text-xl font-bold tracking-tight">{monthLabel(anchor)}</h1>
+                            <div className="flex items-center gap-1.5">
                                 <button
                                     onClick={() => moveTo(shiftMonth(anchor, -1))}
                                     aria-label="지난 달"
-                                    className="rounded-md px-2 py-0.5 hover:bg-paper hover:text-ink"
+                                    className={navButtonCls}
                                 >
-                                    ‹
+                                    <HiChevronLeft className="h-4 w-4" aria-hidden="true"/>
                                 </button>
                                 <button
                                     onClick={goToday}
                                     title="오늘로"
-                                    className="rounded-md px-1.5 py-0.5 text-xs hover:bg-paper hover:text-ink"
+                                    className={todayButtonCls}
                                 >
                                     오늘
                                 </button>
                                 <button
                                     onClick={() => moveTo(shiftMonth(anchor, 1))}
                                     aria-label="다음 달"
-                                    className="rounded-md px-2 py-0.5 hover:bg-paper hover:text-ink"
+                                    className={navButtonCls}
                                 >
-                                    ›
+                                    <HiChevronRight className="h-4 w-4" aria-hidden="true"/>
                                 </button>
                             </div>
                         </div>
@@ -375,13 +377,13 @@ function Home() {
         <>
             <header
                 ref={headerRef}
-                className="sticky top-0 z-20 border-b border-line bg-card px-3 pb-2 pt-3"
+                className="sticky top-0 z-20 rounded-b-3xl bg-card px-4 pb-2 pt-3 shadow-card"
             >
                 {/*
                   필터가 달력 위에 선다. 달력의 점·띠도 이 필터를 따르므로, 아래에 두면 달력을
                   본 뒤에야 "무엇으로 걸러진 것인지" 를 알게 된다.
                 */}
-                <div className="mb-2 px-1 border-b pb-2 border-line">
+                <div className="mb-4">
                     <ZoneFilter/>
                 </div>
 
@@ -436,8 +438,8 @@ function Home() {
                         */}
                         <div
                             ref={rangeRowRef}
-                            className="sticky top-[var(--header-h)] z-10 -mx-4 flex items-center shadow-sm
-                                       justify-between gap-3 bg-paper px-5 pb-2 pt-3"
+                            className="sticky top-[var(--header-h)] z-10 -mx-4 flex items-center
+                                       justify-between gap-3 bg-paper/95 px-5 pb-2 pt-4 backdrop-blur"
                         >
                             {/*
                               왼쪽은 **아래 목록에 대한 것**이다 — 고르기 버튼과 지금 보고 있는
@@ -449,7 +451,7 @@ function Home() {
                             */}
                             <div className="flex min-w-0 items-center gap-2">
                                 <SelectToggle/>
-                                <p className="truncate text-xs font-medium text-muted">
+                                <p className="truncate text-[13px] font-semibold text-ink/70">
                                     {rangeLabel(grid[0], grid[grid.length - 1])}
                                 </p>
                             </div>

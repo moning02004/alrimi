@@ -84,7 +84,7 @@ export function Menu({ items, ariaLabel = "더보기" }: { items: MenuItem[]; ar
 /** 한 묶음. 이 앱의 다른 목록(알림 목록)과 같은 카드 모양이다 */
 function MenuGroup({ items, onPick }: { items: MenuItem[]; onPick: (item: MenuItem) => void }) {
   return (
-    <div className="divide-y divide-line overflow-hidden rounded-2xl border border-line bg-card">
+    <div className="divide-y divide-line overflow-hidden rounded-2xl bg-card shadow-card">
       {items.map((item) => (
         <button
           key={item.label}

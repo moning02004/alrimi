@@ -96,7 +96,7 @@ export function EventCard({
     <ZoneMark mark={zone.mark} color={zone.color} name={zone.label} />
   ) : (
     // 공간 목록이 아직 안 왔을 때. 자리를 비워두면 제목 줄이 흔들린다.
-    <span className="h-6 w-6 shrink-0 rounded-lg" style={{ background: zoneColor }} />
+    <span className="h-7 w-7 shrink-0 rounded-[9px]" style={{ background: zoneColor }} />
   );
 
   const body = (
@@ -111,7 +111,7 @@ export function EventCard({
           {hourLabel(event.event_hour)}
         </span>
       )}
-      <span className={`truncate font-medium ${canceled ? "line-through" : ""}`}>
+      <span className={`truncate text-[15px] font-semibold ${canceled ? "line-through" : ""}`}>
         {event.title}
       </span>
     </>
@@ -132,7 +132,7 @@ export function EventCard({
         <LuRepeat className="h-3.5 w-3.5 shrink-0 text-muted/70" aria-label="반복 일정" role="img" />
       )}
       {dayMark && (
-        <span className="shrink-0 rounded-full bg-paper px-2 py-0.5 text-xs tabular-nums text-muted">
+        <span className="shrink-0 rounded-full bg-paper px-2 py-0.5 text-[11px] font-medium tabular-nums text-muted">
           {dayMark}
         </span>
       )}
@@ -152,7 +152,8 @@ export function EventCard({
     </>
   );
 
-  const cardCls = `relative flex items-center overflow-hidden rounded-xl border bg-card
+  // 테두리 없이 그림자로 뜬다(`globals.css` --shadow-card). 고르는 중에 고른 카드만 고리를 두른다
+  const cardCls = `relative flex items-center overflow-hidden rounded-2xl bg-card shadow-card
                    transition-colors ${done || canceled ? "opacity-55" : ""}`;
 
   /*
@@ -183,8 +184,8 @@ export function EventCard({
         // 남의 공간 것은 고를 수 없다. 자리는 지켜 목록이 흔들리지 않게 한다
         disabled={!editable}
         title={editable ? undefined : "함께 보는 공간의 일정은 지울 수 없어요"}
-        className={`${cardCls} w-full gap-3 py-3 pl-3 pr-3 text-left disabled:opacity-50 ${
-          picked ? "border-pine bg-pinelt/40" : "border-line"
+        className={`${cardCls} w-full gap-3 py-3.5 pl-3.5 pr-3.5 text-left disabled:opacity-50 ${
+          picked ? "bg-pinelt/50 ring-2 ring-inset ring-pine" : ""
         }`}
       >
         {band}
@@ -196,11 +197,11 @@ export function EventCard({
     );
   }
 
-  const openCls = "flex min-w-0 flex-1 items-center gap-2 py-3 pr-2 text-left";
+  const openCls = "flex min-w-0 flex-1 items-center gap-2 py-3.5 pl-1 pr-2 text-left";
 
   return (
     // 링크 안에 버튼을 넣으면 안 된다(중첩 조작 요소). 나란히 둔다.
-    <div className={`${cardCls} border-line hover:border-muted/40 hover:bg-paper`}>
+    <div className={`${cardCls} hover:bg-paper/70`}>
       {band}
 
       {/*
@@ -217,12 +218,12 @@ export function EventCard({
           onClick={() => openZoneSheet(event)}
           title="공간 바꾸기"
           aria-label={`공간 바꾸기${zone ? ` · 지금 ${zone.label}` : ""}`}
-          className="relative shrink-0 rounded-lg py-3 pl-3 pr-1 transition-transform hover:scale-110"
+          className="relative shrink-0 rounded-lg py-3 pl-3.5 pr-1.5 transition-transform hover:scale-110"
         >
           {mark}
         </button>
       ) : (
-        <span className="relative shrink-0 py-3 pl-3 pr-1">{mark}</span>
+        <span className="relative shrink-0 py-3 pl-3.5 pr-1.5">{mark}</span>
       )}
 
       {onSelect ? (
@@ -263,9 +264,9 @@ export function EventCard({
                    transition-colors hover:bg-pinelt disabled:opacity-40"
       >
         {done ? (
-          <HiCheckCircle className="h-5 w-5 text-pine" aria-hidden="true" />
+          <HiCheckCircle className="h-6 w-6 text-pine" aria-hidden="true" />
         ) : (
-          <HiOutlineCheckCircle className="h-5 w-5 text-muted/60" aria-hidden="true" />
+          <HiOutlineCheckCircle className="h-6 w-6 text-muted/35" aria-hidden="true" />
         )}
       </button>
       ) : (

@@ -74,7 +74,7 @@ export function MonthList({ open, onOpenChange, title, from, to, scope, selected
       ) : groups.length === 0 ? (
         <p className="py-10 text-center text-sm text-muted">이 달에는 일정이 없어요</p>
       ) : (
-        <div className="rounded-xl border border-line bg-card px-1">
+        <div className="rounded-2xl bg-card shadow-card px-1">
           {groups.map((group) => {
             const day = toDate(group.iso);
 
@@ -82,11 +82,11 @@ export function MonthList({ open, onOpenChange, title, from, to, scope, selected
               <section
                 key={group.iso}
                 ref={group.iso === startAt ? startRef : undefined}
-                className="flex gap-1 border-t border-line py-1 first:border-t-0"
+                className="flex gap-1 border-t border-line py-1.5 first:border-t-0"
               >
                 {/* 날짜는 그 날의 첫 줄 옆에 한 번만 선다 */}
                 <p
-                  className={`w-14 shrink-0 px-2 py-1.5 text-sm tabular-nums ${
+                  className={`w-16 shrink-0 py-2 pl-3 text-[13px] font-medium tabular-nums ${
                     group.iso === today ? "font-semibold text-pine" : "text-muted"
                   }`}
                 >
@@ -105,7 +105,7 @@ export function MonthList({ open, onOpenChange, title, from, to, scope, selected
                         <button
                           type="button"
                           onClick={() => onPick(group.iso)}
-                          className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left
+                          className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left
                                       transition-colors hover:bg-paper ${finished ? "opacity-55" : ""}`}
                         >
                           <ZoneMark

@@ -16,14 +16,14 @@ import { pageUrl } from "@/constants/routeUrl";
 import type { Invite, ManagedUser, Me } from "@/types";
 
 // 설정 화면의 줄·묶음과 같은 모양이다(`app/(main)/settings/page.tsx`)
-const rowCls = "flex items-center justify-between px-4 py-3 transition-colors hover:bg-paper";
-const groupCls = "divide-y divide-line rounded-2xl border border-line bg-card";
-const headCls = "px-1 pb-2 pt-5 text-xs font-medium text-muted";
+const rowCls = "flex items-center justify-between px-4 py-3.5 transition-colors hover:bg-paper";
+const groupCls = "divide-y divide-line rounded-2xl bg-card shadow-card";
+const headCls = "px-1 pb-2 pt-6 text-[13px] font-semibold text-muted";
 const inputCls =
-  "w-full rounded-xl border border-line bg-card px-3.5 py-3 text-base " +
-  "placeholder:text-muted/50 focus:border-pine focus:outline-none";
+  "w-full rounded-xl border border-transparent bg-ink/5 px-3.5 py-3 text-base " +
+  "placeholder:text-muted/50 focus:border-pine focus:bg-card focus:outline-none";
 const submitCls =
-  "my-3 w-full rounded-xl bg-pine py-3.5 text-base font-medium text-white disabled:opacity-60";
+  "my-3 w-full rounded-2xl bg-pine py-4 text-base font-semibold text-white disabled:opacity-60";
 
 /**
  * 설정의 "사용자 관리" 묶음. 관리자·최고 관리자에게만 나온다.
@@ -171,7 +171,7 @@ function InviteLink({ label, invite }: { label: string; invite: Invite }) {
           적을 값이 아니라서, 다 보여주는 것보다 복사 버튼이 가까운 편이 낫다.
         */}
         <code
-          className="min-w-0 flex-1 truncate rounded-xl border border-line bg-card px-3.5 py-3
+          className="min-w-0 flex-1 truncate rounded-2xl bg-card shadow-card px-3.5 py-3
                      text-sm text-muted"
         >
           {url}
@@ -269,7 +269,7 @@ function CreateForm({ onClose }: { onClose: () => void }) {
 
       {error && <p className="mt-2 px-1 text-sm text-red-600">{error}</p>}
 
-      <div className="mt-3 space-y-1.5 rounded-xl border border-line bg-card px-3.5 py-3 text-xs leading-relaxed text-muted">
+      <div className="mt-3 space-y-1.5 rounded-2xl bg-card shadow-card px-3.5 py-3 text-xs leading-relaxed text-muted">
         <p>
           추가하면 <b className="text-ink">초대 링크</b>가 나와요. 그 링크를 보내주시면 받은
           사람이 쓸 비밀번호를 직접 정해요.
@@ -327,7 +327,7 @@ function ManageForm({ user, onClose }: { user: ManagedUser; onClose: () => void 
         <span className="text-muted">{user.username}</span>
       </p>
 
-      <div className="mt-3 divide-y divide-line rounded-2xl border border-line bg-card">
+      <div className="mt-3 divide-y divide-line rounded-2xl bg-card shadow-card">
         <RoleSwitch
           label="관리자"
           hint="사용자를 추가할 수 있어요"
@@ -411,7 +411,7 @@ function ManageForm({ user, onClose }: { user: ManagedUser; onClose: () => void 
         ) : (
           <button
             onClick={() => setConfirming(true)}
-            className="w-full rounded-xl border border-line bg-card py-3 text-sm text-red-600"
+            className="w-full rounded-2xl bg-card shadow-card py-3 text-sm text-red-600"
           >
             사용자 삭제
           </button>

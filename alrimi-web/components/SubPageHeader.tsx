@@ -11,12 +11,12 @@ import { pageUrl } from "@/constants/routeUrl";
  */
 export function SubPageHeader({ title }: { title: string }) {
   return (
-    <header className="sticky top-0 z-20 border-b border-line bg-card px-4 py-3">
+    <header className="sticky top-0 z-20 bg-card/95 px-4 py-3.5 shadow-card backdrop-blur">
       <div className="mx-auto grid w-full max-w-2xl grid-cols-[1fr_auto_1fr] items-center">
         <Link href={pageUrl.settings} className="justify-self-start text-sm text-muted hover:text-ink">
           ← 내 정보
         </Link>
-        <h1 className="text-base font-semibold">{title}</h1>
+        <h1 className="text-[17px] font-bold tracking-tight">{title}</h1>
         <span aria-hidden="true" />
       </div>
     </header>

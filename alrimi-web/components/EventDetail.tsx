@@ -175,9 +175,9 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
 
   return (
     <>
-      <header className="sticky top-0 z-20 border-b border-line bg-card px-4 py-3">
+      <header className="sticky top-0 z-20 bg-card/95 px-4 py-3.5 shadow-card backdrop-blur lg:rounded-2xl">
         <div className="mx-auto flex w-full max-w-2xl items-center justify-between">
-        <button onClick={onClose} className="text-sm text-muted hover:text-ink">
+        <button onClick={onClose} className="text-sm font-medium text-ink/70 hover:text-ink">
           {backLabel}
         </button>
         {/*
@@ -217,8 +217,8 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-2xl p-4">
-        <p className="text-xs text-muted">
+      <main className="mx-auto w-full max-w-2xl px-4 pb-6 pt-5">
+        <p className="px-1 text-[13px] font-medium text-muted">
           {/* 하루짜리는 지금까지와 같고, 며칠짜리면 "9월 25일 금 – 27일 일 · 3일간" */}
           {spanLabel(event.event_date, event.end_date)}
           {event.event_hour !== null && (
@@ -242,7 +242,7 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
           라 한 화면에 안 들어오는 일이 잦았고, 폼의 "저장하기" 와 똑같이 생겨서
           이 화면에 저장할 것이 있는 것처럼 읽혔다.
         */}
-        <div className="mt-1.5 flex items-start gap-2">
+        <div className="mt-2 flex items-start gap-2 px-1">
           {/*
             어느 공간의 일정인지를 **제목 앞에 둔다** — 내용 아래 딱지 줄에 있었는데, 무슨
             일인지보다 누구네 일인지가 먼저 읽혀야 하고(목록 카드도 딱지가 제목 앞이다),
@@ -258,14 +258,14 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
             <span
               // 제목 한 줄(28px)보다 낮게 둔다. 더 높으면 줄이 그만큼 커져 오른쪽 별·동그라미가
               // 제목 가운데에서 벗어난다
-              className="flex shrink-0 items-center gap-1.5 rounded-full border border-line
-                         py-0.5 pl-0.5 pr-2.5 text-xs font-normal text-muted"
+              className="flex shrink-0 items-center gap-1.5 rounded-full bg-ink/[0.06]
+                         py-1 pl-1 pr-2.5 text-xs font-medium text-ink/70"
             >
               <ZoneMark mark={zoneMark} color={zoneInfo?.color ?? event.zone_color} size="sm" />
               {zoneInfo?.label ?? event.zone_name}
             </span>
             <span
-              className={`min-w-0 break-words text-xl font-semibold tracking-tight ${
+              className={`min-w-0 break-words text-2xl font-bold tracking-tight ${
                 done ? "text-muted" : ""
               } ${canceled ? "text-muted line-through" : ""}`}
             >
@@ -353,20 +353,22 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
 
           칸으로 두른다. 제목 바로 아래에 흐린 글씨로만 있으면 제목의 꼬리처럼 읽혀서, 어디까지가
           내용인지 배경으로 가른다. 한 줄짜리여도 칸이 납작해 보이지 않게 최소 높이를 둔다.
-          내용이 없으면 칸도 없다 — 빈 칸이 "적을 것이 있었나" 하고 묻게 된다.
+
+          **내용이 없어도 칸은 선다.** 있을 때만 그리면 일정마다 그 아래 딱지와 알림이 오르내려,
+          하나씩 넘겨 볼 때 같은 것이 매번 다른 자리에 있다. 비었다는 것은 흐린 한마디가 말한다.
         */}
-        {event.content && (
-          <p
-            className="mt-3 min-h-20 whitespace-pre-wrap break-words rounded-xl border border-line
-                       bg-card px-4 py-3 text-base leading-relaxed"
-          >
-            {event.content}
-          </p>
-        )}
+        <p
+          className={`mt-4 min-h-20 whitespace-pre-wrap break-words rounded-2xl bg-card
+                      px-4 py-4 text-base leading-relaxed shadow-card ${
+                        event.content ? "" : "text-muted/60"
+                      }`}
+        >
+          {event.content || "내용 없음"}
+        </p>
 
         {/* 상태·반복 딱지. 하나도 없으면 줄도 없다 — 빈 줄이 여백만 남긴다 */}
-        {(held || done || canceled || event.repeat || readOnly) && (
-        <div className="mt-3 flex flex-wrap gap-1.5">
+        {(held || done || canceled || event.repeat) && (
+        <div className="mt-3 flex flex-wrap gap-1.5 px-1">
           {held && (
             <span className="rounded-full bg-amberlt px-2.5 py-1 text-xs text-amber">보류 중</span>
           )}
@@ -409,21 +411,17 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
           )}
           {/* 반복 규칙. 고치거나 지울 때 "이후 모두" 가 무엇을 가리키는지 여기서 읽는다 */}
           {event.repeat && (
-            <span className="rounded-full border border-line px-2.5 py-1 text-xs text-muted">
+            <span className="rounded-full bg-ink/[0.06] px-2.5 py-1 text-xs text-muted">
               {repeatLabel(event.repeat)}
             </span>
-          )}
-          {/* 왜 고치는 자리가 없는지를 이것이 말한다. 누구의 것인지는 제목 아래에 적혀 있다 */}
-          {readOnly && (
-            <span className="rounded-full bg-paper px-2.5 py-1 text-xs text-muted">보기 전용</span>
           )}
         </div>
         )}
 
-        <p className="mb-2 mt-6 text-xs font-medium text-muted">
+        <p className="mb-2 mt-7 px-1 text-[13px] font-semibold text-muted">
           {pending.length > 0 ? `알림 ${pending.length}개` : "알림"}
         </p>
-        <ul className="divide-y divide-line rounded-2xl border border-line bg-card">
+        <ul className="divide-y divide-line rounded-2xl bg-card shadow-card">
           {/* 올 것이 없는 자리. 빈 상자만 남으면 고장으로 읽힌다 */}
           {pending.length === 0 && (
             <li className="px-4 py-3 text-sm text-muted">
@@ -433,7 +431,7 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
             </li>
           )}
           {pending.map((alert) => (
-            <li key={alert.id} className="flex items-center justify-between px-4 py-3">
+            <li key={alert.id} className="flex items-center justify-between px-4 py-3.5">
               <div>
                 <p className="text-sm font-medium">{codeLabel(alert.code)}</p>
                 <p className="mt-0.5 text-xs text-muted">{monthDayLabel(alert.due_at)}</p>
@@ -456,7 +454,7 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
                 <button
                   onClick={() => onSend(alert.id)}
                   disabled={send.isPending}
-                  className="rounded-full border border-pine px-2.5 py-1 text-xs font-medium
+                  className="rounded-full bg-pinelt px-3 py-1.5 text-xs font-semibold
                              text-pine disabled:opacity-60"
                 >
                   {send.isPending && send.variables === alert.id ? "보내는 중" : "보내기"}
@@ -492,7 +490,7 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
             </button>
 
             {history && (
-              <ul className="mt-1 divide-y divide-line rounded-2xl border border-line bg-card">
+              <ul className="mt-1 divide-y divide-line rounded-2xl bg-card shadow-card">
                 {sent.map((alert) => (
                   <li key={alert.id} className="flex items-center justify-between gap-3 px-4 py-3">
                     <div className="min-w-0">
@@ -509,8 +507,8 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
                       <button
                         onClick={() => onSend(alert.id)}
                         disabled={send.isPending}
-                        className="shrink-0 rounded-full border border-pine px-2.5 py-1 text-xs
-                                   font-medium text-pine disabled:opacity-60"
+                        className="shrink-0 rounded-full bg-pinelt px-3 py-1.5 text-xs
+                                   font-semibold text-pine disabled:opacity-60"
                       >
                         {send.isPending && send.variables === alert.id ? "보내는 중" : "다시 보내기"}
                       </button>
@@ -536,7 +534,7 @@ export function EventDetail({ eventId, onClose, onDeleted, backLabel = "← 뒤�
           <>
             <button
               onClick={() => setResuming(true)}
-              className="mt-4 w-full rounded-xl bg-pine py-3.5 text-base font-medium text-white"
+              className="mt-4 w-full rounded-2xl bg-pine py-4 text-base font-semibold text-white"
             >
               날짜 다시 잡기
             </button>

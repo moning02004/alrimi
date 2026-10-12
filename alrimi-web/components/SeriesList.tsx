@@ -61,7 +61,7 @@ function SeriesCard({ series }: { series: SeriesItem }) {
   return (
     <Link
       href={pageUrl.event(series.next_event_id)}
-      className="flex items-center gap-3 rounded-xl border border-line bg-card py-2.5 pl-3 pr-3
+      className="flex items-center gap-3 rounded-2xl bg-card shadow-card py-2.5 pl-3 pr-3
                  transition-colors hover:border-muted/40"
     >
       {zone ? (

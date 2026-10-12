@@ -78,11 +78,11 @@ function Form({ onClose, onCreated }: { onClose: () => void; onCreated?: (zone: 
         onKeyDown={(e) => e.key === "Enter" && submit()}
         maxLength={40}
         placeholder="어린이집, 우리집, 회사"
-        className="w-full rounded-xl border border-line bg-card px-3.5 py-3 text-base
-                   placeholder:text-muted/50 focus:border-pine focus:outline-none"
+        className="w-full rounded-xl border border-transparent bg-ink/5 px-3.5 py-3 text-base
+                   placeholder:text-muted/50 focus:border-pine focus:bg-card focus:outline-none"
       />
 
-      <div className="mt-3 rounded-xl border border-line bg-card">
+      <div className="mt-3 rounded-2xl bg-card shadow-card">
         <SharedSwitch
           on={shared}
           onToggle={() => setShared(!shared)}
@@ -100,7 +100,7 @@ function Form({ onClose, onCreated }: { onClose: () => void; onCreated?: (zone: 
       <button
         onClick={submit}
         disabled={createZone.isPending}
-        className="my-3 w-full rounded-xl bg-pine py-3.5 text-base font-medium text-white disabled:opacity-60"
+        className="my-3 w-full rounded-2xl bg-pine py-4 text-base font-semibold text-white disabled:opacity-60"
       >
         {createZone.isPending ? "만드는 중" : "만들기"}
       </button>

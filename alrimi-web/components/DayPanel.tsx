@@ -1,7 +1,7 @@
 "use client";
 
 import { EventCard } from "./EventCard";
-import { DeleteSelected, SelectToggle } from "./SelectionActions";
+import { DeleteSelected, SelectToggle, chipCls, chipOffCls } from "./SelectionActions";
 import { ErrorBlock, LoadingBlock } from "./Loading";
 import { useSelection } from "@/store/ui";
 import { fullLabel, sectionLabel } from "@/lib/date";
@@ -54,7 +54,7 @@ export function DayPanel({
 
   return (
     <section>
-      <div className={`flex items-center justify-between gap-3 px-1 ${big ? "pb-3" : "pb-1.5 pt-4"}`}>
+      <div className={`flex items-center justify-between gap-3 px-1 ${big ? "pb-4" : "pb-2 pt-5"}`}>
         {/*
           왼쪽은 **이 목록에 대한 것**이다 — 고르기 버튼과 지금 보고 있는 날.
           모바일 주간 목록의 머리줄도 같은 차림이라(`app/(main)/home/page.tsx`),
@@ -63,7 +63,7 @@ export function DayPanel({
         <div className="flex min-w-0 items-center gap-2">
           {items.length > 0 && <SelectToggle />}
           {big ? (
-            <h2 className="text-lg font-semibold tracking-tight">
+            <h2 className="text-xl font-bold tracking-tight">
               {fullLabel(date)}
               {marks.map((mark) => (
                 <span key={mark.kind} className="ml-2 text-sm font-normal" style={{ color: mark.color }}>
@@ -76,7 +76,7 @@ export function DayPanel({
               </span>
             </h2>
           ) : (
-            <p className="text-xs font-medium text-muted">
+            <p className="text-[13px] font-semibold text-ink/70">
               {sectionLabel(date)}
               {marks.map((mark) => (
                 <span key={mark.kind} style={{ color: mark.color }}>
@@ -102,8 +102,7 @@ export function DayPanel({
               <button
                 type="button"
                 onClick={onShowMonth}
-                className="shrink-0 rounded-full border border-line bg-card px-2.5 py-0.5 text-[11px]
-                           text-muted transition-colors hover:border-pine/50 hover:text-pine"
+                className={`${chipCls} ${chipOffCls}`}
               >
                 한 달 전체
               </button>
@@ -118,7 +117,7 @@ export function DayPanel({
         <ErrorBlock onRetry={onRetry} />
       ) : (
         <>
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             {items.map((event) => (
               <EventCard key={event.id} event={event} onSelect={onSelect} on={date} />
             ))}

@@ -122,18 +122,18 @@ export function CenteredDialog({
       <div
         aria-hidden="true"
         onClick={() => onOpenChange(false)}
-        className="absolute inset-0 bg-ink/25"
+        className="absolute inset-0 bg-ink/40 backdrop-blur-[2px]"
       />
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={descriptionId}
-        className="relative flex max-h-[85dvh] w-full max-w-lg flex-col rounded-2xl border
-                   border-line bg-paper shadow-xl"
+        className="relative flex max-h-[85dvh] w-full max-w-lg flex-col overflow-hidden rounded-3xl
+                   bg-paper shadow-2xl"
       >
-        <header className="flex shrink-0 items-center justify-between gap-3 px-5 pb-3 pt-4">
-          <h2 id={titleId} className="text-base font-semibold">
+        <header className="flex shrink-0 items-center justify-between gap-3 px-5 pb-3 pt-5">
+          <h2 id={titleId} className="text-lg font-bold tracking-tight">
             {title}
           </h2>
           <button
@@ -141,8 +141,8 @@ export function CenteredDialog({
             type="button"
             onClick={() => onOpenChange(false)}
             aria-label="닫기"
-            className="-mr-2 flex h-9 w-9 items-center justify-center rounded-full text-muted
-                       transition-colors hover:bg-card hover:text-ink"
+            className="-mr-1 flex h-9 w-9 items-center justify-center rounded-full bg-ink/[0.06] text-ink/70
+                       transition-colors hover:bg-ink/10"
           >
             <LuX className="h-4 w-4" aria-hidden="true" />
           </button>
@@ -224,7 +224,7 @@ function Sheet({ open, onOpenChange, title, description, children }: Props) {
     */
     <Drawer.Root open={open} onOpenChange={onOpenChange} repositionInputs={false}>
       <Drawer.Portal>
-        <Drawer.Overlay className="fixed inset-0 z-40 bg-ink/25" />
+        <Drawer.Overlay className="fixed inset-0 z-40 bg-ink/40" />
         {/*
           스크롤은 이 상자가 아니라 안쪽 칸이 맡는다.
 
@@ -237,13 +237,13 @@ function Sheet({ open, onOpenChange, title, description, children }: Props) {
           ref={sheet}
           onPointerDownOutside={keepOpenToDismissKeyboard}
           className="safe-bottom fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92dvh]
-                     w-full max-w-md flex-col rounded-t-3xl border-t border-line sm:max-w-2xl
-                     bg-paper pt-3 outline-none"
+                     w-full max-w-md flex-col rounded-t-[28px] sm:max-w-2xl
+                     bg-paper pt-3 shadow-2xl outline-none"
         >
-          <div className="mx-auto mb-3 h-1 w-10 shrink-0 rounded-full bg-line" />
+          <div className="mx-auto mb-3 h-1 w-9 shrink-0 rounded-full bg-muted/30" />
 
           {title && (
-            <Drawer.Title className="mb-3 shrink-0 px-5 text-base font-semibold">
+            <Drawer.Title className="mb-2 shrink-0 px-5 text-lg font-bold tracking-tight">
               {title}
             </Drawer.Title>
           )}
