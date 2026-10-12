@@ -55,7 +55,7 @@ function offlinePage() {
     '<div style="max-width:320px;text-align:center">' +
     '<p style="font-weight:600;margin:0 0 8px">오프라인이라 이 화면을 열 수 없어요</p>' +
     '<p style="font-size:14px;color:#6b7b87;margin:0 0 16px">받아둔 일정은 홈에서 볼 수 있어요.</p>' +
-    '<a href="/home" style="color:#2f7a63">홈으로</a></div></body></html>';
+    '<a href="/home" style="color:#d6336c">홈으로</a></div></body></html>';
   return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
 }
 

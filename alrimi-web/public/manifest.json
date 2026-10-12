@@ -10,7 +10,7 @@
   "display": "standalone",
   "display_override": ["standalone", "minimal-ui"],
   "background_color": "#F2F4F6",
-  "theme_color": "#05805B",
+  "theme_color": "#D6336C",
   "categories": ["productivity", "lifestyle"],
   "prefer_related_applications": false,
   "launch_handler": {

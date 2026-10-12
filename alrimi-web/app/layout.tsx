@@ -25,7 +25,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#05805b",
+  themeColor: "#d6336c",
   width: "device-width",
   initialScale: 1,
   // maximumScale 은 두지 않는다 — 확대를 막으면 눈이 어두운 사람이 읽을 방법이
