@@ -26,6 +26,8 @@ interface Props {
   onSelect?: (eventId: number) => void;
   /** PC 2단의 오른쪽 칸은 이 화면의 주인공이라 머리글을 크게 쓴다 */
   size?: "sm" | "lg";
+  /** 그 달의 일정을 전부 적은 창을 연다(`MonthList`). 주면 머리줄 오른쪽에 버튼이 선다 */
+  onShowMonth?: () => void;
 }
 
 /**
@@ -43,6 +45,7 @@ export function DayPanel({
   onRetry,
   onSelect,
   size = "sm",
+  onShowMonth,
 }: Props) {
   const big = size === "lg";
   const selecting = useSelection((s) => s.active);
@@ -92,7 +95,20 @@ export function DayPanel({
           채워 열어서(`store/ui.ts` focusDate), 등록으로 가는 문은 그것 하나다.
         */}
         <div className="flex shrink-0 items-center gap-2">
-          {selecting && <DeleteSelected />}
+          {selecting ? (
+            <DeleteSelected />
+          ) : (
+            onShowMonth && (
+              <button
+                type="button"
+                onClick={onShowMonth}
+                className="shrink-0 rounded-full border border-line bg-card px-2.5 py-0.5 text-[11px]
+                           text-muted transition-colors hover:border-pine/50 hover:text-pine"
+              >
+                한 달 전체
+              </button>
+            )
+          )}
         </div>
       </div>
 

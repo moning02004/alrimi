@@ -155,6 +155,13 @@ interface GroupOptions {
    * "오늘은 없다"가 한눈에 보이고, 그 다음 줄이 내일인 것도 저절로 드러난다.
    */
   ensure?: string;
+  /**
+   * 며칠짜리도 **한 번만** 넣는다 — 창 안에서 처음 걸치는 날에.
+   *
+   * 한 달을 훑는 목록(`MonthList`)이 쓴다. 거기서는 걸치는 날마다 넣으면 닷새짜리
+   * 여행이 다섯 줄을 차지해, 그 달에 무엇이 있는지가 오히려 안 보인다.
+   */
+  once?: boolean;
 }
 
 /**
@@ -170,7 +177,7 @@ interface GroupOptions {
  */
 export function groupByDate(
   events: EventListItem[],
-  { from, to, desc = false, ensure }: GroupOptions = {},
+  { from, to, desc = false, ensure, once = false }: GroupOptions = {},
 ): DateGroup[] {
   const buckets = new Map<string, EventListItem[]>();
 
@@ -193,7 +200,7 @@ export function groupByDate(
     if (to && start > to) continue;
 
     const first = from && start < from ? from : start;
-    const stop = to && end > to ? to : end;
+    const stop = once ? first : to && end > to ? to : end;
 
     for (let day = first; day <= stop; day = toISO(addDays(toDate(day), 1))) {
       const items = buckets.get(day);
@@ -211,6 +218,12 @@ export function groupByDate(
 }
 
 export const startOfMonth = (d: Date) => new Date(d.getFullYear(), d.getMonth(), 1);
+
+/** 그 달의 1일과 말일 (YYYY-MM-DD). 그리드 42칸과 달리 앞뒤 달이 섞이지 않는다 */
+export const monthSpan = (d: Date): [string, string] => [
+  toISO(startOfMonth(d)),
+  toISO(new Date(d.getFullYear(), d.getMonth() + 1, 0)),
+];
 
 /** 달을 n칸 옮긴 그 달 1일. 31일 → 다음 달 계산이 밀리지 않는다 */
 export const shiftMonth = (d: Date, n: number) =>

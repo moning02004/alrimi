@@ -9,6 +9,7 @@ import {
     groupByDate,
     monthGridDays,
     monthLabel,
+    monthSpan,
     rangeLabel,
     shiftMonth,
     startOfDay,
@@ -18,6 +19,7 @@ import {
 import {CalendarHeader} from "@/components/CalendarHeader";
 import {MonthGrid} from "@/components/MonthGrid";
 import {DayPanel} from "@/components/DayPanel";
+import {MonthList} from "@/components/MonthList";
 import {EventDetail} from "@/components/EventDetail";
 import {EventGroups} from "@/components/EventGroups";
 import {ErrorBlock, LoadingBlock} from "@/components/Loading";
@@ -53,6 +55,14 @@ function Home() {
     useDoubleBackToExit();
 
     const [expanded, setExpanded] = useState(false);
+    /**
+     * 보고 있는 달의 일정을 전부 적은 창.
+     *
+     * 달력은 "있다" 만 말하고 하루 보기는 한 날만 보여서, 그 달에 무엇이 있는지 훑으려면
+     * 날짜를 하나씩 눌러봐야 했다. 달력 아래에 펼치지 않고 창으로 띄우는 것은, 일정이
+     * 많은 달에 달력이 화면 절반을 차지한 채로는 훑을 자리가 모자라서다.
+     */
+    const [monthListOpen, setMonthListOpen] = useState(false);
     /** 붙박이로 서는 두 조각. 높이를 재서 아래가 비켜설 거리로 내보낸다 */
     const headerRef = useRef<HTMLElement>(null);
     const rangeRowRef = useRef<HTMLDivElement>(null);
@@ -257,6 +267,23 @@ function Home() {
         router.replace(pageUrl.event(openEventId));
     }, [isDesktop, openEventId, router]);
 
+    const [monthFrom, monthTo] = monthSpan(anchor);
+    const monthList = (
+        <MonthList
+            open={monthListOpen}
+            onOpenChange={setMonthListOpen}
+            title={`${monthLabel(anchor)} 일정`}
+            from={monthFrom}
+            to={monthTo}
+            scope={scope}
+            selected={selectedDate}
+            onPick={(iso) => {
+                setMonthListOpen(false);
+                pickDay(iso);
+            }}
+        />
+    );
+
     // ── PC: 왼쪽 달력, 오른쪽 그 하루 ────────────────────────────────
     if (isDesktop) {
         return (
@@ -332,10 +359,13 @@ function Home() {
                                 onRetry={() => day.refetch()}
                                 onSelect={setOpenEventId}
                                 size="lg"
+                                onShowMonth={() => setMonthListOpen(true)}
                             />
                         )}
                     </div>
                 </section>
+
+                {monthList}
             </div>
         );
     }
@@ -377,6 +407,7 @@ function Home() {
                         isLoading={day.isLoading}
                         isError={day.isError}
                         onRetry={() => day.refetch()}
+                        onShowMonth={() => setMonthListOpen(true)}
                     />
                 ) : (
                     <>
@@ -444,6 +475,7 @@ function Home() {
                 )}
             </main>
 
+            {monthList}
         </>
     );
 }

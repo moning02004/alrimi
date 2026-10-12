@@ -84,8 +84,11 @@ function fitToKeyboard(vv: VisualViewport, sheet: HTMLElement) {
  *
  * 안에 들어가는 내용은 시트와 **같다** — 부르는 쪽은 `BottomSheet` 하나만 쓰고, 어디서 열릴지는
  * 화면 폭이 정한다.
+ *
+ * 폰에서도 가운데 창이어야 하는 것만 이것을 직접 쓴다(`MonthList`) — 적는 폼이 아니라 훑어보는
+ * 목록이라, 엄지 밑에서 올라올 까닭이 없고 화면을 넉넉히 덮는 편이 낫다.
  */
-function CenteredDialog({
+export function CenteredDialog({
   open,
   onOpenChange,
   title,
@@ -115,7 +118,7 @@ function CenteredDialog({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 lg:p-6">
       <div
         aria-hidden="true"
         onClick={() => onOpenChange(false)}
@@ -149,7 +152,8 @@ function CenteredDialog({
           {description ?? title}
         </p>
         {/* `min-h-0` 이 있어야 이 칸이 창보다 작아져서 안에서 스크롤된다 */}
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">{children}</div>
+        {/* 끝까지 굴린 뒤에 뒤의 화면이 따라 구르지 않게 여기서 끊는다 */}
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-4">{children}</div>
       </div>
     </div>
   );
