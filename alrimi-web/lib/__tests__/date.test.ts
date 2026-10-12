@@ -6,6 +6,7 @@ import {
   groupByDate,
   hourLabel,
   monthGridDays,
+  monthSpan,
   rangeLabel,
   spanDays,
   spanLabel,
@@ -300,5 +301,28 @@ describe("groupByDate — ensure 는 비어 있어도 그 날 칸을 만든다",
     const groups = groupByDate([], { from: "2026-09-25", to: "2026-09-27", ensure: "2026-09-25" });
     expect(groups.map((g) => g.iso)).toEqual(["2026-09-25"]);
     expect(groups.every((g) => g.items.length === 0)).toBe(true);
+  });
+});
+
+describe("groupByDate — once 는 며칠짜리도 한 번만 넣는다", () => {
+  it("시작하는 날에만 들어간다", () => {
+    const groups = groupByDate([event(1, "2026-09-25", "2026-09-27")], { once: true });
+    expect(groups.map((g) => g.iso)).toEqual(["2026-09-25"]);
+  });
+
+  it("창보다 앞에서 시작했으면 창 첫날에 들어간다", () => {
+    const groups = groupByDate([event(1, "2026-08-30", "2026-09-02")], {
+      from: "2026-09-01",
+      to: "2026-09-30",
+      once: true,
+    });
+    expect(groups.map((g) => g.iso)).toEqual(["2026-09-01"]);
+  });
+});
+
+describe("monthSpan — 그 달의 1일과 말일", () => {
+  it("말일은 달마다 다르다", () => {
+    expect(monthSpan(d("2026-02-14"))).toEqual(["2026-02-01", "2026-02-28"]);
+    expect(monthSpan(d("2026-12-31"))).toEqual(["2026-12-01", "2026-12-31"]);
   });
 });
