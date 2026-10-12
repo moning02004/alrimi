@@ -9,8 +9,8 @@
   "scope": "/",
   "display": "standalone",
   "display_override": ["standalone", "minimal-ui"],
-  "background_color": "#F2F4F3",
-  "theme_color": "#2F7A63",
+  "background_color": "#F2F4F6",
+  "theme_color": "#05805B",
   "categories": ["productivity", "lifestyle"],
   "prefer_related_applications": false,
   "launch_handler": {
