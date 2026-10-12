@@ -963,6 +963,10 @@ class CancelTests(ApiTestCase):
             zone=self.zone, event_date=self.today, title="소아과 진료"
         )
         self.event.sync_alerts(["D 07:00"])
+        self.make_due()
+
+    def make_due(self):
+        """예약을 방금 나갈 때가 된 것으로 둔다 (발송 창은 지난 6시간이다)."""
         EventAlert.objects.filter(event=self.event).update(
             due_at=timezone.now() - dt.timedelta(hours=1)
         )
@@ -1020,6 +1024,10 @@ class CancelTests(ApiTestCase):
         self.assertEqual(self.event.alerts.count(), 1)
 
         self.cancel(False)
+        # 고칠 때마다 발송 시각이 코드대로 다시 잡힌다(오늘 07:00). 그대로 두면 이 테스트는
+        # 오후 1시가 지나서 돌릴 때 발송 창(6시간)을 벗어나 깨진다 — 보려는 것은 시각이
+        # 아니라 "취소를 풀면 다시 나간다" 이므로 때가 된 것으로 되돌려 놓고 센다.
+        self.make_due()
         self.assertEqual(due_alerts().count(), 1)
 
     @override_settings(N8N_API_KEY="k")
