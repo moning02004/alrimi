@@ -77,7 +77,7 @@ function HeldCard({ event }: { event: EventListItem }) {
         만들 이유가 없다. 상세(수정·삭제)는 제목을 눌러 들어간다.
       */}
       <div
-        className="flex items-center gap-3 rounded-xl border border-line bg-card py-2.5 pl-3 pr-2.5
+        className="flex items-center gap-3 rounded-2xl bg-card shadow-card py-2.5 pl-3 pr-2.5
                    transition-colors hover:border-muted/40"
       >
 

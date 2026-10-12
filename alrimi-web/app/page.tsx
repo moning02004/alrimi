@@ -60,7 +60,7 @@ export default function IntroPage() {
 
       <div className="mx-auto w-full max-w-2xl px-5">
         <Section title="이렇게 씁니다">
-          <ol className="divide-y divide-line rounded-2xl border border-line bg-card">
+          <ol className="divide-y divide-line rounded-2xl bg-card shadow-card">
             <Step n={1} title="공간을 만듭니다">
               어린이집, 우리집, 회사. 섞이면 아침에 훑기 어려우니 처음부터 나눠둡니다. 공간마다
               색이 따로 정해져서 목록에서 한눈에 갈립니다.
@@ -77,7 +77,7 @@ export default function IntroPage() {
         </Section>
 
         <Section title="가족과 함께 봅니다">
-          <div className="rounded-2xl border border-line bg-card p-5">
+          <div className="rounded-2xl bg-card shadow-card p-5">
             <div className="flex items-start gap-3">
               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-pinelt text-pine">
                 <LuUsers className="h-[18px] w-[18px]" aria-hidden="true" />
@@ -123,7 +123,7 @@ export default function IntroPage() {
         </Section>
 
         <Section title="앱처럼 설치해서 써보세요">
-          <div className="rounded-2xl border border-line bg-card p-5 text-sm leading-relaxed text-muted">
+          <div className="rounded-2xl bg-card shadow-card p-5 text-sm leading-relaxed text-muted">
             모바일 브라우저 메뉴(⋮)에서 <strong className="font-medium text-ink">홈 화면에 추가</strong>
             를 고르면 주소창 없이 열립니다. 아이폰은 사파리의 공유 버튼에서 같은 항목을 고르면
             되고, 그렇게 추가해야 알림도 받을 수 있어요.
@@ -193,7 +193,7 @@ function Feature({
   children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-xl border border-line bg-card p-4">
+    <div className="rounded-2xl bg-card shadow-card p-4">
       <p className="flex items-center gap-2 text-sm font-medium">
         <Icon className="h-4 w-4 shrink-0 text-pine" aria-hidden="true" />
         {title}

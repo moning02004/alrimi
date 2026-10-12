@@ -91,7 +91,7 @@ export default function PrivacyPage() {
           곳으로 넘기지 않습니다. 보안 사고 조사나 법령상 의무, 이용자가 요청한 경우를 빼면
           사람이 그 내용을 들여다보지 않습니다.
         </p>
-        <p className="rounded-xl border border-line bg-card px-4 py-3 text-sm">
+        <p className="rounded-2xl bg-card shadow-card px-4 py-3 text-sm">
           일정 알리미가 Google API로부터 받은 정보를 사용하고 다른 앱으로 전송하는 것은 제한된
           사용(Limited Use) 요건을 포함한{" "}
           <a
@@ -223,7 +223,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 /** 항목 이름과 설명. 표 대신 목록이다 — 폰 폭에서 두 칸짜리 표는 설명이 한 줄에 몇 글자씩 꺾인다 */
 function Items({ rows }: { rows: [string, string][] }) {
   return (
-    <dl className="divide-y divide-line rounded-xl border border-line bg-card">
+    <dl className="divide-y divide-line rounded-2xl bg-card shadow-card">
       {rows.map(([name, detail]) => (
         <div key={name} className="px-4 py-3 sm:flex sm:gap-4">
           <dt className="shrink-0 font-medium sm:w-36">{name}</dt>

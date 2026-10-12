@@ -46,7 +46,7 @@ export function MarkStyleSheet({ style, onClose }: { style: MarkStyle | null; on
       title={style ? `${style.label} 색` : "색"}
     >
       <div className="pb-2">
-        <div className="divide-y divide-line overflow-hidden rounded-2xl border border-line bg-card">
+        <div className="divide-y divide-line overflow-hidden rounded-2xl bg-card shadow-card">
           {(palette.data ?? []).map((swatch) => {
             const on = swatch.color === style?.color;
 

@@ -37,7 +37,7 @@ export function TabBar() {
       아래 여백은 홈 인디케이터 높이와 12px 중 큰 쪽이다. 안전영역만 두면 인디케이터가
       없는 기기에서 아이콘이 바닥에 붙고, 12px 만 두면 아이폰에서 스와이프 자리에 물린다.
     */
-    <div className="mt-auto flex flex-row justify-between border-t border-line bg-card pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:hidden">
+    <div className="relative z-10 mt-auto flex flex-row items-center justify-between bg-card/95 px-1 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-float backdrop-blur md:hidden">
       <Tab
         href={pageUrl.home}
         label="홈"
@@ -57,8 +57,8 @@ export function TabBar() {
         <button
           onClick={() => openAdd()}
           aria-label="일정 등록"
-          className="mx-auto flex h-11 w-11 items-center justify-center rounded-full
-                     bg-pine text-white active:bg-pine/90"
+          className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-pine
+                     text-white shadow-lg shadow-pine/30 transition-transform active:scale-95"
         >
           <HiPlus className="h-6 w-6" aria-hidden="true" />
         </button>
@@ -66,7 +66,7 @@ export function TabBar() {
 
       <Tab
         href={pageUrl.past}
-        label="지난 일정/보류"
+        label="기록"
         active={pathname.startsWith(pageUrl.past)}
         On={HiClock}
         Off={HiOutlineClock}
@@ -83,9 +83,9 @@ export function TabBar() {
 }
 
 /**
- * 글씨 대신 아이콘 하나만 둔다. 이름은 `aria-label` 로만 남기므로 눈으로는
- * 읽히지 않는다 — 지금 어디인지는 색과 채움이 말한다. 색만으로 나누면 색약에서
- * 두 칸이 같아 보이므로, 선 그림(Off)과 꽉 찬 그림(On)으로 모양까지 다르게 둔다.
+ * 아이콘 아래에 이름을 작게 적는다. 아이콘만으로는 시계가 "지난 일정" 인 줄 눌러봐야
+ * 알았다. 지금 어디인지는 색과 채움이 말한다 — 색만으로 나누면 색약에서 두 칸이 같아
+ * 보이므로, 선 그림(Off)과 꽉 찬 그림(On)으로 모양까지 다르게 둔다.
  */
 function Tab({
   href,
@@ -105,11 +105,13 @@ function Tab({
   return (
     <Link
       href={href}
-      aria-label={label}
       aria-current={active ? "page" : undefined}
-      className="flex flex-1 items-center justify-center self-stretch"
+      className={`flex flex-1 flex-col items-center justify-center gap-0.5 self-stretch py-1 ${
+        active ? "text-ink" : "text-muted/70"
+      }`}
     >
-      <Icon className={`h-6 w-6 ${active ? "text-pine" : "text-muted"}`} aria-hidden="true" />
+      <Icon className="h-6 w-6" aria-hidden="true" />
+      <span className={`text-[10px] leading-none ${active ? "font-semibold" : "font-medium"}`}>{label}</span>
     </Link>
   );
 }

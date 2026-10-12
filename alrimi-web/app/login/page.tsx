@@ -62,7 +62,7 @@ export default function LoginPage() {
   };
 
   const inputCls =
-    "w-full rounded-xl border border-line bg-paper px-3.5 py-3 text-base " +
+    "w-full rounded-2xl border border-transparent bg-paper px-4 py-3.5 text-base " +
     "placeholder:text-muted/50 focus:border-pine focus:bg-card focus:outline-none";
 
   return (
@@ -79,7 +79,7 @@ export default function LoginPage() {
         <div className="mb-6 flex items-center gap-3">
           <Logo size={44} />
           <div>
-            <p className="text-xl font-semibold tracking-tight">일정 알리미</p>
+            <p className="text-2xl font-bold tracking-tight">일정 알리미</p>
             <p className="mt-0.5 text-sm text-muted">적어두면 때맞춰 알려드려요</p>
           </div>
         </div>
@@ -89,7 +89,7 @@ export default function LoginPage() {
           들어와 있던 사람에게는 색이 두 번 바뀌고(바탕 → 로딩 → 홈), 로그인해야 하는
           사람에게는 폼이 한 박자 늦게 튀어나온 것처럼 보인다. 갈아끼우는 것은 카드 속뿐이다.
         */}
-        <div className="rounded-2xl border border-line bg-card p-5 shadow-sm">
+        <div className="rounded-2xl bg-card shadow-card p-6">
           {!ready || authenticated ? (
             <Checking />
           ) : (
@@ -116,7 +116,7 @@ export default function LoginPage() {
           <button
             onClick={submit}
             disabled={loading}
-            className="mt-3.5 w-full rounded-xl bg-pine py-3.5 text-base font-medium text-white
+            className="mt-3.5 w-full rounded-2xl bg-pine py-4 text-base font-semibold text-white
                        transition-colors hover:bg-pine/90 disabled:opacity-60"
           >
             {loading ? "로그인 중" : "로그인"}

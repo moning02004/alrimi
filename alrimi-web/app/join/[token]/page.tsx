@@ -77,7 +77,7 @@ export default function JoinPage({ params }: { params: Promise<{ token: string }
           </div>
         </div>
 
-        <div className="rounded-2xl border border-line bg-card p-5 shadow-sm">
+        <div className="rounded-2xl bg-card shadow-card p-6">
           {greeting === undefined && <Waiting />}
           {greeting === null && <Expired />}
           {greeting && (
@@ -129,7 +129,7 @@ export default function JoinPage({ params }: { params: Promise<{ token: string }
               <button
                 onClick={submit}
                 disabled={saving}
-                className="mt-3 w-full rounded-xl bg-pine py-3.5 text-base font-medium text-white
+                className="mt-3 w-full rounded-2xl bg-pine py-4 text-base font-semibold text-white
                            disabled:opacity-60"
               >
                 {saving ? "시작하는 중" : "시작하기"}

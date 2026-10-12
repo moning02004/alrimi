@@ -45,7 +45,7 @@ function SharedZone({ zone }: { zone: Zone }) {
   const markOf = useZoneMark();
   return (
     <div className="pb-3">
-      <div className="flex items-center gap-3 rounded-xl border border-line bg-card px-3.5 py-3">
+      <div className="flex items-center gap-3 rounded-2xl bg-card shadow-card px-3.5 py-3">
         <ZoneMark mark={markOf(zone.id)?.mark ?? ""} color={zone.color} />
         <div className="min-w-0">
           <p className="truncate text-sm font-medium">{zone.name}</p>
@@ -55,7 +55,7 @@ function SharedZone({ zone }: { zone: Zone }) {
         </div>
       </div>
       {/* 알림은 공간마다, 받는 사람마다 끈다 — 보기는 그대로 두고 소리만 줄이는 자리다 */}
-      <div className="mt-3 rounded-xl border border-line bg-card">
+      <div className="mt-3 rounded-2xl bg-card shadow-card">
         <MuteRow zone={zone} />
       </div>
 
@@ -140,7 +140,7 @@ function Form({ zone, onClose }: { zone: Zone; onClose: () => void }) {
         onKeyDown={(e) => e.key === "Enter" && save()}
         maxLength={40}
         placeholder="어린이집, 우리집, 회사"
-        className="w-full rounded-xl border border-line bg-card px-3.5 py-3 text-base
+        className="w-full rounded-xl border border-transparent bg-ink/5 px-3.5 py-3 text-base
                    placeholder:text-muted/50 focus:border-pine focus:outline-none
                   "
       />
@@ -170,7 +170,7 @@ function Form({ zone, onClose }: { zone: Zone; onClose: () => void }) {
       </div>
 
       {/* 고른 색이 목록에서 어떻게 보이는지 그 자리에서 확인한다 */}
-      <div className="mt-3 flex items-center gap-3 rounded-xl border border-line bg-card py-3 pl-3 pr-4">
+      <div className="mt-3 flex items-center gap-3 rounded-2xl bg-card shadow-card py-3 pl-3 pr-4">
         <span className="h-6 w-[3px] shrink-0 rounded-full" style={{ background: color }} />
         <span className="flex-1 truncate text-sm font-medium">가을 운동회</span>
         <span
@@ -182,7 +182,7 @@ function Form({ zone, onClose }: { zone: Zone; onClose: () => void }) {
       </div>
 
       {/* 누구와 볼지는 설정의 "함께 보는 사람" 에서 한 번 정한다. 여기서는 켜고 끄기만 */}
-      <div className="mt-3 divide-y divide-line rounded-xl border border-line bg-card">
+      <div className="mt-3 divide-y divide-line rounded-2xl bg-card shadow-card">
         <MuteRow zone={zone} />
         <SharedSwitch
           on={shared}
@@ -195,7 +195,7 @@ function Form({ zone, onClose }: { zone: Zone; onClose: () => void }) {
       <button
         onClick={save}
         disabled={busy}
-        className="mt-3 w-full rounded-xl bg-pine py-3.5 text-base font-medium text-white disabled:opacity-60"
+        className="mt-3 w-full rounded-2xl bg-pine py-4 text-base font-semibold text-white disabled:opacity-60"
       >
         {update.isPending ? "저장하는 중" : "저장하기"}
       </button>

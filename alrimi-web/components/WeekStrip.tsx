@@ -83,10 +83,10 @@ export function WeekStrip({ start, events, marks = {}, onJumpTo, jumpFrom }: Pro
 
           return (
             <div key={iso} className="min-w-0 flex-1">
-              <span className={`block text-[11px] ${gone ? "text-muted/50" : "text-muted"}`}>
+              <span className={`block text-[11px] font-medium ${gone ? "text-muted/50" : "text-muted"}`}>
                 {dayName(day)}
               </span>
-              <span className="mt-0.5 flex justify-center">
+              <span className="mt-1 flex justify-center">
                 <span
                   /*
                     특일은 **굵다**(위 `paint`). 색만으로는 안 된다 — 이만한 크기의
@@ -96,7 +96,7 @@ export function WeekStrip({ start, events, marks = {}, onJumpTo, jumpFrom }: Pro
                     지난 날은 특일이어도 같이 흐려진다. 여기서 흐림이 말하는 것은
                     "이미 지났다" 이고, 그 말은 무슨 날이든 그대로 맞다.
                   */
-                  className={`flex h-6 w-6 items-center justify-center rounded-full text-sm ${
+                  className={`flex h-8 w-8 items-center justify-center rounded-full text-[15px] font-medium ${
                     paint?.className ??
                     (gone ? "text-muted/60" : hasItems ? "" : "text-muted/50")
                   }`}

@@ -37,7 +37,7 @@ export function SideNav() {
 
   return (
     <aside
-      className={`hidden shrink-0 flex-col border-r border-line bg-card py-4 transition-[width] md:flex ${
+      className={`hidden shrink-0 flex-col bg-card py-5 shadow-card transition-[width] md:flex ${
         collapsed ? "w-16 px-2" : "w-56 px-3"
       }`}
     >
@@ -55,7 +55,7 @@ export function SideNav() {
       >
         <Logo size={30} />
         {!collapsed && (
-          <span className="whitespace-nowrap text-base font-semibold tracking-tight">
+          <span className="whitespace-nowrap text-[17px] font-bold tracking-tight">
             일정 알리미
           </span>
         )}
@@ -86,16 +86,16 @@ export function SideNav() {
         onClick={() => openAdd()}
         title="일정 등록"
         aria-label={collapsed ? "일정 등록" : undefined}
-        className={`flex w-full items-center justify-center gap-1.5 rounded-xl bg-pine
-                    text-sm font-medium text-white transition-colors hover:bg-pine/90 ${
-                      collapsed ? "h-10" : "py-2.5"
+        className={`flex w-full items-center justify-center gap-1.5 rounded-2xl bg-pine
+                    text-sm font-semibold text-white shadow-lg shadow-pine/25 transition-colors hover:bg-pine/90 ${
+                      collapsed ? "h-11" : "py-3"
                     }`}
       >
         <HiPlus className="h-5 w-5 shrink-0" aria-hidden="true" />
         {!collapsed && "일정 등록"}
       </button>
 
-      <nav className="mt-5 flex flex-col gap-0.5">
+      <nav className="mt-6 flex flex-col gap-1">
         <Item
           href={pageUrl.home}
           label="홈"
@@ -159,9 +159,9 @@ function Item({
          `aria-label` 로 남긴다 */
       title={collapsed ? label : undefined}
       aria-label={collapsed ? label : undefined}
-      className={`flex items-center gap-2.5 rounded-lg py-2 text-sm transition-colors ${
-        collapsed ? "justify-center px-0" : "px-2.5"
-      } ${active ? "bg-pinelt font-medium text-pine" : "text-muted hover:bg-paper hover:text-ink"}`}
+      className={`flex items-center gap-3 rounded-xl py-2.5 text-sm transition-colors ${
+        collapsed ? "justify-center px-0" : "px-3"
+      } ${active ? "bg-paper font-semibold text-ink" : "font-medium text-muted hover:bg-paper hover:text-ink"}`}
     >
       <Icon className="h-5 w-5 shrink-0" aria-hidden="true" />
       {!collapsed && label}

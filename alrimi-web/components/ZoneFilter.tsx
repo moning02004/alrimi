@@ -129,7 +129,7 @@ export function ZoneFilter({ trailing }: { trailing?: React.ReactNode }) {
         type="button"
         role="option"
         aria-selected={on}
-        className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors ${
+        className={`flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm transition-colors ${
           index === active ? "bg-paper" : "hover:bg-paper"
         } ${on ? "text-ink" : "text-muted"}`}
         {...getItemProps({
@@ -178,11 +178,11 @@ export function ZoneFilter({ trailing }: { trailing?: React.ReactNode }) {
           // 공간이 없으면 고를 것도 없다. 그 자리에서 바로 만들게 한다
           onClick={empty ? () => setAdding(true) : undefined}
           // 걸러 둔 동안은 테두리를 진하게 — "지금 전부가 아니다" 가 목록을 읽기 전에 보이게
-          className={`flex min-w-0 flex-1 items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-sm
+          className={`flex h-10 min-w-0 flex-1 items-center gap-1.5 rounded-full px-4 text-sm font-medium
                       transition-colors ${
                         !allOn && !empty
-                          ? "border-ink font-medium text-ink"
-                          : "border-line text-muted hover:border-muted/50"
+                          ? "bg-pinelt text-pine"
+                          : "bg-paper text-ink/70 hover:bg-line"
                       }`}
           {...(empty ? {} : getReferenceProps())}
         >
@@ -209,8 +209,8 @@ export function ZoneFilter({ trailing }: { trailing?: React.ReactNode }) {
             필터 버튼 바로 옆이다. 줄 오른쪽 끝으로 밀면(ml-auto) PC 에서는 필터가 최대 폭에서
             멈추므로 둘 사이가 화면 절반만큼 벌어져, 서로 상관없는 버튼 둘처럼 보인다.
           */
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line
-                     text-muted transition-colors hover:border-pine/50 hover:text-pine"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-paper
+                     text-ink/70 transition-colors hover:bg-line"
         >
           <LuPlus className="h-4 w-4" aria-hidden="true" />
         </button>
@@ -222,8 +222,8 @@ export function ZoneFilter({ trailing }: { trailing?: React.ReactNode }) {
             // eslint-disable-next-line react-hooks/refs
             ref={refs.setFloating}
             style={floatingStyles}
-            className="z-50 overflow-y-auto overscroll-contain rounded-xl border border-line bg-card py-1
-                       shadow-lg shadow-ink/10 outline-none"
+            className="z-50 overflow-y-auto overscroll-contain rounded-2xl bg-card py-1.5
+                       shadow-float outline-none"
             {...getFloatingProps()}
           >
             {items.map(renderRow)}

@@ -64,7 +64,7 @@ function ZonePicker({ event, onDone }: { event: EventForPicker; onDone: () => vo
         <span className="font-medium text-ink">{event.title}</span> 을 어느 공간으로 옮길까요?
       </p>
 
-      <div className="mb-3 divide-y divide-line rounded-2xl border border-line bg-card">
+      <div className="mb-3 divide-y divide-line rounded-2xl bg-card shadow-card">
         {zones.map((zone) => {
           const on = zone.id === event.zone_id;
           const mark = markOf(zone.id);

@@ -74,7 +74,7 @@ export function MonthGrid({
 
   return (
     <div>
-      <div className="grid grid-cols-7 pt-2 text-center text-[11px] text-muted">
+      <div className="grid grid-cols-7 pt-2 text-center text-[11px] font-medium text-muted">
         {DAY_NAMES.map((name, i) => (
           <span key={name} className={`py-1 ${i === 0 ? "text-red-400" : ""}`}>
             {name}
@@ -122,7 +122,7 @@ export function MonthGrid({
                 <span key={iso} className="flex min-w-0 flex-col items-center">
                   <span
                     className={`flex items-center justify-center rounded-full ${
-                      big ? "h-7 w-7 text-[15px]" : "h-6 w-6 text-sm"
+                      big ? "h-8 w-8 text-[15px] font-medium" : "h-7 w-7 text-sm font-medium"
                     } ${
                       /*
                         특일은 **굵다**(위 `paint`). 색만으로는 안 된다 — 이만한

@@ -59,14 +59,14 @@ export function PeoplePicker({
           autoCapitalize="none"
           autoCorrect="off"
           spellCheck={false}
-          className="w-full rounded-xl border border-line bg-card py-2.5 pl-9 pr-3 text-base
+          className="w-full rounded-2xl bg-card shadow-card py-2.5 pl-9 pr-3 text-base
                      placeholder:text-muted/50 focus:border-pine focus:outline-none
                      [&::-webkit-search-cancel-button]:hidden"
         />
       </div>
 
       {term && (
-        <ul className="mt-1.5 divide-y divide-line rounded-xl border border-line bg-card" aria-live="polite">
+        <ul className="mt-1.5 divide-y divide-line rounded-2xl bg-card shadow-card" aria-live="polite">
           {search.isLoading ? (
             <li className="px-3.5 py-2.5 text-sm text-muted">찾는 중</li>
           ) : results.length === 0 ? (

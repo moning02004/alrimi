@@ -8,10 +8,10 @@ import { firstError } from "@/lib/api";
 import type { Me } from "@/types";
 
 const inputCls =
-  "w-full rounded-xl border border-line bg-card px-3.5 py-3 text-base " +
-  "placeholder:text-muted/50 focus:border-pine focus:outline-none";
+  "w-full rounded-xl border border-transparent bg-ink/5 px-3.5 py-3 text-base " +
+  "placeholder:text-muted/50 focus:border-pine focus:bg-card focus:outline-none";
 const submitCls =
-  "my-3 w-full rounded-xl bg-pine py-3.5 text-base font-medium text-white disabled:opacity-60";
+  "my-3 w-full rounded-2xl bg-pine py-4 text-base font-semibold text-white disabled:opacity-60";
 
 export function NameSheet({ me, open, onClose }: { me?: Me; open: boolean; onClose: () => void }) {
   return (

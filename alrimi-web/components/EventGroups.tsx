@@ -26,7 +26,7 @@ export function EventGroups({
             (현충일이면 "공휴일 · 기념일" 둘 다). 가운뎃점으로 가르는 것은
             "오늘 · 9월 14일 월" 과 같은 약속이다.
           */}
-          <p className="px-1 pb-1.5 pt-4 text-xs font-medium text-muted">
+          <p className="px-1 pb-2 pt-5 text-[13px] font-semibold text-ink/70">
             {group.label}
             {(marks[group.iso] ?? []).map((mark) => (
               <span key={mark.kind} style={{ color: mark.color }}>
@@ -50,12 +50,12 @@ export function EventGroups({
               테두리만 점선으로 남긴다 — 실선까지 되면 일정 한 건으로 세어진다.
               점선이 "자리는 있고 알맹이는 없다" 를 말한다.
             */
-            <p className="rounded-xl border border-dashed border-line bg-card px-3 py-3.5
+            <p className="rounded-2xl border border-dashed border-muted/30 bg-card/60 px-4 py-4
                           text-sm text-muted">
               등록된 일정이 없어요
             </p>
           ) : (
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               {group.items.map((event) => (
                 // 며칠에 걸치는 일정은 여러 날 묶음에 같이 들어간다. id 만으로 열쇠를
                 // 잡으면 React 가 같은 카드로 보고 한 장만 그린다.
