@@ -46,6 +46,8 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    # 요청 안에서 구글 연결 여부를 공간마다 한 번만 묻는다(`google_calendar.sync.batch`)
+    "google_calendar.middleware.SyncBatchMiddleware",
 ]
 
 ROOT_URLCONF = "alrimi_api.urls"

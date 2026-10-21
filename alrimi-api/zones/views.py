@@ -1,4 +1,5 @@
-from django.db.models import Count, Q
+from django.db.models import Count, Exists, IntegerField, OuterRef, Subquery
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
@@ -6,6 +7,8 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
+from notices.models import Event
 
 from .models import Sharing, ZoneMute, visible_zones
 from .palette import PALETTE
@@ -18,28 +21,33 @@ def with_counts(queryset, user, today=None):
     """
     upcoming_count 는 'later'까지 포함한 앞으로의 전체 개수다.
     웹이 '이후 일정 N개'를 이 값에서 목록 길이를 빼서 구한다.
+
+    **공간마다 따로 센다(서브쿼리).** 일정과 알림 끄기를 한꺼번에 조인해서 세면 줄이
+    일정 수 × 끈 사람 수로 불어나고, 그것을 다시 DISTINCT 로 접느라 일정이 몇만 건이면
+    목록 하나에 100ms 가 넘게 걸렸다.
     """
     today = today or timezone.localdate()
-    # 보류한 일정은 양쪽 다 세지 않는다. 목록 어디에도 안 나오는 것이 개수에만
-    # 잡히면, 칩의 숫자를 눌러 들어간 사람이 그만큼을 찾지 못한다.
-    scheduled = Q(events__held_at__isnull=True)
+
+    def count(**conditions):
+        # 보류한 일정은 양쪽 다 세지 않는다. 목록 어디에도 안 나오는 것이 개수에만
+        # 잡히면, 칩의 숫자를 눌러 들어간 사람이 그만큼을 찾지 못한다.
+        rows = (
+            Event.objects.filter(zone=OuterRef("pk"), held_at__isnull=True, **conditions)
+            .order_by()
+            .values("zone")
+            .annotate(n=Count("pk"))
+            .values("n")
+        )
+        return Coalesce(Subquery(rows, output_field=IntegerField()), 0)
+
     return queryset.select_related("owner").annotate(
         # 앞으로 남은 할 일. 끝낸 것(완료·취소)은 세지 않는다.
-        upcoming_count=Count(
-            "events",
-            filter=scheduled
-            & Q(
-                events__event_date__gte=today,
-                events__completed_at__isnull=True,
-                events__canceled_at__isnull=True,
-            ),
-            distinct=True,
+        upcoming_count=count(
+            event_date__gte=today, completed_at__isnull=True, canceled_at__isnull=True
         ),
-        past_count=Count(
-            "events", filter=scheduled & Q(events__event_date__lt=today), distinct=True
-        ),
-        # 이 사람이 이 공간의 알림을 꺼뒀나. 0 아니면 1 이다(`ZoneMute` 는 사람마다 한 줄)
-        muted_count=Count("mutes", filter=Q(mutes__user=user), distinct=True),
+        past_count=count(event_date__lt=today),
+        # 이 사람이 이 공간의 알림을 꺼뒀나(`ZoneMute` 는 사람마다 한 줄)
+        muted_count=Exists(ZoneMute.objects.filter(zone=OuterRef("pk"), user=user)),
     )
 
 

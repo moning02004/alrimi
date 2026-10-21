@@ -449,6 +449,8 @@ class EventWriteSerializer(serializers.ModelSerializer):
                 .filter(Q(series_date__gt=cut) | Q(series_date__isnull=True, event_date__gt=cut))
                 .exclude(pk=instance.pk)
                 .order_by("event_date")
+                # 뒤따르는 것마다 알림을 맞춘다(`sync_alerts`). 미리 읽지 않으면 일정마다 한 번씩 읽는다
+                .prefetch_related("alerts")
             )
             if series is not None
             else []

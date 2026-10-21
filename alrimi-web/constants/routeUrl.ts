@@ -51,6 +51,9 @@ export const apiUrl = {
   // 존은 선택 필터일 뿐, 목록의 축은 날짜다
   events: (filter: EventFilter, scope: ZoneScope) =>
     withZone(`/events?filter=${filter}`, scope),
+  // 지난 일정은 100건쯤씩 끊어 온다. 다음 쪽은 받은 것 중 마지막 날을 before 로 준다
+  pastEvents: (before: string | null, scope: ZoneScope) =>
+    withZone(`/events?filter=past${before ? `&before=${before}` : ""}`, scope),
   // 주간 스트립이 그린 기간만. 그 밖은 ‹ › 로 넘겨서 본다
   eventsInRange: (from: string, to: string, scope: ZoneScope) =>
     withZone(`/events?from=${from}&to=${to}`, scope),

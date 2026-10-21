@@ -1,8 +1,9 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { apiUrl, type EventFilter } from "@/constants/routeUrl";
+import { nextPastBefore } from "@/lib/past";
 import type {
   ZoneScope,
   AlertItem,
@@ -18,6 +19,8 @@ import type {
 export const eventKeys = {
   list: (filter: EventFilter, scope: ZoneScope) =>
     ["events", filter, scope] as const,
+  // "past" 와 이름을 달리 둔다. 오프라인 보기가 남겨 둔 옛 모양(배열 하나)이 쪽 묶음 자리에 되살아나면 깨진다
+  past: (scope: ZoneScope) => ["events", "past-pages", scope] as const,
   byDate: (date: string, scope: ZoneScope) => ["events", "date", date, scope] as const,
   range: (from: string, to: string, scope: ZoneScope) =>
     ["events", "range", from, to, scope] as const,
@@ -36,6 +39,19 @@ export function useEvents(filter: EventFilter, scope: ZoneScope, enabled = true)
     queryKey: eventKeys.list(filter, scope),
     queryFn: () => api.get<EventListItem[]>(apiUrl.events(filter, scope)),
     enabled,
+  });
+}
+
+/**
+ * 지난 일정. 쌓이기만 하는 목록이라 최근 것부터 끊어 받는다 — 몇 해치를 통째로 받으면
+ * 응답이 10MB 를 넘고 오프라인 보기 저장소에도 들어가지 않는다.
+ */
+export function usePastEvents(scope: ZoneScope) {
+  return useInfiniteQuery({
+    queryKey: eventKeys.past(scope),
+    queryFn: ({ pageParam }) => api.get<EventListItem[]>(apiUrl.pastEvents(pageParam, scope)),
+    initialPageParam: null as string | null,
+    getNextPageParam: nextPastBefore,
   });
 }
 
