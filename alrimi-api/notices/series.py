@@ -11,11 +11,15 @@ import logging
 
 from django.db import IntegrityError, transaction
 from django.db.models import F, Q
+from django.db.models.signals import post_save
 from django.utils import timezone
 
-from .models import FILL_AHEAD_DAYS, Event, EventSeries
+from .models import FILL_AHEAD_DAYS, Event, EventAlert, EventSeries, due_at_for
 
 logger = logging.getLogger(__name__)
+
+#  몰아 넣을 때 한 INSERT 에 담는 줄 수. 처음 채울 때 수만 줄이 될 수 있다.
+BULK_BATCH = 1000
 
 #  펼친 날의 id. 음수로 (규칙 id, 날짜) 를 한 숫자에 담는다:
 #
@@ -97,19 +101,7 @@ def horizon(today: dt.date | None = None) -> dt.date:
 
 def fill(series: EventSeries, through: dt.date | None = None) -> int:
     """`through`(기본 `horizon`)까지의 날을 실제 일정으로 만든다. 만든 개수를 돌려준다."""
-    through = through or horizon()
-    if series.until is not None:
-        through = min(through, series.until)
-    if through <= series.filled_until:
-        return 0
-
-    made = 0
-    for day in series.dates_between(series.filled_until + dt.timedelta(days=1), through):
-        materialize(series, day)
-        made += 1
-    series.filled_until = through
-    series.save(update_fields=["filled_until"])
-    return made
+    return fill_many([series], through or horizon())
 
 
 def fill_due() -> int:
@@ -121,12 +113,89 @@ def fill_due() -> int:
     pending = EventSeries.objects.filter(filled_until__lt=limit).filter(
         Q(until__isnull=True) | Q(until__gt=F("filled_until"))
     )
-    made = 0
-    for series in pending:
-        made += fill(series, limit)
+    made = fill_many(list(pending), limit)
     if made:
         logger.info("series: filled %d events", made)
     return made
+
+
+def fill_many(series_list: list[EventSeries], through: dt.date) -> int:
+    """
+    규칙 여럿을 `through` 까지 한꺼번에 채운다. 만든 개수를 돌려준다.
+
+    **하루씩 만들지 않는다.** 날마다 `materialize` 를 부르면 일정 하나에 쿼리가 여덟아홉 개라
+    (있나 보기·넣기·알림 읽기·알림 넣기·구글 신호…) 매일 반복 하나를 새로 걸면 60여 일치에
+    500개가 넘게 나갔다. 이미 있는 날을 한 번에 읽고, 일정과 알림을 한 번씩 몰아 넣는다.
+
+    다른 워커가 같은 날을 먼저 만들어 부딪히면(`uniq_event_per_series_date`) 그 규칙들만
+    하루씩 만드는 옛 길로 다시 간다 — 거기서는 이미 있는 날을 건너뛴다.
+    """
+    todo: list[tuple[EventSeries, dt.date]] = []
+    touched: list[EventSeries] = []
+    for series in series_list:
+        last = through if series.until is None else min(through, series.until)
+        if last <= series.filled_until:
+            continue
+        todo += [(series, day) for day in series.dates_between(series.filled_until + dt.timedelta(days=1), last)]
+        series.filled_until = last
+        touched.append(series)
+    if not touched:
+        return 0
+
+    made = 0
+    if todo:
+        existing = set(
+            Event.objects.filter(
+                series_id__in={series.id for series, _ in todo},
+                series_date__gte=min(day for _, day in todo),
+            ).values_list("series_id", "series_date")
+        )
+        todo = [(series, day) for series, day in todo if (series.id, day) not in existing]
+        try:
+            with transaction.atomic():
+                made = _create_days(todo)
+        except IntegrityError:
+            made = 0
+            for series, day in todo:
+                if not Event.objects.filter(series=series, series_date=day).exists():
+                    materialize(series, day)
+                    made += 1
+
+    EventSeries.objects.bulk_update(touched, ["filled_until"])
+    return made
+
+
+def _create_days(todo: list[tuple[EventSeries, dt.date]]) -> int:
+    """규칙이 낼 날들을 일정과 알림으로 몰아 넣는다. `materialize` 를 여럿에 한 번에 한 것이다."""
+    events = Event.objects.bulk_create(
+        [
+            Event(
+                zone_id=series.zone_id,
+                series=series,
+                series_date=day,
+                event_date=day,
+                end_date=day + dt.timedelta(days=series.span_days - 1),
+                title=series.title,
+                content=series.content,
+                event_hour=series.event_hour,
+            )
+            for series, day in todo
+        ],
+        batch_size=BULK_BATCH,
+    )
+    EventAlert.objects.bulk_create(
+        [
+            EventAlert(event=event, code=code, due_at=due_at_for(event.event_date, code))
+            for event in events
+            for code in dict.fromkeys(event.series.alert_codes)
+        ],
+        batch_size=BULK_BATCH,
+    )
+    # bulk_create 는 저장 신호를 울리지 않는다. 구글 캘린더로 옮기는 일이 이 신호에 걸려 있어서
+    # (`google_calendar.signals`) 하나씩 만들던 때와 같게 직접 울린다.
+    for event in events:
+        post_save.send(sender=Event, instance=event, created=True, raw=False, using="default", update_fields=None)
+    return len(events)
 
 
 def virtual_events(series_list, lo: dt.date, hi: dt.date) -> list[Event]:

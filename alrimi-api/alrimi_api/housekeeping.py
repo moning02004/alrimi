@@ -67,9 +67,12 @@ def sweep(now=None) -> None:
 
     # 반복의 가까운 날을 일정으로 채운다(`notices.series`). 치우는 일은 아니지만 하루 한 번이면
     # 되는 일이라 같은 길에 얹는다. 알림 크론도 매시 한 번 더 본다.
+    from google_calendar.sync import batch
     from notices.series import fill_due
 
     try:
-        fill_due()
+        # 요청 밖이라 미들웨어가 감싸주지 않는다. 채우는 일정마다 구글 연결을 다시 묻지 않게
+        with batch():
+            fill_due()
     except Exception:  # noqa: BLE001
         logger.exception("series fill failed")

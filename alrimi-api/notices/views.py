@@ -159,12 +159,17 @@ def parse_range(params, *, require_end: bool = True) -> tuple[dt.date, dt.date |
 #  검색 결과는 여기까지. 이보다 많으면 찾는 말을 더 적는 편이 빠르다.
 SEARCH_LIMIT = 100
 
+#  지난 일정을 한 번에 이만큼쯤 준다(`EventListCreateView.past_page`). 날 하나를 쪼개지 않으므로
+#  조금 넘칠 수 있다. 웹(`usePastEvents`)도 같은 값으로 "더 있나" 를 가른다.
+PAST_PAGE = 100
+
 
 class EventListCreateView(generics.ListCreateAPIView):
     """
     GET  /events?from=&to=&zone={id}          — 임의 기간. 주간 스트립이 쓴다
     GET  /events?date=2026-08-19&zone={id}    — 하루치
     GET  /events?filter=upcoming|later|past|held&zone={id}
+    GET  /events?filter=past&before=2026-08-01 — 지난 일정은 100건쯤씩 끊어 준다(`past_page`)
     GET  /events?q=소풍&zone={id}             — 제목·내용 검색 (최근 날짜부터 100건)
     POST /events                              — 공간은 본문의 zone
 
@@ -279,6 +284,26 @@ class EventListCreateView(generics.ListCreateAPIView):
         )
         return upcoming + past
 
+    def past_page(self, rows):
+        """
+        지난 일정은 **끊어서** 준다. 최근 날부터 `PAST_PAGE` 건쯤, `?before=YYYY-MM-DD` 를 주면
+        그 날 앞에서부터 다시.
+
+        지난 일정은 쌓이기만 한다. 몇 해 쓰면 수만 건이라 통째로 주면 응답이 10MB 를 넘고,
+        웹이 오프라인 보기로 남겨 두는 저장소(localStorage, 5MB 남짓)에도 들어가지 않는다.
+
+        **날 하나는 쪼개지 않는다.** `PAST_PAGE` 번째 일정이 있는 날의 것까지는 모두 담는다 —
+        한 날이 두 번에 걸쳐 오면 웹이 같은 날 머리글을 두 번 그린다. 그래서 다음 쪽의 기준은
+        받은 것 중 마지막 날이고(웹이 그 날을 `before` 로 보낸다), 더 있으면 받은 것이 언제나
+        `PAST_PAGE` 건 이상이다. 그보다 적게 왔으면 끝이다.
+        """
+        before = self.request.query_params.get("before")
+        if before:
+            rows = rows.filter(event_date__lt=parse_date(before, "before"))
+        # 날짜만 읽어 경계를 잡는다. 일정 본문·알림은 그 뒤에 경계까지만 읽는다
+        boundary = next(iter(rows.values_list("event_date", flat=True)[PAST_PAGE - 1 : PAST_PAGE]), None)
+        return rows if boundary is None else rows.filter(event_date__gte=boundary)
+
     def get_queryset(self):
         params = self.request.query_params
 
@@ -331,6 +356,8 @@ class EventListCreateView(generics.ListCreateAPIView):
             hide_completed=not held,
             held=held,
         )
+        if name == "past":
+            return self.past_page(rows)
         # 앞을 보는 창에만 펼친 날을 섞는다. 지난 날은 이미 다 일정으로 만들어졌고
         # (`series.fill`), 보류함에는 규칙이 낼 날이 없다.
         if name == "upcoming":

@@ -322,7 +322,8 @@ class Event(models.Model):
     같은 일을 두고 알림이 며칠 내리 오면 어느 것이 진짜인지 알 수 없다.
     """
 
-    zone = models.ForeignKey(Zone, on_delete=models.CASCADE, related_name="events")
+    # 공간 하나만 짚는 인덱스는 따로 두지 않는다. 아래 (공간, 날짜) 인덱스들이 앞자리로 대신한다
+    zone = models.ForeignKey(Zone, on_delete=models.CASCADE, related_name="events", db_index=False)
     series = models.ForeignKey(
         EventSeries,
         null=True,
@@ -413,8 +414,13 @@ class Event(models.Model):
         # — 달력들이 쓰는 관례이고, "오전 중" 같은 일이 몇 시 일보다 먼저 눈에 든다.
         ordering = ["event_date", models.F("event_hour").asc(nulls_first=True), "id"]
         indexes = [
+            # 지난 일정을 최근 것부터 끊어 읽는다(`filter=past`)
             models.Index(fields=["zone", "event_date"]),
-            # 겹침 조회가 event_date <= 창끝 AND end_date >= 창시작 이라 뒤쪽도 짚어야 한다
+            # 다가올·하루·한 주·달력은 모두 "end_date >= 창 시작" 으로 겹침을 본다. 쌓이는 것은
+            # 지난 일정이라, 끝나는 날로 짚어야 몇 해치 기록을 건너뛰고 앞쪽만 읽는다.
+            # (공간, 시작일) 로는 시작일 <= 창 끝 이 지난 것 전부를 담는다.
+            models.Index(fields=["zone", "end_date"], name="event_zone_end_idx"),
+            # 공간을 가리지 않는 겹침 조회(주간 정리)가 쓴다
             models.Index(fields=["end_date"]),
         ]
         constraints = [
@@ -548,7 +554,8 @@ class EventAlert(models.Model):
         SENT = "sent", "발송됨"
         FAILED = "fail", "발송 실패"
 
-    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name="alerts")
+    # 일정 하나만 짚는 인덱스는 따로 두지 않는다. (일정, 코드) 유일 제약이 앞자리로 대신한다
+    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name="alerts", db_index=False)
     code = models.CharField(max_length=16, help_text=CODE_HELP)
     due_at = models.DateTimeField()
     # 실제로 나간 시각. 상세 화면이 "07:00 발송"을 이 값으로 적는다.
@@ -563,7 +570,13 @@ class EventAlert(models.Model):
         constraints = [
             models.UniqueConstraint(fields=["event", "code"], name="uniq_alert_code_per_event"),
         ]
-        indexes = [models.Index(fields=["sent_at", "due_at"])]
+        indexes = [
+            # 매시 크론이 "아직 안 나간 것 중 지난 6시간" 을 찾는다(`views.due_alerts`). 나간 것은
+            # 쌓이기만 하므로 인덱스에서 빼 둔다 — 그래야 인덱스가 기다리는 예약 수만큼만 크다.
+            models.Index(
+                fields=["due_at"], condition=~models.Q(status="sent"), name="alert_pending_due_idx"
+            ),
+        ]
 
     def __str__(self) -> str:
         return f"{self.event_id} {self.code} {self.due_at.strftime('%Y-%m-%d %H:%M')}"

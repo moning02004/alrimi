@@ -28,6 +28,8 @@
 import datetime as dt
 import logging
 import threading
+from contextlib import contextmanager
+from contextvars import ContextVar
 
 from django.conf import settings
 from django.db import close_old_connections, connection, transaction
@@ -102,6 +104,61 @@ def linked(user_id: int) -> bool:
     if not client.configured():
         return False
     return GoogleCalendarLink.objects.filter(user_id=user_id, broken_at__isnull=True).exists()
+
+
+#  `batch()` 안에서 쓰는 자리: 구글에 이은 공간 → 그 주인. 처음 물을 때 한 번에 채운다.
+#  밖에서는 None 이라 매번 묻는다.
+_linked_zones: ContextVar[dict[int, int] | None] = ContextVar("linked_zones", default=None)
+_UNLOADED: dict[int, int] = {}
+
+
+def _linked_query(**filters):
+    return GoogleCalendarLink.objects.filter(broken_at__isnull=True, user__zones__isnull=False, **filters)
+
+
+def linked_owner(zone_id: int) -> int | None:
+    """
+    이 공간의 일정을 구글로 보내야 하면 그 주인 id, 아니면 None. 일정 신호가 쓴다.
+
+    공간을 따로 읽지 않고 쿼리 하나로 묻는다 — 신호가 `instance.zone` 을 건드리면
+    일정마다 공간을 한 번 더 읽는다.
+    """
+    if not client.configured():
+        return None
+    memo = _linked_zones.get()
+    if memo is None:
+        return _linked_query(user__zones=zone_id).values_list("user_id", flat=True).first()
+    if memo is _UNLOADED:
+        # 구글에 이은 사람은 몇 안 된다. 그 사람들의 공간을 통째로 읽어 두면 일정이
+        # 몇백 건이어도 쿼리는 이 하나다.
+        memo = dict(_linked_query().values_list("user__zones", "user_id"))
+        _linked_zones.set(memo)
+    return memo.get(zone_id)
+
+
+@contextmanager
+def batch():
+    """
+    일정을 여럿 한꺼번에 만들거나 지울 때 감싼다. 안에서는 구글 연결 여부를 한 번만 묻는다.
+
+    300건을 지우면 신호가 300번 울리는데, 그때마다 "이 공간 주인이 구글에 이었나" 를 다시
+    물으면 쿼리가 300개다. 한 요청 안에서 연결이 바뀔 일은 없으니 처음 답을 쓴다. 다만 이
+    안에서 연결을 만들거나 끊었다면 `forget()` 으로 비운다.
+    """
+    if _linked_zones.get() is not None:
+        yield
+        return
+    token = _linked_zones.set(_UNLOADED)
+    try:
+        yield
+    finally:
+        _linked_zones.reset(token)
+
+
+def forget() -> None:
+    """`batch()` 안에서 연결이 바뀌었다. 다음에 물을 때 다시 읽는다."""
+    if _linked_zones.get() is not None:
+        _linked_zones.set(_UNLOADED)
 
 
 def schedule(kind: str, user_id: int, target_pk: int = 0) -> None:

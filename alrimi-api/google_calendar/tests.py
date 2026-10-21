@@ -194,6 +194,46 @@ class EventMirrorTests(GoogleCalendarTestCase):
             event.delete()
         self.assertNotIn(gid, self.remote)
 
+    def test_repeat_days_made_in_bulk_still_land_in_the_calendar(self):
+        """반복의 가까운 날은 몰아 넣는다(bulk_create). 저장 신호가 안 울려도 구글에는 가야 한다."""
+        self.link()
+        with self.captureOnCommitCallbacks(execute=True):
+            res = self.client.post(
+                reverse("event-list"),
+                {"zone": self.zone.id, "event_date": str(self.day), "title": "체육복", "alerts": [],
+                 "repeat": {"freq": "daily", "until": str(self.day + dt.timedelta(days=4))}},
+                content_type="application/json",
+                headers=self.auth(),
+            )
+        self.assertEqual(res.status_code, 201)
+
+        made = Event.objects.filter(series__isnull=False)
+        self.assertEqual(made.count(), 5)
+        self.assertEqual({google_event_id(pk) for pk in made.values_list("pk", flat=True)}, set(self.remote))
+
+    def test_bulk_delete_removes_them_all_asking_about_the_link_once(self):
+        self.link()
+        events = [self.create_event() for _ in range(5)]
+        self.assertEqual(len(self.remote), 5)
+
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        with self.captureOnCommitCallbacks(execute=False) as callbacks, CaptureQueriesContext(connection) as ctx:
+            res = self.client.post(
+                reverse("event-bulk-delete"),
+                {"ids": [e.pk for e in events]},
+                content_type="application/json",
+                headers=self.auth(),
+            )
+        self.assertEqual(res.json(), {"deleted": 5})
+        asked = [q for q in ctx.captured_queries if "google_calendar_googlecalendarlink" in q["sql"]]
+        self.assertEqual(len(asked), 1)
+
+        for callback in callbacks:
+            callback()
+        self.assertEqual(self.remote, {})
+
     def test_deleting_the_zone_removes_its_events(self):
         self.link()
         gid = google_event_id(self.create_event().pk)

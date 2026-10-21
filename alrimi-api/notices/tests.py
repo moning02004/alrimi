@@ -377,6 +377,66 @@ class EventListTests(ApiTestCase):
         self.assertEqual(row["alerts"], {"total": 1, "sent": 0})
 
 
+class PastPageTests(ApiTestCase):
+    """지난 일정은 끊어서 준다. 몇 해치를 통째로 주면 응답이 10MB 를 넘는다."""
+
+    def setUp(self):
+        super().setUp()
+        from .views import PAST_PAGE
+
+        self.page = PAST_PAGE
+        # 날마다 셋씩, 지난 날로 PAST_PAGE 를 넉넉히 넘게
+        self.days = PAST_PAGE // 3 * 2 + 1
+        Event.objects.bulk_create(
+            [
+                Event(
+                    zone=self.zone,
+                    event_date=self.today - dt.timedelta(days=d),
+                    end_date=self.today - dt.timedelta(days=d),
+                    title=f"{d}-{n}",
+                )
+                for d in range(1, self.days + 1)
+                for n in range(3)
+            ]
+        )
+
+    def past(self, before=None):
+        url = f"{reverse('event-list')}?filter=past" + (f"&before={before}" if before else "")
+        res = self.get(url)
+        self.assertEqual(res.status_code, 200)
+        return res.json()
+
+    def test_첫_쪽은_최근_것부터_한_쪽만큼이다(self):
+        rows = self.past()
+
+        self.assertGreaterEqual(len(rows), self.page)
+        self.assertLess(len(rows), self.days * 3)
+        self.assertEqual(rows[0]["event_date"], str(self.today - dt.timedelta(days=1)))
+
+    def test_날_하나는_두_쪽에_걸치지_않는다(self):
+        rows = self.past()
+        last = rows[-1]["event_date"]
+
+        self.assertEqual(sum(1 for row in rows if row["event_date"] == last), 3)
+        self.assertNotIn(last, {row["event_date"] for row in self.past(before=last)})
+
+    def test_before_로_이어_받으면_빠짐도_겹침도_없다(self):
+        seen, before = [], None
+        while True:
+            rows = self.past(before)
+            seen += [row["id"] for row in rows]
+            if len(rows) < self.page:
+                break
+            before = rows[-1]["event_date"]
+
+        self.assertEqual(len(seen), self.days * 3)
+        self.assertEqual(len(set(seen)), len(seen))
+
+    def test_잘못된_before_는_막는다(self):
+        res = self.get(f"{reverse('event-list')}?filter=past&before=어제")
+        self.assertEqual(res.status_code, 400)
+
+
 class CrossZoneListTests(ApiTestCase):
     """목록의 축은 날짜다 — 공간은 좁히는 필터일 뿐."""
 
@@ -2483,6 +2543,57 @@ class RepeatEventTests(ApiTestCase):
         self.assertTrue(all(e.alerts.count() == 1 for e in events))
         self.assertEqual(res.json()["id"], events[0].id)
         self.assertEqual(res.json()["repeat"]["freq"], "weekly")
+
+    def test_매일_반복을_걸어도_쿼리가_날_수만큼_늘지_않는다(self):
+        """
+        가까운 날(60여 일)을 일정으로 만들 때 하루씩 저장하지 않고 몰아 넣는다. 예전에는
+        날마다 쿼리가 여덟아홉 개라 매일 반복 하나에 500개가 넘게 나갔다.
+        """
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        with CaptureQueriesContext(connection) as ctx:
+            res = self.create(repeat={"freq": "daily", "until": None})
+
+        self.assertEqual(res.status_code, 201)
+        self.assertGreater(len(self.series_events()), 60)
+        self.assertLess(len(ctx.captured_queries), 40)
+        # 몰아 넣어도 날마다 알림은 걸린다
+        self.assertEqual(
+            EventAlert.objects.filter(event__series__isnull=False).count(), len(self.series_events())
+        )
+
+    def test_채우다가_다른_워커와_부딪히면_하루씩_다시_만든다(self):
+        """같은 날을 다른 워커가 먼저 만들었다(`uniq_event_per_series_date`). 빠진 날 없이 채운다."""
+        from . import series as series_ops
+
+        res = self.create(repeat={"freq": "daily", "until": None})
+        self.assertEqual(res.status_code, 201)
+        series = Event.objects.get(pk=res.json()["id"]).series
+        made = {e.event_date for e in self.series_events()}
+
+        # 앞의 이틀을 되돌려 두고, 그 중 하루는 "다른 워커가" 몰래 만든 셈 친다
+        last = series.filled_until
+        Event.objects.filter(series=series, series_date__gt=last - dt.timedelta(days=2)).delete()
+        series.filled_until = last - dt.timedelta(days=2)
+        series.save(update_fields=["filled_until"])
+        original = Event.objects.filter
+
+        def stale_filter(*args, **kwargs):
+            # 이미 있는 날을 읽는 쿼리만 비워서, 몰아 넣다가 유일 제약에 걸리게 한다
+            if "series_date__gte" in kwargs and "series_id__in" in kwargs:
+                return Event.objects.none()
+            return original(*args, **kwargs)
+
+        series_ops.materialize(series, last)
+        with (
+            patch.object(Event.objects, "filter", side_effect=stale_filter),
+            patch.object(series_ops, "materialize", wraps=series_ops.materialize) as one_by_one,
+        ):
+            series_ops.fill(series, last)
+
+        self.assertTrue(one_by_one.called)
+        self.assertEqual({e.event_date for e in self.series_events()}, made)
 
     def test_매년_음력_반복(self):
         start = self.start
