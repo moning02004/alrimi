@@ -169,7 +169,8 @@ export function BottomSheet(props: Props) {
   return isDesktop ? <CenteredDialog {...props} /> : <Sheet {...props} />;
 }
 
-function Sheet({ open, onOpenChange, title, description, children }: Props) {
+/** 폭과 상관없이 늘 아래 시트. PC 에서 다른 모양을 따로 그리는 쪽이 쓴다(`Menu`) */
+export function Sheet({ open, onOpenChange, title, description, children }: Props) {
   const sheet = useRef<HTMLDivElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
 
