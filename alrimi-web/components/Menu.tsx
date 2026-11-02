@@ -1,8 +1,22 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
+import {
+  FloatingFocusManager,
+  autoUpdate,
+  flip,
+  offset,
+  shift,
+  useClick,
+  useDismiss,
+  useFloating,
+  useInteractions,
+  useListNavigation,
+  useRole,
+} from "@floating-ui/react";
 import { HiEllipsisVertical } from "react-icons/hi2";
-import { BottomSheet } from "./BottomSheet";
+import { useIsDesktop } from "@/hooks/useMediaQuery";
+import { Sheet } from "./BottomSheet";
 
 export interface MenuItem {
   label: string;
@@ -26,9 +40,14 @@ export interface MenuItem {
  * 들고 쓰는 것이라, 화면 맨 위에서 열리는 목록은 엄지가 닿지 않는 자리에 뜬다.
  * 시트로 올리면 고르는 자리가 손이 있는 아래쪽이고, 과녁도 줄 하나만큼 커진다.
  * 이 앱의 다른 고르기(등록·수정·다시 잡기)가 전부 같은 시트라 여닫는 법도 같다.
+ *
+ * **PC 에서는 버튼 바로 밑에 붙는 작은 목록이다.** 다른 시트처럼 가운데 창으로 띄우면
+ * 줄 두세 개짜리가 화면 한가운데 덩그러니 떠서, 무엇을 눌러 연 것인지 끊긴다. 마우스는
+ * 버튼 자리에 있으니 바로 밑이 가장 가깝다.
  */
 export function Menu({ items, ariaLabel = "더보기" }: { items: MenuItem[]; ariaLabel?: string }) {
   const [open, setOpen] = useState(false);
+  const isDesktop = useIsDesktop();
 
   // 삭제 같은 것은 아래 따로 선다. 한 묶음에 같이 두면 바로 윗칸을 노리다 빗맞는다.
   const safe = items.filter((item) => !item.danger);
@@ -39,14 +58,38 @@ export function Menu({ items, ariaLabel = "더보기" }: { items: MenuItem[]; ar
     item.onSelect();
   };
 
+  // PC 목록. 폰에서는 시트가 여닫기를 맡으므로 꺼둔다
+  const [active, setActive] = useState<number | null>(null);
+  const listRef = useRef<Array<HTMLElement | null>>([]);
+  const { refs, floatingStyles, context } = useFloating({
+    open: isDesktop && open,
+    onOpenChange: setOpen,
+    placement: "bottom-end",
+    strategy: "fixed",
+    whileElementsMounted: autoUpdate,
+    middleware: [offset(6), flip({ padding: 8 }), shift({ padding: 8 })],
+  });
+  const { getReferenceProps, getFloatingProps, getItemProps } = useInteractions([
+    useClick(context, { enabled: isDesktop }),
+    useDismiss(context, { enabled: isDesktop }),
+    useRole(context, { role: "menu", enabled: isDesktop }),
+    useListNavigation(context, {
+      listRef,
+      activeIndex: active,
+      onNavigate: setActive,
+      enabled: isDesktop,
+      loop: true,
+    }),
+  ]);
+
   return (
     <>
       <button
+        ref={refs.setReference}
         type="button"
         aria-label={ariaLabel}
         aria-haspopup="menu"
         aria-expanded={open}
-        onClick={() => setOpen(true)}
         /*
           44px 과녁. 보이는 그림은 20px 이지만 손가락으로 겨냥하는 자리는 그보다
           커야 한다 — 바로 왼쪽이 "뒤로" 라 빗맞으면 화면이 통째로 바뀐다.
@@ -61,22 +104,57 @@ export function Menu({ items, ariaLabel = "더보기" }: { items: MenuItem[]; ar
         */
         className={`-my-3 -mr-2 flex h-11 w-11 items-center justify-center rounded-full
                     transition-colors hover:bg-paper ${open ? "bg-paper text-ink" : "text-muted"}`}
+        {...getReferenceProps(isDesktop ? undefined : { onClick: () => setOpen(true) })}
       >
         <HiEllipsisVertical className="h-5 w-5" aria-hidden="true" />
       </button>
 
-      {/* 제목은 두지 않는다 — 줄 셋이 스스로를 설명하는데 그 위에 "메뉴" 라고 한 줄
-          더 얹으면, 고를 것보다 이름표가 먼저 읽힌다. 낭독기에는 아래 설명이 간다. */}
-      <BottomSheet open={open} onOpenChange={setOpen} description={ariaLabel}>
-        <div className="pb-2">
-          <MenuGroup items={safe} onPick={pick} />
-          {danger.length > 0 && (
-            <div className="mt-2.5">
-              <MenuGroup items={danger} onPick={pick} />
+      {isDesktop ? (
+        open && (
+          <FloatingFocusManager context={context} modal={false}>
+            <div
+              // eslint-disable-next-line react-hooks/refs -- floating-ui 에 붙일 자리를 넘겨줄 뿐이다
+              ref={refs.setFloating}
+              style={floatingStyles}
+              className="z-50 min-w-40 overflow-hidden rounded-xl border border-line bg-card py-1
+                         shadow-lg shadow-ink/10 outline-none"
+              {...getFloatingProps()}
+            >
+              {[...safe, ...danger].map((item, index) => (
+                <button
+                  key={item.label}
+                  ref={(node) => {
+                    listRef.current[index] = node;
+                  }}
+                  type="button"
+                  role="menuitem"
+                  disabled={item.disabled}
+                  className={`block w-full px-3.5 py-2 text-left text-sm transition-colors
+                              disabled:opacity-50 ${index === active ? "bg-paper" : "hover:bg-paper"} ${
+                                item.danger ? "text-red-600" : "text-ink"
+                              } ${item.danger && index === safe.length && index > 0 ? "mt-1 border-t border-line pt-2.5" : ""}`}
+                  {...getItemProps({ onClick: () => pick(item) })}
+                >
+                  {item.label}
+                </button>
+              ))}
             </div>
-          )}
-        </div>
-      </BottomSheet>
+          </FloatingFocusManager>
+        )
+      ) : (
+        /* 제목은 두지 않는다 — 줄 셋이 스스로를 설명하는데 그 위에 "메뉴" 라고 한 줄
+           더 얹으면, 고를 것보다 이름표가 먼저 읽힌다. 낭독기에는 아래 설명이 간다. */
+        <Sheet open={open} onOpenChange={setOpen} description={ariaLabel}>
+          <div className="pb-2">
+            <MenuGroup items={safe} onPick={pick} />
+            {danger.length > 0 && (
+              <div className="mt-2.5">
+                <MenuGroup items={danger} onPick={pick} />
+              </div>
+            )}
+          </div>
+        </Sheet>
+      )}
     </>
   );
 }
