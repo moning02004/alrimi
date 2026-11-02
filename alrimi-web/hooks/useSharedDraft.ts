@@ -9,7 +9,7 @@ import {
   hasDraft,
   type SharedPayload,
 } from "@/lib/share";
-import { useAddSheet } from "@/store/ui";
+import { useOpenAdd } from "@/hooks/useZones";
 
 /**
  * 다른 앱에서 공유로 넘어온 글이 있으면 등록 폼을 채워 연다.
@@ -25,7 +25,7 @@ import { useAddSheet } from "@/store/ui";
  * **꺼내면 바로 지운다.** 남겨두면 다음에 홈에 올 때 또 열린다.
  */
 export function useSharedDraft(enabled: boolean) {
-  const openAdd = useAddSheet((s) => s.openAdd);
+  const openAdd = useOpenAdd();
 
   useEffect(() => {
     if (!enabled || typeof caches === "undefined") return;

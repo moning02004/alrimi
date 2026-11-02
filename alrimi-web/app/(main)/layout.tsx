@@ -10,6 +10,7 @@ import {SideNav} from "@/components/SideNav";
 import {BottomSheet} from "@/components/BottomSheet";
 import {EventForm} from "@/components/EventForm";
 import {ZoneChangeSheet} from "@/components/ZoneChangeSheet";
+import {ZoneCreateSheet} from "@/components/ZoneCreateSheet";
 import {OfflineBanner} from "@/components/OfflineBanner";
 import {useAddSheet} from "@/store/ui";
 
@@ -20,7 +21,8 @@ export default function MainLayout({children}: { children: React.ReactNode }) {
       (같은 질의라 캐시를 나눠 쓴다) 이 자리에서 한 번 부르고 기다린다.
     */
     const {isPending: mePending} = useMe(ready && authenticated);
-    const {open, initialDate, draft, openAdd, closeAdd} = useAddSheet();
+    const {open, initialDate, draft, openAdd, closeAdd, needsZone, continueAdd, cancelZoneFirst} =
+        useAddSheet();
     /*
       다른 앱에서 공유로 넘어온 글이 있으면 등록 폼을 채워 연다.
 
@@ -88,6 +90,17 @@ export default function MainLayout({children}: { children: React.ReactNode }) {
                     onDone={closeAdd}
                 />
             </BottomSheet>
+
+            {/*
+              넣을 공간이 없을 때 등록을 누르면 이것부터 뜬다(`useOpenAdd`). 만들면 곧장
+              위 등록 폼으로 이어진다 — 만든 공간이 기본으로 골라져 있다.
+            */}
+            <ZoneCreateSheet
+                open={needsZone}
+                onClose={cancelZoneFirst}
+                onCreated={continueAdd}
+                intro="일정을 넣을 공간이 먼저 있어야 해요. 공간을 만들면 바로 일정 등록으로 이어져요."
+            />
 
             {/*
               목록 카드의 공간 딱지를 누르면 열린다. 카드마다 달지 않고 여기 하나만

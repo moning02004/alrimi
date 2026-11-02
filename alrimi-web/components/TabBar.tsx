@@ -15,7 +15,7 @@ import {
   HiUser,
 } from "react-icons/hi2";
 import { pageUrl } from "@/constants/routeUrl";
-import { useAddSheet } from "@/store/ui";
+import { useOpenAdd } from "@/hooks/useZones";
 
 /**
  * 등록 버튼을 탭바 가운데에 둔다.
@@ -30,7 +30,7 @@ import { useAddSheet } from "@/store/ui";
  */
 export function TabBar() {
   const pathname = usePathname();
-  const openAdd = useAddSheet((s) => s.openAdd);
+  const openAdd = useOpenAdd();
 
   return (
     /*

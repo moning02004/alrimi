@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { apiUrl } from "@/constants/routeUrl";
 import { useZoneStore } from "@/store/zone";
+import { useAddSheet, type AddDraft } from "@/store/ui";
 import { zoneMarks } from "@/lib/zone";
 import type { UserSummary, Zone, ZoneScope } from "@/types";
 
@@ -65,6 +66,29 @@ export function useZones() {
     hideAll,
     defaultZone,
   };
+}
+
+/**
+ * 등록 폼을 연다. 넣을 공간이 하나도 없으면 "새 공간" 부터 띄우고, 만들면 등록 폼으로
+ * 이어진다(`app/(main)/layout.tsx`).
+ *
+ * 폼을 열고 나서 막으면 다 적은 뒤 저장에서야 헛수고인 걸 안다. "내 정보에서 만들어
+ * 주세요" 라고만 하면 거기까지 찾아가 만들고 다시 돌아와 ＋ 를 눌러야 한다. 공간 목록이
+ * 아직 안 왔을 때는 막지 않는다 — 폼이 목록을 기다렸다가 없으면 그 안에서 같은 말을 한다.
+ */
+export function useOpenAdd() {
+  const openAdd = useAddSheet((s) => s.openAdd);
+  const askZoneFirst = useAddSheet((s) => s.askZoneFirst);
+  const { writableZones, isSuccess } = useZones();
+  const noZone = isSuccess && writableZones.length === 0;
+
+  return useCallback(
+    (initialDate?: string, draft?: AddDraft) => {
+      if (noZone) askZoneFirst(initialDate, draft);
+      else openAdd(initialDate, draft);
+    },
+    [noZone, openAdd, askZoneFirst],
+  );
 }
 
 /**
@@ -171,7 +195,14 @@ export function useCreateZone() {
       shared?: boolean;
       viewersCanEdit?: boolean;
     }) => api.post<Zone>(apiUrl.zones, { name, shared, viewers_can_edit: viewersCanEdit }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["zones"] }),
+    onSuccess: (zone) => {
+      /*
+        다시 받기 전에 목록에 먼저 넣는다. 공간을 만들고 곧장 등록 폼으로 이어질 때
+        (`useOpenAdd`) 목록이 아직 비어 있으면 폼이 "공간이 없어요" 로 잠깐 열린다.
+      */
+      qc.setQueryData<Zone[]>(["zones"], (zones) => [...(zones ?? []), zone]);
+      qc.invalidateQueries({ queryKey: ["zones"] });
+    },
   });
 }
 

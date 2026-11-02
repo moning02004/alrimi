@@ -24,6 +24,14 @@ interface AddSheetState {
   setFocusDate: (focusDate: string | null) => void;
   openAdd: (initialDate?: string, draft?: AddDraft) => void;
   closeAdd: () => void;
+  /**
+   * 넣을 공간이 없어 "새 공간" 을 먼저 띄운 중인가. 공간을 만들면 `continueAdd` 로
+   * 등록 폼이 이어 열린다. 그 사이 날짜·미리 채운 글은 위 두 칸에 그대로 맡아둔다.
+   */
+  needsZone: boolean;
+  askZoneFirst: (initialDate?: string, draft?: AddDraft) => void;
+  continueAdd: () => void;
+  cancelZoneFirst: () => void;
 }
 
 export const useAddSheet = create<AddSheetState>((set, get) => ({
@@ -41,6 +49,18 @@ export const useAddSheet = create<AddSheetState>((set, get) => ({
     set({ open: true, initialDate: initialDate ?? get().focusDate, draft: draft ?? null });
   },
   closeAdd: () => set({ open: false, initialDate: null, draft: null }),
+  needsZone: false,
+  askZoneFirst: (initialDate, draft) => {
+    if (isOffline()) {
+      toast("오프라인이라 지금은 등록할 수 없어요");
+      return;
+    }
+    set({ needsZone: true, initialDate: initialDate ?? get().focusDate, draft: draft ?? null });
+  },
+  continueAdd: () => set({ needsZone: false, open: true }),
+  // 공간을 만들고 이어 열었으면 맡아둔 것을 지우지 않는다
+  cancelZoneFirst: () =>
+    set((s) => (s.needsZone ? { needsZone: false, initialDate: null, draft: null } : {})),
 }));
 
 interface SideNavState {

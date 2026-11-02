@@ -15,7 +15,8 @@ import {
 } from "react-icons/hi2";
 import { Logo } from "./Logo";
 import { pageUrl } from "@/constants/routeUrl";
-import { useAddSheet, useSideNav } from "@/store/ui";
+import { useSideNav } from "@/store/ui";
+import { useOpenAdd } from "@/hooks/useZones";
 
 /**
  * 탭바 대신 쓰는 왼쪽 기둥. `md`(768px)부터 — 태블릿 세로에서도 아래 탭바보다 여기가 낫다.
@@ -31,7 +32,7 @@ import { useAddSheet, useSideNav } from "@/store/ui";
  */
 export function SideNav() {
   const pathname = usePathname();
-  const openAdd = useAddSheet((s) => s.openAdd);
+  const openAdd = useOpenAdd();
   const collapsed = useSideNav((s) => s.collapsed);
   const toggleCollapsed = useSideNav((s) => s.toggleCollapsed);
 
