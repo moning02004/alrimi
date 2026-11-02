@@ -23,13 +23,17 @@ export function ZoneCreateSheet({
   open,
   onClose,
   onCreated,
+  intro,
 }: {
   open: boolean;
   onClose: () => void;
   onCreated?: (zone: Zone) => void;
+  /** 이름 칸 위에 적을 말. 왜 지금 이 창이 떴는지 알려야 할 때 쓴다 */
+  intro?: string;
 }) {
   return (
     <BottomSheet open={open} onOpenChange={(next) => !next && onClose()} title="새 공간">
+      {intro && <p className="px-1 pb-3 text-sm leading-relaxed text-muted">{intro}</p>}
       {/* key 없이도 열 때마다 다시 마운트되므로 빈 칸으로 시작한다 */}
       {open && <Form onClose={onClose} onCreated={onCreated} />}
     </BottomSheet>
@@ -53,8 +57,9 @@ function Form({ onClose, onCreated }: { onClose: () => void; onCreated?: (zone: 
       { name: trimmed, shared, viewersCanEdit: shared && viewersCanEdit },
       {
         onSuccess: (zone) => {
-          onClose();
+          // 이어 여는 쪽이 먼저다. 닫기가 먼저 돌면 이어 열 때 쓸 것을 치워버릴 수 있다
           onCreated?.(zone);
+          onClose();
           toast.success(
             zone.shared ? `${zone.name} 공간을 함께 보기로 만들었어요` : `${zone.name} 공간을 만들었어요`,
           );
